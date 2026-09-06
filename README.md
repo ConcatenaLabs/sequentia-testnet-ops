@@ -42,6 +42,17 @@ nothing then. An edit made on the box by hand shows up in
 `bin/caddy-drift.sh`; commit it here or apply the checkout, so the file the
 repository holds is the file that runs.
 
+## What the proxy answers while levod is down
+
+Caddy answers a 502 or 503 on Levo's paths itself when levod is not there,
+so a restart is not a blank page. A page path gets "Levo is restarting", a
+small HTML page that says nothing about any sale changes while it is down;
+an API path (`/levo/api/*`) gets JSON in the shape levod's own refusals have,
+`{"code": "unavailable", "error": "levod is not answering; try again in a
+minute"}`, so a client reads a code rather than parses a page. Both come from
+the `handle_errors` block in `caddy/Caddyfile`, and Levo's `doc/api.md`
+names the JSON answer in its status table.
+
 ## A new secret
 
 Add the placeholder to the Caddyfile as `{$NAME}`, the name to
