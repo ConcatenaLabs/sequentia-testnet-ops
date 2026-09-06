@@ -1,0 +1,219 @@
+{
+	# Read timeouts, so a client dribbling one byte a minute cannot hold a
+	# backend thread open for ever. Long enough for a slow upload.
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 60s
+		}
+	}
+}
+
+http://sequentiatestnet.com {
+	handle /registry/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+	handle /prices {
+		reverse_proxy 127.0.0.1:8080
+	}
+	# The SeqDEX order-book relay, over plain http for the same reason
+	# /registry and /prices are: the Sequentia node links no TLS library and
+	# follows no redirects, so the https site is unreachable to it and a 301
+	# here reads to it as a relay that is simply not there. This is what lets a
+	# testnet node convert staking rewards with no -seqoburl configured. Same
+	# backend as the https route, which falls through to :8080.
+	handle /seqob/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+	handle {
+		redir https://sequentiatestnet.com{uri} permanent
+	}
+}
+
+# Canonical site
+sequentiatestnet.com {
+
+	# HSTS. A browser that has seen this once will not speak plain http to this
+	# host again for the window below, which closes the gap before the redirect
+	# on a first or intercepted request. It is a BROWSER mechanism and nothing
+	# else honours it, so the plain-http block above -- which the Sequentia node
+	# needs, because the node links no TLS library and follows no redirects --
+	# is untouched: the node ignores this header and keeps its http routes.
+	#
+	# No includeSubDomains: only this host and www exist, and committing a
+	# subdomain nobody has created yet is how a future http-only service breaks
+	# for everyone who has visited here. No preload, which cannot be undone on
+	# our own schedule. To wind this back, serve max-age=0 and leave that up for
+	# at least as long as the window below.
+	header Strict-Transport-Security "max-age=2592000"
+
+	# Blink Fiat v2 regulator audit portal. SIMULATED DATA ONLY: the pages show
+	# settlement records shaped like a regulated entity, so it is kept behind
+	# basic auth and every page carries a simulation banner.
+	handle_path /fiat-portal/* {
+		basic_auth {
+			bcr {$FIAT_PORTAL_HASH}
+		}
+		reverse_proxy 127.0.0.1:8402
+	}
+	redir /fiat-portal /fiat-portal/ permanent
+
+	# The Blink OTC demo APK, behind the same credentials as the portal so the
+	# same one page of instructions covers both.
+	handle_path /app/* {
+		basic_auth {
+			bcr {$FIAT_PORTAL_HASH}
+		}
+		header Content-Disposition "attachment"
+		file_server {
+			root /opt/blink-otc-app
+			browse
+		}
+	}
+
+	# Blink Trident vault co-signer (holds key B). handle_path strips the prefix
+	# so the service receives /xpub, /vaults, /vaults/:id/cosign.
+	# Blink App Store demo backend (Direct Debit + Dice, Spark regtest wallet).
+	handle_path /blink-apps/* {
+		reverse_proxy 127.0.0.1:8390
+	}
+
+	handle_path /vault-cosigner/* {
+		reverse_proxy 127.0.0.1:8380
+	}
+
+	# Pignus: collateralised lending. handle_path strips the prefix, and the
+	# page uses relative API paths, so the redirect to a trailing slash below
+	# is load-bearing rather than cosmetic.
+	redir /lending /lending/ permanent
+	handle_path /lending/* {
+		reverse_proxy 127.0.0.1:8741
+	}
+	# The oracles' published attestations, so anyone can check a liquidation.
+	# Every oracle, not only the primary: an m-of-n seizure is signed by the
+	# others, and the attestation behind it is at that oracle's own
+	# /v1/seizures. One that cannot be reached is one whose seizures nobody
+	# outside can check, which is most of what bounds an oracle's trust.
+	handle_path /pignus-oracle/* {
+		reverse_proxy 127.0.0.1:8740
+	}
+	handle_path /pignus-oracle-2/* {
+		reverse_proxy 127.0.0.1:8742
+	}
+	handle_path /pignus-oracle-3/* {
+		reverse_proxy 127.0.0.1:8743
+	}
+	handle_path /openamp/* {
+		reverse_proxy 127.0.0.1:8722
+	}
+	@aidproof path_regexp aid ^/\.well-known/sequentia-asset-proof-([0-9a-f]{64})$
+	handle @aidproof {
+		header Content-Type text/plain
+		respond "Authorize linking the domain name sequentiatestnet.com to the Sequentia asset {re.aid.1}" 200
+	}
+	handle /seqpal/* {
+		uri strip_prefix /seqpal
+		reverse_proxy 127.0.0.1:8730
+	}
+	redir /levo /levo/ permanent
+	handle_path /levo/* {
+		encode gzip zstd
+		reverse_proxy 127.0.0.1:8099
+	}
+	# While levod is down the proxy answered an empty 502: a blank page with
+	# nothing said. This says something, for Levo's paths and no other.
+	handle_errors 502 503 {
+		@levo path /levo /levo/*
+		handle @levo {
+			header Content-Type "text/html; charset=utf-8"
+			respond <<HTML
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Levo is restarting</title><style>body{margin:0;background:#0e1119;color:#e6e8ef;font:16px/1.6 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}main{max-width:36rem;padding:2rem}h1{font-size:1.5rem;margin:0 0 .5rem}p{color:#b9bccb;margin:.5rem 0}</style></head><body><main><h1>Levo is restarting.</h1><p>The service behind this page is not answering at the moment. Every sale is a covenant on the Sequentia chain, so nothing about any sale changes while this page is down; it is only the page.</p><p>Try again in a minute.</p></main></body></html>
+HTML {err.status_code}
+		}
+	}
+	redir /emissio /emissio/ permanent
+	handle_path /emissio/* {
+		reverse_proxy 127.0.0.1:8095
+	}
+
+	handle_path /seqob-conf/* {
+		reverse_proxy 127.0.0.1:9975
+	}
+	redir /dex /dex/ permanent
+	handle_path /dex/* {
+		root * /srv/seqdex-web
+		header Cache-Control no-cache
+		file_server
+	}
+
+	# SeqLN cross-chain LSP (B5b-2b): HTTP control + two device-signer WS relays.
+	# Placed before the catch-all handle so these specific paths win; everything
+	# else still falls through to the :8080 app (wallet, explorer, bridge, ...).
+	handle_path /lsp/* {
+		reverse_proxy 127.0.0.1:9981
+	}
+	# SBTC bridge peg endpoints (wallet silent peg). Only /pegin + /pegout are exposed; the
+	# bridge token is injected here so the browser never holds it (allocating an address moves no funds).
+	@sbtcpeg path /sbtc/pegin /sbtc/pegout
+	handle @sbtcpeg {
+		uri strip_prefix /sbtc
+		reverse_proxy 127.0.0.1:9987 {
+			header_up Authorization "Bearer {$SBTC_BRIDGE_TOKEN}"
+		}
+	}
+	# seqcj — the CoinJoin coordinator. Public by design: anyone may join a round, and the
+	# service holds no funds and no secret worth gating.
+	handle_path /coinjoin/* {
+		reverse_proxy 127.0.0.1:9973
+	}
+
+	handle /lsp-ws-asset {
+		reverse_proxy 127.0.0.1:18788
+	}
+	handle /lsp-ws-btc {
+		reverse_proxy 127.0.0.1:18789
+	}
+	handle /lsp-ws-node/* {
+		reverse_proxy 127.0.0.1:9981
+	}
+
+	# Wallet is an ES-module SPA: force revalidation so a deploy shows up on reload
+	# (covers nested imports a top-level ?v= query would miss; ETag still gives 304s).
+	# The vendored LWK WASM (pkg/, ~12MB) changes rarely; cache it for an hour so reloads do not
+	# re-fetch/re-validate it every time (the main cause of slow wallet reloads). App JS stays no-cache.
+	@walletpkg path /wallet/pkg/*
+	handle @walletpkg {
+		reverse_proxy 127.0.0.1:8080 {
+			header_down Cache-Control "public, max-age=3600"
+		}
+	}
+	@wallet path /wallet /wallet/*
+	handle @wallet {
+		reverse_proxy 127.0.0.1:8080 {
+			header_down Cache-Control no-cache
+		}
+	}
+
+	# Staking pool board: the static page and its read-only listpools feed, both
+	# from the board service. handle_path strips the prefix, so the service sees
+	# "/" for the page and "/pools.json" for the feed.
+	redir /pools /pools/ permanent
+	handle_path /pools/* {
+		reverse_proxy 127.0.0.1:8091
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+}
+
+# www -> apex (canonical)
+www.sequentiatestnet.com {
+	header Strict-Transport-Security "max-age=2592000"
+	redir https://sequentiatestnet.com{uri} permanent
+}
+
+# old raw-IP http links -> domain
+http://159.195.15.140 {
+	redir https://sequentiatestnet.com{uri} permanent
+}

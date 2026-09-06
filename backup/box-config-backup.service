@@ -1,0 +1,6 @@
+[Unit]
+Description=Copy the box's hand-edited host configuration
+
+[Service]
+Type=oneshot
+ExecStart=/root/sequentia/sequentia-testnet-ops/backup/box-config-backup.sh
