@@ -14,6 +14,9 @@ route is changed.
 - **The file in the repository is the file that runs.** Change it in a branch,
   merge, pull on the box, `bin/apply-caddy.sh`. A hand edit on the box is
   drift, which `bin/caddy-drift.sh` reports; commit it or apply the checkout.
+- **The download page is a release step, not a hand edit.** `downloads/index.html`
+  is the page; a release changes the product's card here and applies it with
+  `bin/apply-downloads.sh`, which checks every linked file exists on the box.
 - **Validate before install.** `apply-caddy.sh` does; a Caddyfile that does not
   validate takes every product down at the next reload.
 

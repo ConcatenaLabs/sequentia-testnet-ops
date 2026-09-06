@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sequentia Downloads</title>
+<link rel="icon" type="image/png" href="sequentia-mark.png">
+<style>
+  :root{ --bg:#0d1014; --panel:#161b22; --line:#262d36; --txt:#e6edf3; --dim:#8b949e; --amber:#f0a500; --amber2:#ffb733; }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#1a212b 0%,var(--bg) 60%);color:var(--txt);
+       font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;min-height:100vh}
+  .wrap{max-width:880px;margin:0 auto;padding:64px 24px 80px}
+  .brand{height:52px;width:auto;display:block}
+  h1{font-size:34px;margin:24px 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--dim);font-size:17px;margin:0 0 8px;max-width:620px}
+  .chain{display:inline-block;margin-top:14px;padding:4px 12px;border:1px solid var(--line);border-radius:999px;
+         color:var(--amber2);font-size:13px;letter-spacing:.04em}
+  .prod{margin:52px 0 0;padding-top:30px;border-top:1px solid var(--line)}
+  .phead{display:flex;align-items:baseline;flex-wrap:wrap;gap:12px}
+  .phead h2{font-size:24px;margin:0;letter-spacing:-.01em}
+  .ver{padding:3px 10px;border:1px solid var(--line);border-radius:999px;color:var(--amber2);
+       font-size:12px;letter-spacing:.04em;white-space:nowrap}
+  .tag{color:var(--dim);font-size:13px}
+  .pdesc{color:var(--dim);font-size:15px;margin:12px 0 0;max-width:680px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:22px 0 0}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px;display:flex;flex-direction:column}
+  .os{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  .card h3{font-size:18px;margin:8px 0 2px;font-weight:600}
+  .card .file{color:var(--dim);font-size:13px;word-break:break-all;margin-bottom:18px}
+  .dl{margin-top:auto;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+      background:linear-gradient(135deg,var(--amber),var(--amber2));color:#1a1200;font-weight:700;
+      text-decoration:none;padding:12px 18px;border-radius:10px;transition:transform .08s ease,filter .15s ease}
+  .dl:hover{filter:brightness(1.06);transform:translateY(-1px)}
+  .feat{display:grid;grid-template-columns:1fr 1fr;gap:12px 28px;margin:22px 0 0}
+  @media(max-width:640px){.feat{grid-template-columns:1fr}}
+  .feat div{padding-left:22px;position:relative;color:var(--dim);font-size:15px}
+  .feat div::before{content:"";position:absolute;left:0;top:9px;width:9px;height:9px;border-radius:2px;
+                    background:var(--amber);transform:rotate(45deg)}
+  .feat b{color:var(--txt);font-weight:600}
+  .install{color:var(--dim);font-size:13px;margin:20px 0 0}
+  .install b{color:var(--txt)}
+  .foot{margin-top:56px;padding-top:22px;border-top:1px solid var(--line);color:var(--dim);font-size:14px;
+        display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+  .foot a{color:var(--amber2);text-decoration:none}
+  .foot .by-logo{height:15px;width:auto;vertical-align:middle;opacity:.9;margin-left:5px}
+  a.inline{color:var(--amber2);text-decoration:none}
+  code{background:#0b0e12;border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:13px;color:#c9d4df}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <img class="brand" src="sequentia-logo.svg" alt="Sequentia" height="52">
+    <h1>Downloads</h1>
+    <p class="sub">Software for the Sequentia testnet, a proof-of-stake sidechain where every block commits to a
+      Bitcoin testnet4 header, addresses are transparent by default, and fees are payable in any accepted asset.</p>
+    <span class="chain">testnet · coins and assets have no value</span>
+
+    <!-- ─────────────────────────  Sequentia Core  ───────────────────────── -->
+    <section class="prod">
+      <div class="phead">
+        <h2>Sequentia Core</h2>
+        <span class="ver" data-ver="node">version 24.7.8</span>
+      </div>
+      <p class="pdesc">The full node and its desktop wallet. It validates the chain for itself rather than trusting
+        a server, and it is the software a block producer runs.</p>
+      <div class="grid">
+        <div class="card">
+          <div class="os">Linux · x86-64</div>
+          <h3>Node + desktop wallet</h3>
+          <div class="file">sequentia-core-24.7.8-linux-x86_64.tar.gz</div>
+          <a class="dl" href="sequentia-core-24.7.8-linux-x86_64.tar.gz" download>↓ Download for Linux</a>
+        </div>
+        <div class="card">
+          <div class="os">Windows · 64-bit</div>
+          <h3>Node + desktop wallet</h3>
+          <div class="file">sequentia-core-24.7.8-win64-setup.exe</div>
+          <a class="dl" href="sequentia-core-24.7.8-win64-setup.exe" download>↓ Download for Windows</a>
+        </div>
+      </div>
+      <div class="feat">
+        <div><b>Wallet</b>: send, receive and issue assets; tSEQ is one asset among them.</div>
+        <div><b>Staking tab</b>: committee schedule, stake weights and staking-output tools.</div>
+        <div><b>Anchor watching</b>: follows Bitcoin testnet4 and reorgs when it does.</div>
+        <div><b>Any-asset fees</b>: pay a fee in whichever asset a producer accepts.</div>
+      </div>
+      <p class="install"><b>Install</b> · Linux: extract the tarball and run <code>bin/sequentia-qt</code>.
+        Windows: run the installer, then launch <b>Sequentia Core</b>. It connects to the testnet on its own.</p>
+    </section>
+
+    <!-- ─────────────────────────────  Fulmen  ───────────────────────────── -->
+    <section class="prod">
+      <div class="phead">
+        <h2>Fulmen ⚡</h2>
+        <span class="ver" data-ver="fulmen">version 0.2.0</span>
+        <span class="tag">testnet preview</span>
+      </div>
+      <p class="pdesc">A desktop wallet for <b>SeqLN</b>, the Sequentia Lightning Network, with a full SeqLN node
+        bundled in. Point it at a Sequentia node's RPC on first run and it starts Lightning against it; add a
+        Bitcoin node and it runs Lightning on testnet4 as well.</p>
+      <div class="grid">
+        <div class="card">
+          <div class="os">Linux · x86-64</div>
+          <h3>SeqLN node + desktop GUI</h3>
+          <div class="file">Fulmen-0.2.0-linux-x86_64.AppImage</div>
+          <a class="dl" href="Fulmen-0.2.0-linux-x86_64.AppImage" download>↓ Download for Linux</a>
+        </div>
+        <div class="card">
+          <div class="os">Windows · 64-bit</div>
+          <h3>SeqLN node + desktop GUI</h3>
+          <div class="file">Fulmen-Setup-0.2.0.exe</div>
+          <a class="dl" href="Fulmen-Setup-0.2.0.exe" download>↓ Download for Windows</a>
+          <div style="margin-top:8px;font-size:12px"><a href="Fulmen-0.2.0-win64.zip" download style="color:var(--dim)">portable zip instead</a></div>
+        </div>
+      </div>
+      <div class="feat">
+        <div><b>Asset channels</b>: Lightning channels denominated in issued assets, not only BTC.</div>
+        <div><b>Any-asset payments</b>: <code>pay asset=</code> chooses what a payment moves.</div>
+        <div><b>Per-asset balances</b>: channel liquidity broken out by asset.</div>
+        <div><b>Windows</b>: the node runs inside WSL2, installed on demand.</div>
+      </div>
+      <p class="install"><b>Install</b> · Linux: make the <code>.AppImage</code> executable and run it.
+        Windows: run the installer (one click, for your user account), or take the portable zip and run
+        <code>Fulmen.exe</code>.</p>
+    </section>
+
+    <!-- ────────────────────────────  Seqognito  ─────────────────────────── -->
+    <section class="prod">
+      <div class="phead">
+        <h2>Seqognito 🕶</h2>
+        <span class="ver" data-ver="seqognito">version 0.1.0</span>
+        <span class="tag">testnet preview</span>
+      </div>
+      <p class="pdesc">A wallet for mixing. Your coins go into one transaction together with other people's and come
+        out somewhere nobody can follow &mdash; and because Sequentia has confidential transactions, the amounts are
+        hidden too: every output of the round, your change included, is a commitment rather than a number. It holds
+        Bitcoin and Sequentia assets, receives and sends, and deliberately does nothing else.</p>
+      <div class="grid">
+        <div class="card">
+          <div class="os">Linux &middot; x86-64</div>
+          <h3>Mixing wallet</h3>
+          <div class="file">Seqognito-0.1.0-linux-x86_64.AppImage</div>
+          <a class="dl" href="Seqognito-0.1.0-linux-x86_64.AppImage" download>&darr; Download for Linux</a>
+        </div>
+        <div class="card">
+          <div class="os">Windows &middot; 64-bit</div>
+          <h3>Mixing wallet</h3>
+          <div class="file">Seqognito-Setup-0.1.0.exe</div>
+          <a class="dl" href="Seqognito-Setup-0.1.0.exe" download>&darr; Download for Windows</a>
+          <div style="margin-top:8px;font-size:12px"><a href="Seqognito-0.1.0-win64.zip" download style="color:var(--dim)">portable zip instead</a></div>
+        </div>
+      </div>
+      <div class="feat">
+        <div><b>Everything over Tor</b>: the window has no network of its own, and the wallet will not send anything without a SOCKS proxy.</div>
+        <div><b>Two circuits, not one</b>: your coins and your mixed addresses are registered over separate Tor circuits, so the coordinator sees two strangers.</div>
+        <div><b>Any node you like</b>: point it at your own Sequentia and Bitcoin endpoints, <code>.onion</code> included.</div>
+        <div><b>Bitcoin too</b>: parent-chain BTC is bridged in, mixed, and sent back out to an address you have never used.</div>
+      </div>
+      <p class="install"><b>Install</b> &middot; You need Tor running &mdash; a system <code>tor</code> daemon (port 9050) or Tor
+        Browser (9150). Linux: make the <code>.AppImage</code> executable and run it. Windows: run the installer, or take
+        the portable zip. On first start it asks which nodes to use, and encrypts your recovery phrase with a passphrase.</p>
+      <p class="install"><b>What it does and does not hide</b> &middot; The chain learns nothing about the amounts. The
+        coordinator cannot link your coins to your mixed outputs, though it does see your amounts and your change. Your
+        anonymity set is the round you were in &mdash; a round with two people in it hides you among two.</p>
+    </section>
+
+    <!-- ───────────────────────  Ambra for Android  ──────────────────────── -->
+    <section class="prod">
+      <div class="phead">
+        <h2>Ambra for Android</h2>
+        <span class="ver" data-ver="ambra">version 0.17.3</span>
+        <span class="tag">testnet preview</span>
+      </div>
+      <p class="pdesc">A non-custodial dual-chain mobile wallet: one recovery phrase for Bitcoin testnet4 and
+        Sequentia, sharing one <code>tb1</code> address, so BTC is a first-class asset rather than an add-on.
+        Built on SWK, the Sequentia Wallet Kit.</p>
+      <div class="grid">
+        <div class="card">
+          <div class="os">Android · arm64 + x86-64</div>
+          <h3>Mobile wallet</h3>
+          <div class="file">ambra-0.17.3.apk</div>
+          <a class="dl" href="ambra-0.17.3.apk" download>↓ Download for Android</a>
+        </div>
+        <div class="card">
+          <div class="os">What is inside</div>
+          <h3>Wallet, assets, trading</h3>
+          <div class="file">Biometric lock · issuance · staking · SeqDEX terminal</div>
+          <a class="dl" href="https://github.com/ConcatenaLabs/ambra" target="_blank" rel="noopener">Source on GitHub</a>
+        </div>
+      </div>
+      <div class="feat">
+        <div><b>Total first</b>: one portfolio total in your reference currency, every asset an equal row.</div>
+        <div><b>Send and receive</b>: any-asset fees, opt-in confidential addresses, RBF and CPFP rescue.</div>
+        <div><b>Issue assets</b>: create and reissue your own, including OpenAMP restricted assets.</div>
+        <div><b>SeqDEX terminal</b>: market and limit orders, same-chain or cross-chain, on-chain or over Lightning.</div>
+      </div>
+      <p class="install"><b>Install</b> · Allow “install unknown apps” for your browser, then open the
+        <code>.apk</code>. There is no iOS build.</p>
+    </section>
+
+    <!-- ──────────────────────  Pignus CLI  ──────────────────────── -->
+    <section class="prod">
+      <div class="phead">
+        <h2>Pignus CLI</h2>
+        <span class="ver" data-ver="pignus">version 0.2.0</span>
+        <span class="tag">testnet preview</span>
+      </div>
+      <p class="pdesc">Collateralised lending from the command line, against your own node.
+        Everything <a href="/lending/">the lending site</a> does &mdash; propose a loan, publish a
+        funded offer, borrow, repay, liquidate &mdash; plus the one check the whole thing rests on:
+        rebuild a vault&rsquo;s address from the terms you agreed and refuse to sign if it differs.</p>
+      <div class="grid">
+        <div class="card">
+          <div class="os">Linux · macOS · anywhere with Python 3</div>
+          <h3>Source archive</h3>
+          <div class="file">pignus-cli-0.2.0.tar.gz</div>
+          <a class="dl" href="pignus-cli-0.2.0.tar.gz" download>&darr; Download the CLI</a>
+        </div>
+        <div class="card">
+          <div class="os">What is inside</div>
+          <h3>CLI, oracle and liquidator</h3>
+          <div class="file">pignus-cli · pignus-oracle · pignus-liquidator · pignusd</div>
+          <a class="dl" href="https://github.com/ConcatenaLabs/pignus" target="_blank" rel="noopener">Source on GitHub</a>
+        </div>
+      </div>
+      <div class="feat">
+        <div><b>Verify before you sign</b>: <code>pignus-cli verify</code> rebuilds the vault address
+          from your terms and refuses if one atom of the debt, the strike or the oracle differs.</div>
+        <div><b>Run your own oracle</b>: sign prices for your own markets and publish every
+          attestation, so a liquidation can always be checked afterwards.</div>
+        <div><b>Run your own liquidator</b>: liquidation is a permissionless race and anyone may
+          enter it. Nothing about Pignus depends on the operator&rsquo;s bot.</div>
+      </div>
+      <p class="note">Pure Python, no build step. It needs a Sequentia <b>source</b> checkout, because
+        the loan covenant lives in the node repository and Pignus imports the proven builder rather
+        than carrying a copy of it: set <code>SEQUENTIA_SRC</code> and run
+        <code>tests/cli_drill.sh</code> to check the wiring. sha256
+        <code>dd8b849881c8b8d7c983b666bdd269fde3d04b6557d73dfb62688766189e22cc</code></p>
+    </section>
+
+    <!-- ──────────────────────  Ambra for Chromium  ──────────────────────── -->
+    <section class="prod">
+      <div class="phead">
+        <h2>Ambra for Chromium</h2>
+        <span class="ver" data-ver="extension">version 0.5.16</span>
+        <span class="tag">testnet preview</span>
+      </div>
+      <p class="pdesc">The same dual-chain wallet as a browser extension for Chrome and other Chromium browsers,
+        plus a <code>window.sequentia</code> API that lets a website ask the wallet to connect, sign and pay.</p>
+      <div class="grid">
+        <div class="card">
+          <div class="os">Chrome · Chromium browsers</div>
+          <h3>Browser extension</h3>
+          <div class="file">ambra-0.5.16-chromium.zip</div>
+          <a class="dl" href="ambra-0.5.16-chromium.zip" download>↓ Download for Chrome</a>
+        </div>
+        <div class="card">
+          <div class="os">What is inside</div>
+          <h3>Both chains, one seed</h3>
+          <div class="file">Balances · send · receive · Lightning · dapp API</div>
+          <a class="dl" href="https://github.com/ConcatenaLabs/sequentia-extension" target="_blank" rel="noopener">Source on GitHub</a>
+        </div>
+      </div>
+      <div class="feat">
+        <div><b>One seed, both chains</b>: Bitcoin testnet4 and Sequentia share the same address.</div>
+        <div><b>Portfolio total</b>: multi-asset balances with any-asset fees on send.</div>
+        <div><b>Lightning</b>: for BTC and for issued assets.</div>
+        <div><b>OpenAMP</b>: hold and transfer issuer-governed restricted assets.</div>
+      </div>
+      <p class="install"><b>Install</b> · Unzip the download, open <code>chrome://extensions</code>, enable
+        Developer mode, click <b>Load unpacked</b> and select the unzipped folder.</p>
+    </section>
+
+    <div class="foot">
+      <span>Built by <a href="https://concatenalabs.com" target="_blank" rel="noopener"><img class="by-logo" src="concatena-labs.png" alt="Concatena Labs"></a></span>
+      <span><a href="/">Block explorer</a> · <a href="/testnet4/">Bitcoin testnet4</a></span>
+    </div>
+  </div>
+</body>
+</html>

@@ -16,6 +16,7 @@ put it in place and keep copies of it.
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep. |
+| `downloads/index.html` | The download page at `sequentiatestnet.com/download/`, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
 
 ## The routes
 
@@ -47,6 +48,20 @@ Add the placeholder to the Caddyfile as `{$NAME}`, the name to
 `caddy/caddy.env.example` with a description, and the value to
 `/etc/caddy/caddy.env` on the box, in single quotes. `apply-caddy.sh` reads
 the file the way systemd does, so a `$` inside a value is safe.
+
+## A release on the download page
+
+The page names each product's current file. After the release file is on
+the box under `/root/sequentia/downloads/`, edit the product's card here (the
+`data-ver` span, the file name, the link), open a pull request, merge, and on
+the box:
+
+```sh
+cd /root/sequentia/sequentia-testnet-ops && git pull --ff-only
+bin/apply-downloads.sh
+```
+
+which installs the page and checks every file it links is there.
 
 ## Backups
 
