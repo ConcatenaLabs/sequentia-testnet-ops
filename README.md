@@ -56,7 +56,8 @@ systemctl daemon-reload && systemctl enable --now box-config-backup.timer
 backup/box-config-backup.sh                 # the first copy now
 ```
 
-A copy is a tarball of `/etc/caddy/Caddyfile` and the systemd drop-ins under
-`/etc/systemd/system`. It holds no secrets. Copy `/var/backups/box` off the
+A copy is a tarball of `/etc/caddy/Caddyfile` and Caddy's own systemd
+drop-in, and nothing else under `/etc`: another unit's drop-in may carry a
+token, and a copy is meant to hold no secret. Copy `/var/backups/box` off the
 box with the rest of the deployment's backups: a lost disk otherwise loses
 every route at once.

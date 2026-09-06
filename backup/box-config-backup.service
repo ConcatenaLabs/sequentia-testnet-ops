@@ -1,5 +1,5 @@
 [Unit]
-Description=Copy the box's hand-edited host configuration
+Description=Copy the reverse proxy's configuration
 
 [Service]
 Type=oneshot
