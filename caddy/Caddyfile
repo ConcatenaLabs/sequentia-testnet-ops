@@ -121,8 +121,15 @@ sequentiatestnet.com {
 		reverse_proxy 127.0.0.1:8099
 	}
 	# While levod is down the proxy answered an empty 502: a blank page with
-	# nothing said. This says something, for Levo's paths and no other.
+	# nothing said. This says something, for Levo's paths and no other: JSON
+	# to the API, in the shape levod's own refusals have, so a client reads a
+	# code rather than parses a page; the page to everything else.
 	handle_errors 502 503 {
+		@levoapi path /levo/api/*
+		handle @levoapi {
+			header Content-Type "application/json"
+			respond `{"code": "unavailable", "error": "levod is not answering; try again in a minute"}` {err.status_code}
+		}
 		@levo path /levo /levo/*
 		handle @levo {
 			header Content-Type "text/html; charset=utf-8"
