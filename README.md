@@ -16,14 +16,19 @@ put it in place and keep copies of it.
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep. |
-| `downloads/index.html` | The download page at `sequentiatestnet.com/download/`, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
+| `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
+| `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
 
 ## The routes
 
 Read `caddy/Caddyfile`: each `handle_path` names a path and the port the
 product listens on. The wallet, the explorer, the bridge, the faucet, the
-registry and the download page fall through to the explorer's own server on
+registry and the download pages fall through to the explorer's own server on
 port 8080, which serves them; everything else is proxied to its own process.
+That server also renders the site's two menu pages: the front page at `/`,
+which links the explorer, the faucet, the Compages bridge, Emissio and the
+Sequentia Core download, and the full menu of every product at
+`/secretfullmenu`, which nothing links to.
 Two paths sit behind basic auth because they show simulated regulated data;
 the SBTC peg path carries a bearer token the browser never sees.
 
@@ -60,19 +65,20 @@ Add the placeholder to the Caddyfile as `{$NAME}`, the name to
 `/etc/caddy/caddy.env` on the box, in single quotes. `apply-caddy.sh` reads
 the file the way systemd does, so a `$` inside a value is safe.
 
-## A release on the download page
+## A release on the download pages
 
-The page names each product's current file. After the release file is on
+Each page names each product's current file. After the release file is on
 the box under `/root/sequentia/downloads/`, edit the product's card here (the
-`data-ver` span, the file name, the link), open a pull request, merge, and on
-the box:
+`data-ver` span, the file name, the link) on the full page, and on the Core
+page too when the product is Sequentia Core, open a pull request, merge, and
+on the box:
 
 ```sh
 cd /root/sequentia/sequentia-testnet-ops && git pull --ff-only
 bin/apply-downloads.sh
 ```
 
-which installs the page and checks every file it links is there.
+which installs both pages and checks every file they link is there.
 
 ## Backups
 
