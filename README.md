@@ -26,8 +26,8 @@ product listens on. The wallet, the explorer, the bridge, the faucet, the
 registry and the download pages fall through to the explorer's own server on
 port 8080, which serves them; everything else is proxied to its own process.
 That server also renders the site's two menu pages: the front page at `/`,
-which links the explorer, the faucet, the Compages bridge, Emissio and the
-Sequentia Core download, and the full menu of every product at
+which links the explorer, the staking pool board, the faucet, the Compages
+bridge, Emissio and the Sequentia Core download, and the full menu of every product at
 `/secretfullmenu`, which nothing links to.
 Two paths sit behind basic auth because they show simulated regulated data;
 the SBTC peg path carries a bearer token the browser never sees.
