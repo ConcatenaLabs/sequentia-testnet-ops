@@ -1,0 +1,6 @@
+[Unit]
+Description=Pull the bridge services' state off the box (user unit)
+
+[Service]
+Type=oneshot
+ExecStart=%h/sequentia-testnet-ops/backup/pull-bridge-state.sh
