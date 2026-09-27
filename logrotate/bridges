@@ -1,0 +1,15 @@
+# Rotate the logs the two bridge services append to: compagesd (the
+# Compages bridge daemon) and sbtc-bridge (the BTC<->SBTC peg service).
+# Both units write with StandardOutput=append:, which keeps the file open, so
+# the file is copied and truncated in place rather than moved.
+/var/log/compagesd.log /root/sequentia/sbtc-bridge/bridge.log {
+    weekly
+    rotate 12
+    maxsize 20M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su root root
+}
