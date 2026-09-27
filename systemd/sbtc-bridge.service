@@ -1,0 +1,15 @@
+[Unit]
+Description=SBTC bridge (BTC<->SBTC peg service)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/sequentia/sbtc-bridge
+ExecStart=/usr/bin/node bridge.mjs
+StandardOutput=append:/root/sequentia/sbtc-bridge/bridge.log
+StandardError=append:/root/sequentia/sbtc-bridge/bridge.log
+Restart=always
+RestartSec=6
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=Compages bridge daemon
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/sequentia/compages/daemon
+ExecStart=/usr/bin/node /root/sequentia/compages/daemon/compagesd.js /root/sequentia/compages/daemon/config.json
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/compagesd.log
+StandardError=append:/var/log/compagesd.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=Compages watcher (independent check on the bridge)
+After=network-online.target compagesd.service
+
+[Service]
+WorkingDirectory=/root/sequentia/compages/watcher
+ExecStart=/usr/bin/node compages-watch.js config.json
+Restart=always
+RestartSec=15
+StandardOutput=append:/var/log/compages-watch.log
+StandardError=append:/var/log/compages-watch.log
+
+[Install]
+WantedBy=multi-user.target

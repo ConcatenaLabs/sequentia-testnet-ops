@@ -17,6 +17,7 @@ put it in place and keep copies of it.
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep. |
 | `logrotate/` | Rotation for the logs the bridge services append to (`compagesd`, `compages-watch`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. |
+| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`); none holds a credential, each service reads its own mode-600 config. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
 | `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
 
@@ -106,3 +107,25 @@ logrotate -d /etc/logrotate.d/bridges        # dry run: what it would do
 (`StandardOutput=append:`), which keeps it open, so rotation copies the file
 and truncates it in place (`copytruncate`) rather than moving it. The system's
 daily logrotate timer applies it; nothing needs restarting.
+
+## Bridge state off the box
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp backup/pull-bridge-state.service backup/pull-bridge-state.timer ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now pull-bridge-state.timer
+backup/pull-bridge-state.sh                  # the first copy now
+```
+
+Run on an operator's machine that can `ssh` to the box (`BRIDGE_STATE_HOST`,
+default `seq`). Twice a day it copies the Compages daemon's and watcher's state
+and the SBTC peg service's state into `~/.local/share/sequentia/bridge-state`,
+dated and mode 600, sixty deep. The state records every deposit, redemption and
+peg; the keys are backed up separately.
+
+## The bridge units
+
+```sh
+install -m 644 systemd/compagesd.service systemd/compages-watch.service systemd/sbtc-bridge.service /etc/systemd/system/
+systemctl daemon-reload
+```
