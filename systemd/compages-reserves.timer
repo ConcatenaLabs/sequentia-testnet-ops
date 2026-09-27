@@ -1,0 +1,9 @@
+[Unit]
+Description=Take the Compages reserve snapshot when one is due
+
+[Timer]
+OnCalendar=*:0/10
+Persistent=true
+
+[Install]
+WantedBy=timers.target

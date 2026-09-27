@@ -1,0 +1,11 @@
+[Unit]
+Description=Compages signed reserve snapshot
+After=network-online.target compagesd.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/sequentia/compages/reserves
+ExecStart=/usr/bin/node snapshot.mjs config.json
+StandardOutput=append:/var/log/compages-reserves.log
+StandardError=append:/var/log/compages-reserves.log
