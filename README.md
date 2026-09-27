@@ -16,8 +16,8 @@ put it in place and keep copies of it.
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep. |
-| `logrotate/` | Rotation for the logs the bridge services append to (`compagesd`, `compages-watch`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. |
-| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`); none holds a credential, each service reads its own mode-600 config. |
+| `logrotate/` | Rotation for the logs the bridge services append to (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. |
+| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer); none holds a credential, each service reads its own mode-600 config. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
 | `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
 
@@ -103,7 +103,7 @@ install -m 644 logrotate/bridges /etc/logrotate.d/bridges
 logrotate -d /etc/logrotate.d/bridges        # dry run: what it would do
 ```
 
-`compagesd`, `compages-watch` and `sbtc-bridge` append their output to a file
+`compagesd`, `compages-watch`, `compages-reserves` and `sbtc-bridge` append their output to a file
 (`StandardOutput=append:`), which keeps it open, so rotation copies the file
 and truncates it in place (`copytruncate`) rather than moving it. The system's
 daily logrotate timer applies it; nothing needs restarting.
@@ -128,4 +128,15 @@ peg; the keys are backed up separately.
 ```sh
 install -m 644 systemd/compagesd.service systemd/compages-watch.service systemd/sbtc-bridge.service /etc/systemd/system/
 systemctl daemon-reload
+```
+
+`compages-reserves.timer` runs the Compages reserve snapshot tool every ten
+minutes. A run does nothing until the next snapshot height is due and deep
+enough, then writes one signed snapshot into the directory the daemon serves
+as `/api/por/history`. The attestation key sits beside the tool's config
+(mode 600), with its backup off the box.
+
+```sh
+install -m 644 systemd/compages-reserves.service systemd/compages-reserves.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now compages-reserves.timer
 ```
