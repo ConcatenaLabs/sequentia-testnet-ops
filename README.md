@@ -16,8 +16,9 @@ put it in place and keep copies of it.
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep. |
-| `logrotate/` | Rotation for the logs the bridge services append to (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. |
-| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer); none holds a credential, each service reads its own mode-600 config. |
+| `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. |
+| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) and of the two maker fleets below (`seqob-pureln-fleet`, `seqob-conf-maker`); none holds a credential, each service reads its own mode-600 config. |
+| `makers/` | The scripts that keep two SeqOB maker fleets running on the box: `pureln-fleet.sh` (pure-Lightning makers) and `supervise-conf.sh` (confidential makers). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the one secret they read. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
 | `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
 
@@ -99,14 +100,44 @@ every route at once.
 ## Log rotation
 
 ```sh
-install -m 644 logrotate/bridges /etc/logrotate.d/bridges
-logrotate -d /etc/logrotate.d/bridges        # dry run: what it would do
+install -m 644 logrotate/bridges logrotate/seqob-makers /etc/logrotate.d/
+logrotate -d /etc/logrotate.d/seqob-makers   # dry run: what it would do
 ```
 
 `compagesd`, `compages-watch`, `compages-reserves` and `sbtc-bridge` append their output to a file
 (`StandardOutput=append:`), which keeps it open, so rotation copies the file
-and truncates it in place (`copytruncate`) rather than moving it. The system's
-daily logrotate timer applies it; nothing needs restarting.
+and truncates it in place (`copytruncate`) rather than moving it. The maker
+supervisors under `/root/seqob-test` append one file per maker to
+`/root/seqob-test/run` with a shell `>>` redirect, which rotates the same way.
+The system's daily logrotate timer applies both; nothing needs restarting.
+
+## The maker fleets
+
+```sh
+install -m 755 makers/pureln-fleet.sh makers/supervise-conf.sh /root/seqob-test/
+install -m 644 systemd/seqob-pureln-fleet.service systemd/seqob-conf-maker.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl restart seqob-pureln-fleet.service seqob-conf-maker.service
+```
+
+Each script launches one maker process per price level and keeps it running:
+`pureln-fleet.sh` the pure-Lightning makers (six assets against BTC and every
+asset pair, both sides, eight levels), `supervise-conf.sh` the confidential
+makers (every directed pair, both sides). The maker binaries come from the
+`seqdex` checkout on the box; each maker's key is a box-local file created on
+first use, and each maker appends to its own log in `/root/seqob-test/run`.
+
+Amounts are computed once, at launch, from the price feed and the asset
+registry on the box. Those are separate services, so a script waits until they
+answer before it starts anything, and it starts no maker whose amounts did not
+come out as whole atoms. A maker that exits within a minute is relaunched with
+a doubling delay, up to five minutes; one that ran longer is relaunched after
+eight seconds. To requote the whole fleet at current prices, restart its
+service.
+
+`supervise-conf.sh` reads the node RPC URL, which carries a password, from
+`/etc/sequentia/seqob-makers.env` (mode 600); `makers/seqob-makers.env.example`
+names it.
 
 ## Bridge state off the box
 
