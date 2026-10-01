@@ -1,0 +1,11 @@
+[Unit]
+Description=SeqOB confidential maker fleet (blinded, every directed pair, relay :9975)
+After=seqob-relay-9975.service seq-explorer-web.service seq-mock-price-api.service
+
+[Service]
+ExecStart=/root/seqob-test/supervise-conf.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

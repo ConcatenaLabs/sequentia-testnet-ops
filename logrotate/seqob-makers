@@ -1,0 +1,15 @@
+# Rotate the logs the SeqOB maker fleets append to. Every supervisor under
+# /root/seqob-test writes one file per maker with a shell >> redirect and
+# keeps relaunching the maker for as long as its service lives, so a file has
+# no natural end: without rotation a maker that fails on every launch fills
+# the disk. The writers hold the file open in append mode, so it is copied and
+# truncated in place rather than moved.
+/root/seqob-test/run/*.log {
+    size 20M
+    rotate 2
+    compress
+    missingok
+    notifempty
+    copytruncate
+    su root root
+}

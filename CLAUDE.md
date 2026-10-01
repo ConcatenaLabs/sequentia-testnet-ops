@@ -1,7 +1,8 @@
 # sequentia-testnet-ops
 
 The host configuration of the Sequentia testnet box: the reverse proxy's
-Caddyfile, the scripts that install it, and the timer that backs it up. Every
+Caddyfile, the scripts that install it, the timer that backs it up, and the
+units, log rotation and maker fleet scripts that run on the machine. Every
 product the box runs lives in its own repository; this one holds only what
 ties them together on the machine. The README says what is here and how a
 route is changed.
@@ -20,6 +21,11 @@ route is changed.
   `bin/apply-downloads.sh`, which checks every linked file exists on the box.
 - **Validate before install.** `apply-caddy.sh` does; a Caddyfile that does not
   validate takes every product down at the next reload.
+- **A maker script holds no credential and launches nothing on missing data.**
+  The node RPC URL comes from `/etc/sequentia/seqob-makers.env` on the box. A
+  script under `makers/` waits for the feeds it prices from and skips a maker
+  whose amounts are not whole atoms: a maker launched with an empty argument
+  prints its usage text on every relaunch, and the logs fill the disk.
 
 <!-- BEGIN SHARED AGENT CONVENTIONS: identical in every Sequentia repo. Change it in all of them together. -->
 ## Working with git and GitHub here
