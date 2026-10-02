@@ -17,7 +17,7 @@ put it in place and keep copies of it.
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep. |
 | `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. |
-| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the two maker fleets below (`seqob-pureln-fleet`, `seqob-conf-maker`) and of the Lightning node their BTC leg runs on (`seqob-ln-btc-maker`); none holds a credential, each service reads its own mode-600 config. |
+| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the two maker fleets below (`seqob-pureln-fleet`, `seqob-conf-maker`) and of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`); none holds a credential, each service reads its own mode-600 config. |
 | `makers/` | The scripts that keep two SeqOB maker fleets running on the box: `pureln-fleet.sh` (pure-Lightning makers) and `supervise-conf.sh` (confidential makers). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the one secret they read. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
 | `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
@@ -144,12 +144,17 @@ pay and receive bitcoin through one Lightning node on Bitcoin testnet4, in
 `/root/sequentia/lsp/btc-maker`. While it is down they have no BTC leg: each
 exits on "btc lightning-rpc unreachable" and waits to be relaunched.
 
+The other end of its largest channel is a second testnet4 node, in
+`/root/sequentia/lsp/btc-taker`, which the order crosser (`seqob-crosser`)
+takes offers through.
+
 ```sh
-install -m 644 systemd/seqob-ln-btc-maker.service /etc/systemd/system/
-systemctl daemon-reload && systemctl enable --now seqob-ln-btc-maker.service
+install -m 644 systemd/seqob-ln-btc-maker.service systemd/seqob-ln-btc-taker.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now seqob-ln-btc-maker.service seqob-ln-btc-taker.service
 ```
 
-The node reads its Bitcoin RPC credentials from the `config` file in its own
+Each node reads its Bitcoin RPC credentials from the `config` file in its own
 directory, on the box only, and the Lightning binaries come from the `seqln`
 checkout there.
 
