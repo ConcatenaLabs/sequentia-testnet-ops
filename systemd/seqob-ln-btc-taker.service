@@ -1,0 +1,12 @@
+[Unit]
+Description=SeqLN Bitcoin testnet4 node btc-taker (the BTC leg of the order crosser, and btc-maker's channel peer)
+After=network.target seq-bitcoind.service
+
+[Service]
+Type=simple
+ExecStart=/root/sequentia/seqln/lightningd/lightningd --lightning-dir=/root/sequentia/lsp/btc-taker --network=testnet4 --developer
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
