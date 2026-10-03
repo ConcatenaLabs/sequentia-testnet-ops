@@ -1,0 +1,27 @@
+[Unit]
+Description=Arca signer: holds the Arca operator key and signs for arcad on a Unix socket
+After=network.target
+
+[Service]
+Type=simple
+User=arca
+Group=arca
+# ARCA_GENESIS, the chain's genesis hash (not a secret).
+EnvironmentFile=/etc/arca/signer.env
+ExecStart=/opt/arca/target/release/arca-signer --key-file /etc/arca/operator.key --genesis ${ARCA_GENESIS} --socket /run/arca/signer.sock --record /var/lib/arca/signer.record
+RuntimeDirectory=arca
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+UMask=0077
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/arca /run/arca
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=2000
+
+[Install]
+WantedBy=multi-user.target

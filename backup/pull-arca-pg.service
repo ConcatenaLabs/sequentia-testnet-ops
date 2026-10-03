@@ -1,0 +1,6 @@
+[Unit]
+Description=Pull the Arca operator's PostgreSQL backups off the box (user unit)
+
+[Service]
+Type=oneshot
+ExecStart=%h/sequentia-testnet-ops/backup/pull-arca-pg.sh

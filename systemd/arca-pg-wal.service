@@ -1,0 +1,22 @@
+[Unit]
+Description=Arca: stream every PostgreSQL commit into /var/backups/arca-pg/wal before it is acknowledged
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=postgres
+Group=postgres
+UMask=0077
+# The slot keeps every segment on the server until this receiver has it, so
+# a restart of the receiver leaves no gap.
+ExecStartPre=/usr/lib/postgresql/16/bin/pg_receivewal -d "host=/var/run/postgresql user=postgres application_name=arca_wal" --slot arca_wal --create-slot --if-not-exists
+# --synchronous: each segment's data is flushed to disk and reported at once,
+# and postgresql's synchronous_standby_names = 'arca_wal' makes every commit
+# wait for that flush.
+ExecStart=/usr/lib/postgresql/16/bin/pg_receivewal -d "host=/var/run/postgresql user=postgres application_name=arca_wal" --slot arca_wal --synchronous --no-password -D /var/backups/arca-pg/wal
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

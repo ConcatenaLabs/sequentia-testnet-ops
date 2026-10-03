@@ -1,0 +1,26 @@
+[Unit]
+Description=Arca operator server (arcad): rounds, transfers, the watcher, behind Caddy at /arca/
+After=network.target postgresql.service arca-signer.service arca-pg-wal.service
+Wants=arca-signer.service
+
+[Service]
+Type=simple
+User=arca
+Group=arca
+ExecStart=/opt/arca/target/release/arcad /etc/arca/arcad.toml
+# arcad stops its tasks and exits on SIGINT.
+KillSignal=SIGINT
+TimeoutStopSec=30
+Environment=RUST_LOG=info
+UMask=0077
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=2000
+
+[Install]
+WantedBy=multi-user.target

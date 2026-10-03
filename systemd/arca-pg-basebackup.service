@@ -1,0 +1,7 @@
+[Unit]
+Description=Arca: a base backup of PostgreSQL, and pruning of WAL older than the oldest kept
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/root/sequentia/sequentia-testnet-ops/backup/arca-pg-basebackup.sh
