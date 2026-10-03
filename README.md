@@ -214,7 +214,13 @@ Both services run as the `arca` system user, read-only outside
 lets it stop its tasks. The two log to the journal (`journalctl -u arcad`),
 which bounds its own size, so neither can fill the disk.
 
+The signer starts only on its record, which it never makes by itself: a
+record that is lost is never silently replaced by an empty one. A new
+operator key gets one record, once, before the signer's first start:
+
 ```sh
+. /etc/arca/signer.env && runuser -u arca -- /opt/arca/target/release/arca-signer --key-file /etc/arca/operator.key \
+    --genesis "$ARCA_GENESIS" --record /var/lib/arca/signer.record --create-record
 install -m 644 systemd/arca-signer.service systemd/arcad.service /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now arca-signer.service arcad.service
 ```
@@ -268,4 +274,5 @@ segment's `.partial` copy when the whole one is not there), and start
 PostgreSQL: it replays to the last commit and opens. Never stop the replay at
 an earlier point, never start `arcad` on an older copy (it refuses to start
 on one in the cases Arca's README names), and never restore the signer's record: it is not
-backed up, because a copy put back would be an older record.
+backed up, because a copy put back would be an older record, which the signer and `arcad` both
+refuse once the database knows a later entry.
