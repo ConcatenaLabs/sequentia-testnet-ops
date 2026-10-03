@@ -15,9 +15,11 @@ put it in place and keep copies of it.
 | `caddy/caddy.service.d/env.conf` | The systemd drop-in that hands `caddy.service` that file. |
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
-| `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep. |
+| `bin/arca-pg-restore-drill.sh` | Restores the Arca operator's database from its newest base backup and every WAL segment after it into a scratch cluster, and checks the last commit is there. |
+| `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
+| `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep; the Arca operator's daily PostgreSQL base backup; and the user timers that pull the bridge state and the Arca backups off the box. |
 | `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. |
-| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the two maker fleets below (`seqob-pureln-fleet`, `seqob-conf-maker`) and of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`); none holds a credential, each service reads its own mode-600 config. |
+| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the two maker fleets below (`seqob-pureln-fleet`, `seqob-conf-maker`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), and of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`); none holds a credential, each service reads its own mode-600 config. |
 | `makers/` | The scripts that keep two SeqOB maker fleets running on the box: `pureln-fleet.sh` (pure-Lightning makers) and `supervise-conf.sh` (confidential makers). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the one secret they read. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
 | `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
@@ -190,3 +192,80 @@ as `/api/por/history`. The attestation key sits beside the tool's config
 install -m 644 systemd/compages-reserves.service systemd/compages-reserves.timer /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now compages-reserves.timer
 ```
+
+## The Arca operator
+
+An Arca operator runs on the box, reached at `https://sequentiatestnet.com/arca/`
+(every call under `/v1/`; no page links to it). Arca's own documentation is in
+its repository, `ConcatenaLabs/arca`: `server/README.md` for the server,
+`bark-cli/README.md` for the command-line wallet.
+
+| What | Where |
+|---|---|
+| The checkout and its build | `/opt/arca`, built with `cargo build --release` into `/opt/arca/target` |
+| `arca-signer.service` | Holds the operator key (`/etc/arca/operator.key`) and signs on `/run/arca/signer.sock`; its append-only record is `/var/lib/arca/signer.record` |
+| `arcad.service` | The server, its rounds and its watcher, on `127.0.0.1:3535`; metrics on `127.0.0.1:3536`; configuration `/etc/arca/arcad.toml` |
+| Its node | The dexnode (`seq-dexnode`, RPC 18300), which runs with `-txindex` and `-validateanchor` |
+| Its database | PostgreSQL 16, cluster `16/main`, database `arca`, reached over the Unix socket as the `arca` role |
+| Its secrets | `/etc/arca/operator.key`, `/etc/arca/wallet.mnemonic` and `/etc/arca/arcad.toml` (which holds the node's RPC password), each mode 600, owned by the `arca` user |
+
+Both services run as the `arca` system user, read-only outside
+`/var/lib/arca` and `/run/arca`. `arcad` is stopped with SIGINT, which is what
+lets it stop its tasks. The two log to the journal (`journalctl -u arcad`),
+which bounds its own size, so neither can fill the disk.
+
+```sh
+install -m 644 systemd/arca-signer.service systemd/arcad.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now arca-signer.service arcad.service
+```
+
+The route is `handle_path /arca/*` in `caddy/Caddyfile`. Caddy closes a
+pooled connection to `arcad` after 30 idle seconds, so it never sends a
+request down a connection `arcad` has dropped.
+
+### Keeping its database
+
+The database holds what the chain does not, and must never lose a commit
+(Arca's `server/README.md`, "Keeping the database"). On the box:
+
+- `postgres/arca.conf`, installed as `/etc/postgresql/16/main/conf.d/arca.conf`,
+  keeps `fsync`, `full_page_writes` and `synchronous_commit` on and names the
+  WAL receiver as the synchronous standby: a commit returns only once the
+  receiver has flushed it.
+- `arca-pg-wal.service` is that receiver: `pg_receivewal --synchronous` on a
+  replication slot, into `/var/backups/arca-pg/wal`. While it is down, commits
+  wait for it rather than go unrecorded, and `arcad` waits with them.
+- `arca-pg-basebackup.timer` takes a base backup every day into
+  `/var/backups/arca-pg/base/<UTC time>`, keeps seven, and deletes the WAL
+  older than the oldest kept.
+- `backup/pull-arca-pg.timer`, a user timer on an operator's machine, copies
+  `/var/backups/arca-pg` off the box every hour into
+  `~/.local/share/sequentia/arca-pg`. The box's own copy holds every commit;
+  the off-box copy is as recent as its last run.
+
+```sh
+install -m 644 postgres/arca.conf /etc/postgresql/16/main/conf.d/arca.conf
+install -d -o postgres -g postgres -m 700 /var/backups/arca-pg /var/backups/arca-pg/wal /var/backups/arca-pg/base
+install -m 644 systemd/arca-pg-wal.service systemd/arca-pg-basebackup.service systemd/arca-pg-basebackup.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl restart postgresql
+systemctl enable --now arca-pg-wal.service arca-pg-basebackup.timer
+backup/arca-pg-basebackup.sh                 # the first base backup now
+bin/arca-pg-restore-drill.sh                 # and prove it restores
+```
+
+`bin/arca-pg-restore-drill.sh` commits a random token into a database of its
+own (`arca_drill`), restores the newest base backup and every WAL segment
+after it into a scratch cluster on port 5499, waits for recovery to reach the
+end of the WAL, and checks the token is there; it prints the row count of every
+table of `arca` in the restored copy, then deletes the scratch cluster. The
+live database is not touched.
+
+A real restore is the drill's restore into the cluster's own data directory:
+stop `arcad`, stop PostgreSQL, move `/var/lib/postgresql/16/main` aside,
+extract the newest base backup into it as `postgres`, add `recovery.signal`
+and a `restore_command` reading `/var/backups/arca-pg/wal` (taking a
+segment's `.partial` copy when the whole one is not there), and start
+PostgreSQL: it replays to the last commit and opens. Never stop the replay at
+an earlier point, never start `arcad` on an older copy (it refuses to start
+on one in the cases Arca's README names), and never restore the signer's record: it is not
+backed up, because a copy put back would be an older record.
