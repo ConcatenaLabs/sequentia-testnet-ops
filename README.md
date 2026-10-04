@@ -227,7 +227,35 @@ systemctl daemon-reload && systemctl enable --now arca-signer.service arcad.serv
 
 The route is `handle_path /arca/*` in `caddy/Caddyfile`. Caddy closes a
 pooled connection to `arcad` after 30 idle seconds, so it never sends a
-request down a connection `arcad` has dropped.
+request down a connection `arcad` has dropped. Caddy is the one proxy
+`arcad` trusts (`[limits] trusted_proxies`, loopback), so each request counts
+against the address that reached Caddy, and the `[limits]` rates in
+`/etc/arca/arcad.toml` (one operator nonce and one witness of the signer's
+record a second for each address, bursts of ten) are shared by every wallet
+behind one address, a wallet run on the box itself included.
+
+### When the signer stops
+
+Every head of the signer's record that `arcad` hands out, an entry and its
+running hash, is signed with the operator key, and every wallet command that
+reaches the server hands the heads the wallet holds back to the signer. A
+head the signer signed that its record does not hold proves the record was
+rolled back or replaced. The signer then writes that proof beside its record,
+in `/var/lib/arca/signer.record.stopped`, logs `arca-signer: STOPPED: …`
+(`journalctl -u arca-signer`), and from then on, across restarts, co-signs no
+transfer and no forfeit, so no round completes, and signs no head; it still
+signs the operator's own claims and sweeps. `arcad` keeps running, serves
+`/v1/info` without `signer_record`, and tells every wallet that witnesses the record that the signer is stopped. Each
+wallet then takes on the chain every coin that a transfer recorded after the
+last entry it agrees with made, and asks this operator nothing more.
+
+The stop ends this operator. Leave both services running until the
+watcher's own transactions are final (`SELECT count(*) FROM nursery_tx WHERE
+state = 'pending'` in the `arca` database reads 0), then stop them, and keep
+the record and the proof where they are. Nothing on the box clears the proof
+to carry on: `arca-signer --clear-stopped` removes it, printing it first, and
+an operator carries on only under a new key with a new record, which every
+wallet treats as a new operator.
 
 ### Keeping its database
 
@@ -247,7 +275,9 @@ The database holds what the chain does not, and must never lose a commit
 - `backup/pull-arca-pg.timer`, a user timer on an operator's machine, copies
   `/var/backups/arca-pg` off the box every hour into
   `~/.local/share/sequentia/arca-pg`. The box's own copy holds every commit;
-  the off-box copy is as recent as its last run.
+  the off-box copy is as recent as its last run, and is the operator's
+  history (its rounds and their preimages, its transfers, its watcher's
+  log) when the box is lost, not a way to start it again (below).
 
 ```sh
 install -m 644 postgres/arca.conf /etc/postgresql/16/main/conf.d/arca.conf
@@ -262,17 +292,36 @@ bin/arca-pg-restore-drill.sh                 # and prove it restores
 `bin/arca-pg-restore-drill.sh` commits a random token into a database of its
 own (`arca_drill`), restores the newest base backup and every WAL segment
 after it into a scratch cluster on port 5499, waits for recovery to reach the
-end of the WAL, and checks the token is there; it prints the row count of every
-table of `arca` in the restored copy, then deletes the scratch cluster. The
-live database is not touched.
+end of the WAL, and checks the token is there and that the restored copy
+knows the same latest entry of the signer's record as the live database; it
+prints the row count of every table of `arca` in the restored copy, then
+deletes the scratch cluster. The live database is not touched.
 
-A real restore is the drill's restore into the cluster's own data directory:
-stop `arcad`, stop PostgreSQL, move `/var/lib/postgresql/16/main` aside,
-extract the newest base backup into it as `postgres`, add `recovery.signal`
-and a `restore_command` reading `/var/backups/arca-pg/wal` (taking a
-segment's `.partial` copy when the whole one is not there), and start
-PostgreSQL: it replays to the last commit and opens. Never stop the replay at
-an earlier point, never start `arcad` on an older copy (it refuses to start
-on one in the cases Arca's README names), and never restore the signer's record: it is not
-backed up, because a copy put back would be an older record, which the signer and `arcad` both
-refuse once the database knows a later entry.
+A restore is for one case: the database's own data directory lost or
+damaged on this box, while `/var/backups/arca-pg` and the signer's record
+`/var/lib/arca/signer.record` are intact. It is the drill's restore into the
+cluster's own data directory: stop `arcad`, stop PostgreSQL, move
+`/var/lib/postgresql/16/main` aside, extract the newest base backup into it
+as `postgres`, add `recovery.signal` and a `restore_command` reading
+`/var/backups/arca-pg/wal` (taking a segment's `.partial` copy when the whole
+one is not there), and start PostgreSQL: it replays to the last commit and
+opens, the state the record agrees with. Never stop the replay at an earlier
+point, and never restore the signer's record: it is not backed up, and it
+only grows.
+
+A restore is not a way back to an earlier state, and not a way to bring the
+operator back on another disk:
+
+- A database older than its last commit beside the record as it is: `arcad`
+  refuses to start on it once it lacks an entry of the record, or a round or
+  board spend the chain shows, and names each one.
+- A snapshot of the box's disk, the database and the record rolled back
+  together: they agree with each other. `arcad` still refuses to start when
+  the chain holds a round the snapshot lacks, naming it. Otherwise it starts,
+  and the first wallet that was shown a later head stops the signer at its
+  next command (above): the operator co-signs nothing again.
+- The box's disk lost: the record is lost with it, and a new record for the
+  same key is refused against a database that knows an entry of the old one,
+  so no copy of the database, the off-box one included, starts this operator
+  again. Every holder still takes its coins on the chain alone, from its own
+  wallet's records.
