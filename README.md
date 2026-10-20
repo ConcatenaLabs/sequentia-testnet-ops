@@ -467,6 +467,11 @@ and integration interfaces are never routed.
   gRPC plugin; but the box's SeqLN nodes are built without it and carry the
   makers' channels, and a gateway of its own keeps the ark out of every SeqLN
   cutover.
+- **Fixed fee rates for the gateway.** testnet4 often mines empty blocks, so
+  the ark's own node can go hours with no fee estimate, and Core Lightning
+  then refuses to open or close a channel ("Cannot estimate fees (yet)").
+  `bitcoin-ark/cln.config` sets `force-feerates=500` (2 sat/vB), an option
+  that exists on test networks only.
 - **A Lightning receive needs its wallet online.** Bark's server holds an
   incoming payment for three minutes (`receive_htlc_forward_timeout`) while
   the wallet claims it (`bark lightning claim`); unclaimed, the payment fails
