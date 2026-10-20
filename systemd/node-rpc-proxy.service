@@ -10,7 +10,7 @@ Type=simple
 #   LoadCredential=node.conf:<the node's elements.conf>
 # The credential is a read-only copy only this service sees, so the dynamic
 # user below reads the node's RPC password without any file being copied.
-ExecStart=/usr/bin/python3 -I /usr/local/lib/node-rpc-proxy/node-rpc-proxy.py --listen 127.0.0.1:18930 --node-url ${NODE_RPC_URL} --node-conf %d/node.conf
+ExecStart=/usr/bin/python3 -I /usr/local/lib/node-rpc-proxy/node-rpc-proxy.py --listen 127.0.0.1:18940 --node-url ${NODE_RPC_URL} --node-conf %d/node.conf
 DynamicUser=yes
 Restart=always
 RestartSec=5
