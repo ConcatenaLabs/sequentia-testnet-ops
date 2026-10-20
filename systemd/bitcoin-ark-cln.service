@@ -1,0 +1,22 @@
+[Unit]
+Description=Core Lightning, the Bitcoin ark's Lightning gateway (with the hold-invoice plugin)
+After=network-online.target bitcoin-ark-bitcoind.service
+Wants=bitcoin-ark-bitcoind.service
+
+[Service]
+Type=simple
+User=bark
+Group=bark
+ExecStart=/opt/bitcoin-ark/cln/usr/bin/lightningd --lightning-dir=/var/lib/bitcoin-ark/cln
+TimeoutStopSec=120
+UMask=0027
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/bitcoin-ark/cln /var/log/bitcoin-ark
+
+[Install]
+WantedBy=multi-user.target

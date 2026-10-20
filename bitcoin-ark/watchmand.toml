@@ -1,0 +1,43 @@
+# Bark's watchman (watchmand) for the Bitcoin ark: it answers exits and
+# sweeps expired rounds back to the server's wallet. Installed as
+# @ETC@/watchmand.toml by the install script, which fills in the @...@
+# values. It shares captaind's database and its key (the install script
+# copies the mnemonic into its data directory).
+
+data_dir = "@LIB@/watchmand"
+network = "@NETWORK@"
+sync_manager_block_poll_interval = "1s"
+htlc_settlement_poll_interval = "60s"
+min_trusted_confs = 2
+otel_deployment_name = "sequentia-testnet-@NETWORK@-watchman"
+# Swept funds go back to captaind's rounds wallet.
+sweep_address = "@SWEEP_ADDRESS@"
+
+[watchman]
+# Well inside vtxo_exit_delta (72 blocks): a contested exit is answered
+# within a minute of the block that needs it.
+reaction_interval = "1m"
+sweep_interval = "2h"
+progress_grace_period = 2
+claim_chunksize = 20
+incremental_relay_fee = "100 sat/kvb"
+min_cpfp_amount = "10000 sat"
+
+[fee_estimator]
+update_interval = "1m"
+history_duration = "60m"
+fallback_fee_rate_fast = "5sat/vb"
+fallback_fee_rate_regular = "3sat/vb"
+fallback_fee_rate_slow = "2sat/vb"
+max_fee_rate = "100sat/vb"
+
+[postgres]
+host = "@PG_HOST@"
+port = @PG_PORT@
+name = "@PG_DB@"
+user = "@PG_USER@"
+max_connections = 5
+
+[bitcoind]
+url = "http://127.0.0.1:@BTC_RPC_PORT@"
+cookie = "@LIB@/bitcoind/@NETWORK@/.cookie"

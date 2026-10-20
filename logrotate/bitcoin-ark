@@ -1,0 +1,14 @@
+# Rotate the logs of the Bitcoin ark's Bitcoin Core and Lightning node. Both
+# append to their file and keep it open, so the file is copied and truncated
+# in place rather than moved. Bark's server and watchman log to the journal.
+/var/log/bitcoin-ark/bitcoind.log /var/log/bitcoin-ark/cln.log {
+    daily
+    rotate 7
+    maxsize 50M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su bark bark
+}

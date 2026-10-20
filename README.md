@@ -19,8 +19,9 @@ put it in place and keep copies of it.
 | `bin/arca-pg-restore-drill.sh` | Restores the Arca operator's database from its newest base backup and every WAL segment after it into a scratch cluster, and checks the last commit is there. |
 | `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep; the Arca operator's daily PostgreSQL base backup; and the user timers that pull the bridge state and the Arca backups off the box. |
-| `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. |
-| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the two maker fleets below (`seqob-pureln-fleet`, `seqob-conf-maker`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`), and of the node JSON-RPC for browser wallets (`node-rpc-proxy`); none holds a credential, each service reads its own mode-600 config. |
+| `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. `bitcoin-ark` covers the Bitcoin ark's Bitcoin Core and Lightning logs under `/var/log/bitcoin-ark`: daily or at 50 MB, seven kept. |
+| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the two maker fleets below (`seqob-pureln-fleet`, `seqob-conf-maker`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), and of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`); none holds a credential, each service reads its own mode-600 config. |
+| `bitcoin-ark/` | The Bitcoin ark's configuration templates (Bitcoin Core, the Lightning gateway, Bark's server and watchman) and the one patch its Bark client carries. |
 | `makers/` | The scripts that keep two SeqOB maker fleets running on the box: `pureln-fleet.sh` (pure-Lightning makers) and `supervise-conf.sh` (confidential makers). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the one secret they read. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
 | `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
@@ -382,3 +383,101 @@ operator back on another disk:
   so no copy of the database, the off-box one included, starts this operator
   again. Every holder still takes its coins on the chain alone, from its own
   wallet's records.
+
+## The Bitcoin ark
+
+A Bitcoin ark runs on the box beside the Arca operator: Bark's server
+(`captaind`, from Second's Bark), on testnet4, the Bitcoin network the
+testnet anchors to. A wallet joins it with Bark's client:
+
+```sh
+bark create --testnet4 --ark https://sequentiatestnet.com \
+    --bitcoind <a testnet4 Bitcoin Core 29 or later> --bitcoind-cookie <its cookie>
+```
+
+Its coins are testnet4 BTC, the same BTC the testnet's other wallets hold, so
+a payment can cross from this ark's Lightning gateway to the SeqLN nodes and
+back. No page links to it.
+
+### What runs
+
+| Unit | What | Where |
+|---|---|---|
+| `bitcoin-ark-bitcoind` | Bitcoin Core 31.1 on testnet4, with a transaction index, no wallet, outbound peers only (the box's own testnet4 node first) | `/opt/bitcoin-ark/core`, data `/var/lib/bitcoin-ark/bitcoind`, RPC `127.0.0.1:18342` by cookie |
+| `bitcoin-ark-cln` | The Lightning gateway: Core Lightning 26.06.6 with Boltz's hold-invoice plugin v0.3.3 and its own gRPC interface | `/opt/bitcoin-ark/cln`, data `/var/lib/bitcoin-ark/cln`, peers on `127.0.0.1:19746`, gRPC `19747`, hold gRPC `19748` |
+| `bitcoin-ark-captaind` | Bark's server: rounds, in-ark payments, Lightning through the gateway | `/opt/bitcoin-ark/bin/captaind`, data `/var/lib/bitcoin-ark/captaind`, public gRPC `127.0.0.1:3545`, admin `3546`, integrations `3547` (loopback only) |
+| `bitcoin-ark-watchmand` | Bark's watchman: answers exits, sweeps expired rounds back to the server's wallet | `/opt/bitcoin-ark/bin/watchmand`, data `/var/lib/bitcoin-ark/watchmand` |
+
+All four run as the `bark` system user. The configuration files are the ones
+in `bitcoin-ark/`, with the box's paths and ports filled in:
+`/etc/bitcoin-ark/bitcoin.conf`, `/var/lib/bitcoin-ark/cln/config`,
+`/etc/bitcoin-ark/captaind.toml`, `/etc/bitcoin-ark/watchmand.toml`. None
+holds a secret: Bitcoin Core is reached by its cookie and PostgreSQL over its
+Unix socket as `bark`. The server's key is the mnemonic in
+`/var/lib/bitcoin-ark/captaind/mnemonic` (mode 600; the watchman holds a
+copy); keep a copy of it off the box.
+
+The database is `bark_captaind` in the box's PostgreSQL 16, owned by the role
+`bark`. That role commits with `synchronous_commit = local`: the cluster's
+synchronous standby is the Arca operator's WAL receiver, and the ark does not
+wait on it.
+
+`captaind` and `watchmand` log to the journal at `info` (`CAPTAIND_LOG` and
+`WATCHMAND_LOG` in their units; unset, they log every trace event).
+Bitcoin Core and the gateway write `/var/log/bitcoin-ark/bitcoind.log` and
+`cln.log`, which `logrotate/bitcoin-ark` rotates daily or at 50 MB, seven
+kept.
+
+The route is the `@bitcoinark` block in `caddy/Caddyfile`. Bark speaks gRPC,
+whose paths are the services' names, so the block matches Bark's two public
+services (`/bark_server.ArkService/*` and `/mailbox_server.MailboxService/*`)
+on the site's own address and proxies them over cleartext HTTP/2. The admin
+and integration interfaces are never routed.
+
+### Why these
+
+- **Bark at a pinned upstream release.** `captaind`, `watchmand` and the
+  client are Bark 0.7.1 (`server-0.7.1`, commit `8f5d8c4f`), built from the
+  release as published, so the Bitcoin side stays a plain Bark ark that any
+  Bark wallet can join. The client carries one patch,
+  `bitcoin-ark/bark-testnet4.patch`, offered upstream: Bark's library and
+  server run on any Bitcoin network, but its client lists only mainnet,
+  signet, Mutinynet and regtest, and it compares a BOLT11 invoice's network
+  with the wallet's, which refuses every testnet4 invoice (the `tb` currency
+  is shared with testnet3 and reads as testnet3). The patch adds `--testnet4`
+  and compares currencies instead.
+- **Bitcoin Core 31.** Bark's server refuses an older node: it reads the
+  chunk fee rates `getmempoolentry` gained in 31, and it needs a transaction
+  index. A leaf's exit transactions pay no fee themselves and carry a
+  zero-value anchor that a child spends to pay for both, relayed as a
+  package; Bitcoin Core relays and mines such anchors from version 29, and
+  refuses them before (`dust`). The box's own testnet4 node is older and
+  serves the SeqLN nodes, so the ark has a node of its own, with outbound
+  peers of its own, and a wallet's chain source must be Bitcoin Core 29 or
+  later too (Bark's client checks).
+- **Upstream Core Lightning for the gateway.** Bark's server drives its
+  gateway through Core Lightning's gRPC plugin and Boltz's hold-invoice
+  plugin, the pair Bark's own tests run with (Core Lightning 26.06.6, hold
+  v0.3.3). Bark's Lightning tests pass against SeqLN as well, built with its
+  gRPC plugin; but the box's SeqLN nodes are built without it and carry the
+  makers' channels, and a gateway of its own keeps the ark out of every SeqLN
+  cutover.
+- **A Lightning receive needs its wallet online.** Bark's server holds an
+  incoming payment for three minutes (`receive_htlc_forward_timeout`) while
+  the wallet claims it (`bark lightning claim`); unclaimed, the payment fails
+  back to the payer.
+- **The settings** (`bitcoin-ark/captaind.toml`): a round every 30 seconds
+  (a round nobody joins makes no transaction); leaves live 2,016 blocks; an
+  exit waits 72 blocks at each step, the watchman checking every minute;
+  boards need two confirmations; boards, payments and Lightning amounts up to
+  0.05 tBTC (0.01 over Lightning); Bark's own fee schedule, in satoshis.
+
+### Installing it
+
+Four owner scripts do it, each safe to paste again: prepare (download, check
+and build), install (users, database, configuration, units, the first sync,
+funding from the box's testnet4 wallet, the gateway's channel to
+`btc-taker`, the route), verify (two throwaway wallets: a board, an in-ark
+payment, a refresh, a Lightning payment each way and a unilateral exit, then
+everything sent back), and remove (every coin back to the box wallet, then
+the units, the database and the data moved under `/var/backups`).
