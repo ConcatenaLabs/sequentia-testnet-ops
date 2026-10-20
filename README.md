@@ -446,6 +446,11 @@ and integration interfaces are never routed.
   with the wallet's, which refuses every testnet4 invoice (the `tb` currency
   is shared with testnet3 and reads as testnet3). The patch adds `--testnet4`
   and compares currencies instead.
+- **Boltz's hold plugin with one line.** The gateway's hold-invoice plugin is
+  hold v0.3.3, the release Bark tests with, plus `bitcoin-ark/hold-testnet4.patch`:
+  hold maps Core Lightning's network name to an invoice currency and knows no
+  `testnet4`, so it disables itself there without a word in the journal; the patch
+  maps `testnet4` to the testnet currency, which is what its `lntb` invoices are.
 - **Bitcoin Core 31.** Bark's server refuses an older node: it reads the
   chunk fee rates `getmempoolentry` gained in 31, and it needs a transaction
   index. A leaf's exit transactions pay no fee themselves and carry a
