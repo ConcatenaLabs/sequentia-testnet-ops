@@ -1,0 +1,30 @@
+[Unit]
+Description=Read-only node JSON-RPC for browser wallets (allowlist, rate limit), behind Caddy at /node-rpc
+After=network.target
+
+[Service]
+Type=simple
+# The node's address and configuration come from a drop-in the install
+# script writes from what runs on the box (node.conf beside this unit):
+#   Environment=NODE_RPC_URL=http://127.0.0.1:<the node's rpcport>/
+#   LoadCredential=node.conf:<the node's elements.conf>
+# The credential is a read-only copy only this service sees, so the dynamic
+# user below reads the node's RPC password without any file being copied.
+ExecStart=/usr/bin/python3 -I /usr/local/lib/node-rpc-proxy/node-rpc-proxy.py --listen 127.0.0.1:18930 --node-url ${NODE_RPC_URL} --node-conf %d/node.conf
+DynamicUser=yes
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=256M
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=200
+
+[Install]
+WantedBy=multi-user.target

@@ -185,6 +185,22 @@ HTML {err.status_code}
 		}
 	}
 
+	# A node's JSON-RPC for browser wallets that follow the chain themselves
+	# (the web wallet and the extension, same-origin here). node-rpc-proxy
+	# (bin/node-rpc-proxy.py) forwards only the read calls a wallet makes and
+	# sendrawtransaction, rate-limited, scantxoutset far tighter, and adds the
+	# node's credential there: the browser holds none. No page links here.
+	handle_path /node-rpc* {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy 127.0.0.1:18930 {
+			transport http {
+				keepalive 30s
+			}
+		}
+	}
+
 	handle /lsp-ws-asset {
 		reverse_proxy 127.0.0.1:18788
 	}
