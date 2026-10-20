@@ -8,8 +8,10 @@ Type=simple
 User=arca
 Group=arca
 ExecStart=/opt/arca/target/release/arcad /etc/arca/arcad.toml
-# arcad stops its tasks and exits on SIGINT.
+# arcad stops its tasks and exits on SIGINT, and reads the assets it serves
+# from its configuration again on SIGHUP (systemctl reload arcad).
 KillSignal=SIGINT
+ExecReload=/bin/kill -HUP $MAINPID
 TimeoutStopSec=30
 Environment=RUST_LOG=info
 UMask=0077

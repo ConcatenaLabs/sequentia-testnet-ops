@@ -15,11 +15,12 @@ put it in place and keep copies of it.
 | `caddy/caddy.service.d/env.conf` | The systemd drop-in that hands `caddy.service` that file. |
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
+| `bin/node-rpc-proxy.py` | The node JSON-RPC for browser wallets behind `/node-rpc`: the calls a wallet makes and no other, rate-limited, with the node's credential added on the box. Installed at `/usr/local/lib/node-rpc-proxy/`. |
 | `bin/arca-pg-restore-drill.sh` | Restores the Arca operator's database from its newest base backup and every WAL segment after it into a scratch cluster, and checks the last commit is there. |
 | `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep; the Arca operator's daily PostgreSQL base backup; and the user timers that pull the bridge state and the Arca backups off the box. |
 | `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. |
-| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the two maker fleets below (`seqob-pureln-fleet`, `seqob-conf-maker`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), and of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`); none holds a credential, each service reads its own mode-600 config. |
+| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the two maker fleets below (`seqob-pureln-fleet`, `seqob-conf-maker`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`), and of the node JSON-RPC for browser wallets (`node-rpc-proxy`); none holds a credential, each service reads its own mode-600 config. |
 | `makers/` | The scripts that keep two SeqOB maker fleets running on the box: `pureln-fleet.sh` (pure-Lightning makers) and `supervise-conf.sh` (confidential makers). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the one secret they read. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
 | `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
@@ -51,6 +52,51 @@ bin/apply-caddy.sh
 nothing then. An edit made on the box by hand shows up in
 `bin/caddy-drift.sh`; commit it here or apply the checkout, so the file the
 repository holds is the file that runs.
+
+## The node JSON-RPC for browser wallets
+
+A browser wallet that follows the chain itself (the leaf wallet of the web
+wallet and of the extension) needs a node's JSON-RPC, and a browser can hold
+no node credential. `/node-rpc` is that node, same-origin with the wallet's
+page: `bin/node-rpc-proxy.py`, run by `node-rpc-proxy.service` on
+`127.0.0.1:18930`, forwards one call at a time to the node the Arca operator
+uses, which runs with `-txindex` and `-validateanchor`, and adds the node's
+credential itself. Nothing links to the path.
+
+- **Methods.** Exactly the calls the wallet makes, each with the arguments it
+  sends: `getblockchaininfo`, `getblockhash`, `getblockheader`, `getblock`
+  (the raw block only), `getrawtransaction`, `gettxout`, `getrawmempool`
+  (txids only), `getmempoolentry`, `getmempoolinfo`, `scantxoutset` (`start`
+  with single `raw()` or `addr()` scripts), `decodescript`, `getanchorstatus`,
+  `getfeeexchangerates`, `dumpassetlabels` (the node's rates are keyed by
+  label) and `sendrawtransaction`, the one call that writes.
+  Every other method, a wallet's path, a batch and named arguments are
+  refused with 403 (or 404, 400) before the node sees them.
+- **Rate.** Each source (the address Caddy saw; an IPv6 /48) may make 20
+  calls a second, in bursts of 400, and all sources together 200 a second.
+  `scantxoutset` reads the whole UTXO set, and a wallet makes a few for each
+  command (one per window of its on-chain scripts and per output it looks
+  for; three for a wallet with one coin on the chain): thirty in a row from a
+  source, then one a second, and four a second in all, bursts of sixty; they
+  run one at a time, each waiting up to a minute for the one before it. A call past a limit is refused with 429.
+  Caddy refuses a body over 1 MB.
+- **The credential.** The unit runs as a dynamic user with nothing of its own
+  to read. A drop-in, `/etc/systemd/system/node-rpc-proxy.service.d/node.conf`,
+  names the node's address and hands the process the node's `elements.conf`
+  as a systemd credential, from which it reads `rpcuser` and `rpcpassword`;
+  the password is in no other file.
+
+Installing it, or changing it, from the checkout:
+
+```sh
+install -D -m 644 bin/node-rpc-proxy.py /usr/local/lib/node-rpc-proxy/node-rpc-proxy.py
+install -m 644 systemd/node-rpc-proxy.service /etc/systemd/system/
+mkdir -p /etc/systemd/system/node-rpc-proxy.service.d
+printf '[Service]\nEnvironment=NODE_RPC_URL=http://127.0.0.1:18300/\nLoadCredential=node.conf:/root/seq-testnet/dexnode/elements.conf\n' \
+  > /etc/systemd/system/node-rpc-proxy.service.d/node.conf
+systemctl daemon-reload && systemctl enable --now node-rpc-proxy.service
+bin/apply-caddy.sh
+```
 
 ## What the proxy answers while levod is down
 
@@ -202,7 +248,7 @@ its repository, `ConcatenaLabs/arca`: `server/README.md` for the server,
 
 | What | Where |
 |---|---|
-| The checkout and its build | `/opt/arca`, built with `cargo build --release` into `/opt/arca/target` |
+| The checkout and its build | `/opt/arca`, at the commit the binaries in `/opt/arca/target/release` are built from (`BUILT_FROM` beside them); a new revision is built in a clone of its own, `/opt/arca-head`, and its three binaries installed there |
 | `arca-signer.service` | Holds the operator key (`/etc/arca/operator.key`) and signs on `/run/arca/signer.sock`; its append-only record is `/var/lib/arca/signer.record` |
 | `arcad.service` | The server, its rounds and its watcher, on `127.0.0.1:3535`; metrics on `127.0.0.1:3536`; configuration `/etc/arca/arcad.toml` |
 | Its node | The dexnode (`seq-dexnode`, RPC 18300), which runs with `-txindex` and `-validateanchor` |
@@ -212,7 +258,18 @@ its repository, `ConcatenaLabs/arca`: `server/README.md` for the server,
 Both services run as the `arca` system user, read-only outside
 `/var/lib/arca` and `/run/arca`. `arcad` is stopped with SIGINT, which is what
 lets it stop its tasks. The two log to the journal (`journalctl -u arcad`),
-which bounds its own size, so neither can fill the disk.
+which bounds its own size, so neither can fill the disk. `systemctl reload
+arcad` sends it SIGHUP, on which it reads the assets it serves from its
+configuration again (an asset added, a rate source changed) without a restart.
+
+A move to a new revision follows Arca's `server/README.md` ("Moving to a new
+revision"): the new revision built beside the running one, then `arcad`
+stopped, then the signer, the database dumped and the signer's record and the
+files beside it copied, the binaries and the configuration installed, the
+signer started on its record and `arcad` after it, which moves the database
+to the new schema at its start. The schema only moves forward: going back
+means the dump, and the server then forgets whatever it did after the dump,
+while the signer's record, which is never rolled back, keeps it.
 
 The signer starts only on its record, which it never makes by itself: a
 record that is lost is never silently replaced by an empty one. A new
