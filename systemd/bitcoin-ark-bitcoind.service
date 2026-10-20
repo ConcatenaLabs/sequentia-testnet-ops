@@ -1,0 +1,23 @@
+[Unit]
+Description=Bitcoin Core for the Bitcoin ark (Bark's server on the parent network)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bark
+Group=bark
+ExecStart=/opt/bitcoin-ark/core/bin/bitcoind -conf=/etc/bitcoin-ark/bitcoin.conf -datadir=/var/lib/bitcoin-ark/bitcoind -daemon=0 -printtoconsole=0
+# bitcoind flushes its state on SIGTERM; give it the time a large flush takes.
+TimeoutStopSec=600
+UMask=0027
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/bitcoin-ark/bitcoind /var/log/bitcoin-ark
+
+[Install]
+WantedBy=multi-user.target

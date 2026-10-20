@@ -201,6 +201,15 @@ HTML {err.status_code}
 		}
 	}
 
+	# Bark's server for the Bitcoin ark on testnet4. It speaks gRPC, so it is
+	# matched by its two public gRPC services rather than by a path prefix,
+	# and proxied over cleartext HTTP/2. No page links here; a Bark wallet
+	# joins with --ark https://sequentiatestnet.com.
+	@bitcoinark path /bark_server.ArkService/* /mailbox_server.MailboxService/*
+	handle @bitcoinark {
+		reverse_proxy h2c://127.0.0.1:3545
+	}
+
 	handle /lsp-ws-asset {
 		reverse_proxy 127.0.0.1:18788
 	}

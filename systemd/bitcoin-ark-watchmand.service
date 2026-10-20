@@ -1,0 +1,25 @@
+[Unit]
+Description=Bark's watchman (watchmand) for the Bitcoin ark: answers exits, sweeps expired rounds
+After=network-online.target postgresql.service bitcoin-ark-bitcoind.service bitcoin-ark-captaind.service
+Wants=bitcoin-ark-bitcoind.service
+
+[Service]
+Type=simple
+User=bark
+Group=bark
+ExecStart=/opt/bitcoin-ark/bin/watchmand --config /etc/bitcoin-ark/watchmand.toml start
+Environment=WATCHMAND_LOG=info
+TimeoutStopSec=90
+UMask=0077
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/bitcoin-ark/watchmand
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=2000
+
+[Install]
+WantedBy=multi-user.target

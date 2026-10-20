@@ -1,0 +1,28 @@
+[Unit]
+Description=Bark's server (captaind) for the Bitcoin ark: rounds, payments, the Lightning gateway's driver
+After=network-online.target postgresql.service bitcoin-ark-bitcoind.service bitcoin-ark-cln.service
+Wants=bitcoin-ark-bitcoind.service bitcoin-ark-cln.service
+
+[Service]
+Type=simple
+User=bark
+Group=bark
+ExecStart=/opt/bitcoin-ark/bin/captaind --config /etc/bitcoin-ark/captaind.toml start
+# captaind logs every event as JSON to standard output, at TRACE level unless
+# told otherwise; info keeps the journal to the events that matter.
+Environment=CAPTAIND_LOG=info
+# It stops its tasks on SIGTERM, within a minute.
+TimeoutStopSec=90
+UMask=0077
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/bitcoin-ark/captaind
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=2000
+
+[Install]
+WantedBy=multi-user.target
