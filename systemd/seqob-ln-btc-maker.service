@@ -1,6 +1,6 @@
 [Unit]
 Description=SeqLN Bitcoin testnet4 node btc-maker (the BTC leg of the pure-LN and submarine makers)
-After=network.target seq-bitcoind.service
+After=network.target bitcoind.service
 
 [Service]
 Type=simple
