@@ -16,7 +16,7 @@ coin on the chain, among some thirty calls): it has a budget of its own,
 far tighter than the rest, and the scans of every source wait in turn, one at a
 time, as the node runs them.
 
-    node-rpc-proxy.py --listen 127.0.0.1:18930 --node-url http://127.0.0.1:18300/ \
+    node-rpc-proxy.py --listen 127.0.0.1:18940 --node-url http://127.0.0.1:18300/ \
         --node-conf /path/to/elements.conf
 
 The node's configuration is read for rpcuser and rpcpassword (the last of
@@ -306,7 +306,7 @@ def make_handler(a, auth, limits, counts, upstream_slots):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--listen", default="127.0.0.1:18930")
+    p.add_argument("--listen", default="127.0.0.1:18940")
     p.add_argument("--node-url", required=True)
     p.add_argument("--node-conf", required=True)
     p.add_argument("--source-per-second", type=float, default=20)

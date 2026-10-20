@@ -59,7 +59,7 @@ A browser wallet that follows the chain itself (the leaf wallet of the web
 wallet and of the extension) needs a node's JSON-RPC, and a browser can hold
 no node credential. `/node-rpc` is that node, same-origin with the wallet's
 page: `bin/node-rpc-proxy.py`, run by `node-rpc-proxy.service` on
-`127.0.0.1:18930`, forwards one call at a time to the node the Arca operator
+`127.0.0.1:18940`, forwards one call at a time to the node the Arca operator
 uses, which runs with `-txindex` and `-validateanchor`, and adds the node's
 credential itself. Nothing links to the path.
 
