@@ -14,6 +14,7 @@ import * as seqob from "/root/sequentia/sequentia-web-wallet/seqob.js";
 import { secp256k1, schnorr } from "/root/sequentia/sequentia-web-wallet/btc.js";
 import fs from "node:fs";
 import crypto from "node:crypto";
+import { spawnSync } from "node:child_process";
 
 const RELAY = "http://127.0.0.1:9955";
 const FEED  = "http://127.0.0.1:8088/prices";
@@ -240,7 +241,14 @@ for (const o of state.orders){
     }
   }
   if (!txo){ console.log(`FILLED/GONE ${o.levelKey} ${o.covTxid}:${o.covVout}`); removed++; continue; }
-  if (o.expiryLocktime <= tip + 30){ console.log(`EXPIRING ${o.levelKey} (locktime ${o.expiryLocktime})`); removed++; continue; }
+  // An order about to expire leaves the ladder (its level is funded again below) but not the
+  // books: its coins stay locked in the covenant until the lock passes, and covenant_reclaim.py,
+  // run at the end of this pass, takes them back through the REFUND leaf. Dropped from the state
+  // instead, nothing knew of them any more.
+  if (o.expiryLocktime <= tip + 30){
+    console.log(`EXPIRING ${o.levelKey} (locktime ${o.expiryLocktime})`);
+    (state.expired ||= []).push(o); removed++; continue;
+  }
   const expLeft = Number(o.signedOffer.expires_at_unix) - now;
   if (expLeft < RELIST_MARGIN_S){
     // relist the SAME covenant under a fresh offer id + TTL
@@ -339,7 +347,13 @@ for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
   }
 }
 
-// 3) depth report
+// 3) take back the coins of expired orders whose lock has passed
+{
+  const r = spawnSync("python3", ["/root/seqob-test/covenant_reclaim.py"], { encoding: "utf8", timeout: 15*60_000 });
+  process.stdout.write(r.stdout || ""); if (r.status !== 0) console.log("reclaim failed: " + (r.stderr || r.error || r.status));
+}
+
+// 4) depth report
 console.log("\n=== depth report (covenant offers per orientation) ===");
 for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
   const X=ORDER[i], Y=ORDER[j];
