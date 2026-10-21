@@ -1,0 +1,12 @@
+[Unit]
+Description=SeqOB mixed same-chain GOLD/EURX gold-eurx-seller-side maker (buys GOLD over LN for EURX on-chain, priced from the feed)
+After=network.target
+
+[Service]
+WorkingDirectory=/root/sequentia/seqdex
+ExecStart=/root/seqob-test/mixed-maker.sh buy
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

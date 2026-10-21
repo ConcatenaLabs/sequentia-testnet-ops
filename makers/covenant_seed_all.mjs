@@ -52,7 +52,11 @@ const LEVELS = {
   SILVR: [50,54,58,63,68,73,79,86,93,100,108,117,126,136,147,159,171,185,200,216],
   OILX:  [44,48,51,55,60,65,70,75,81,88,95,103,111,120,129,140,151,163,176,190],
 };
-const SPREADS = [0.005,0.009,0.014,0.02,0.028,0.038,0.05,0.063,0.077,0.092,0.108,0.125,0.143,0.162,0.182,0.203,0.225,0.248,0.272,0.297];
+// Distance of each level from the feed's mid: 30 bps at the touch, +25 bps a level, 5% at the
+// twentieth. It ran to 30% before: a book whose asks sat 11% over the market on average, out to
+// +60% once the price moved (21/10/2026). A covenant keeps the price it was funded at until its
+// locktime, so only levels funded from now on take this scale.
+const SPREADS = [0.003,0.0055,0.008,0.0105,0.013,0.0155,0.018,0.0205,0.023,0.0255,0.028,0.0305,0.033,0.0355,0.038,0.0405,0.043,0.0455,0.048,0.0505];
 // Never spend the wallet below this floor of each asset (units).
 const FLOOR = { SEQ: 150, USDX: 5, EURX: 5, GOLD: 0.01, SILVR: 0.5, OILX: 0.3 };
 
