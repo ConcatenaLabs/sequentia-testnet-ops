@@ -7,6 +7,10 @@ Wants=bitcoin-ark-bitcoind.service
 Type=simple
 User=bark
 Group=bark
+# Core Lightning makes its network directory (testnet4/) mode 0700, which keeps
+# the group from the RPC socket that rpc-file-mode=0660 opens to it: arcad, in
+# the group bark, reaches the gateway through that socket.
+ExecStartPre=-/bin/sh -c 'for d in /var/lib/bitcoin-ark/cln/*/; do chmod 0750 "$$d"; done'
 ExecStart=/opt/bitcoin-ark/cln/usr/bin/lightningd --lightning-dir=/var/lib/bitcoin-ark/cln
 TimeoutStopSec=120
 UMask=0027
