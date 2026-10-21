@@ -20,7 +20,7 @@ put it in place and keep copies of it.
 | `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep; the Arca operator's daily PostgreSQL base backup; and the user timers that pull the bridge state and the Arca backups off the box. |
 | `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. `bitcoin-ark` covers the Bitcoin ark's Bitcoin Core and Lightning logs under `/var/log/bitcoin-ark`: daily or at 50 MB, seven kept. |
-| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the two maker fleets below (`seqob-pureln-fleet`, `seqob-conf-maker`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), and of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key); none holds a credential, each service reads its own mode-600 config. |
+| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the two maker fleets below (`seqob-pureln-fleet`, `seqob-conf-maker`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), and of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key); none holds a credential, each service reads its own mode-600 config. |
 | `bitcoin-ark/` | The Bitcoin ark's configuration templates (Bitcoin Core, the Lightning gateway, Bark's server and watchman) and the one patch its Bark client carries. |
 | `makers/` | The scripts that keep two SeqOB maker fleets running on the box: `pureln-fleet.sh` (pure-Lightning makers) and `supervise-conf.sh` (confidential makers). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the one secret they read. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
@@ -291,6 +291,44 @@ against the address that reached Caddy, and the `[limits]` rates in
 `/etc/arca/arcad.toml` (one operator nonce and one witness of the signer's
 record a second for each address, bursts of ten) are shared by every wallet
 behind one address, a wallet run on the box itself included.
+
+### Its Lightning legs
+
+Payments between a leaf and Lightning go through the operator's own SeqLN
+node, `arca-ln.service`, which holds one channel in each asset the operator
+serves over Lightning, to the box's `ln-asset` node, half of each channel's
+coins on each side so payments go both ways. It is the operator's alone:
+the makers' nodes run as root under `/root`, which `arcad`'s unit cannot
+reach and which would be full control of the makers' coins, and their
+channels move with the makers' trades, while `arcad` reads what it can send
+and receive, and its cap on received payments, from its node's channels.
+One node serves every asset: SeqLN's channels and holds are each in one
+asset, and `arcad` names the asset on every hold and payment.
+
+| What | Where |
+|---|---|
+| The node | `arca-ln.service`, as the `arca` user; `/var/lib/arca-ln`, its JSON-RPC socket `/var/lib/arca-ln/sequentia-testnet/lightning-rpc`, peers on `127.0.0.1:19850` |
+| Its binaries | `/opt/arca-ln/<commit>`, copied from the box's SeqLN checkout with SeqLN's hold-invoice plugin (`contrib/holdinvoice-seq`), which receiving needs; `/opt/arca-ln/current` names the one in use |
+| Its configuration | `/var/lib/arca-ln/config`, mode 600: it holds the dexnode's RPC password, as `/etc/arca/arcad.toml` does |
+| `arcad`'s side | each `[[assets]]` entry's `[assets.lightning] rpc` names the socket; `[lightning]` sets the send timeout (four days, the window a swap of BTC for an asset needs) and the receive cap |
+
+The Bitcoin side is the Bitcoin ark's own gateway (`bitcoin-ark-cln`, below):
+`[lightning.bitcoin]` names its socket and the ark, and `arcad` only reads
+the node's state. The gateway's socket is open to its group
+(`rpc-file-mode=0660` in `bitcoin-ark/cln.config`), and
+`systemd/arcad.service.d/bitcoin-ark.conf` puts `arcad` in that group; it is
+installed only where the ark runs, since the group exists only there.
+
+```sh
+install -m 644 systemd/arca-ln.service /etc/systemd/system/
+install -d /etc/systemd/system/arcad.service.d
+install -m 644 systemd/arcad.service.d/bitcoin-ark.conf /etc/systemd/system/arcad.service.d/
+systemctl daemon-reload && systemctl enable --now arca-ln.service
+journalctl -u arca-ln                        # its log
+```
+
+An asset added to `[[assets]]` takes `systemctl reload arcad`; a change to
+`[lightning]` or `[lightning.bitcoin]` takes a restart.
 
 ### When the signer stops
 

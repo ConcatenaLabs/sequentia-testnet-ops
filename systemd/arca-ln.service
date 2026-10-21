@@ -1,0 +1,28 @@
+[Unit]
+Description=SeqLN, the Arca operator's Lightning node: one channel in each asset arcad serves over Lightning
+After=network-online.target
+Before=arcad.service
+
+[Service]
+Type=simple
+User=arca
+Group=arca
+# The binaries are copied from the box's SeqLN checkout into a directory of
+# their own, /opt/arca-ln/<commit>, with its hold-invoice plugin; current
+# names the one in use. The configuration, which holds the node's RPC
+# password, is /var/lib/arca-ln/config (mode 600).
+ExecStart=/opt/arca-ln/current/lightningd/lightningd --lightning-dir=/var/lib/arca-ln
+TimeoutStopSec=120
+UMask=0077
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/arca-ln
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=2000
+
+[Install]
+WantedBy=multi-user.target
