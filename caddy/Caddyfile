@@ -21,7 +21,7 @@ http://sequentiatestnet.com {
 	# follows no redirects, so the https site is unreachable to it and a 301
 	# here reads to it as a relay that is simply not there. This is what lets a
 	# testnet node convert staking rewards with no -seqoburl configured. Same
-	# backend as the https route, which falls through to :8080.
+	# backend as the https site's /seqob route.
 	handle /seqob/* {
 		reverse_proxy 127.0.0.1:8080
 	}
@@ -143,6 +143,18 @@ HTML {err.status_code}
 		reverse_proxy 127.0.0.1:8095
 	}
 
+	# The SeqDEX order-book relays. The on-chain book is /seqob, the relay on
+	# 127.0.0.1:9955: the explorer's server on :8080 forwards every path under
+	# it there, the courier's WebSocket included, as it does /seqob-pln (:9965),
+	# /seqob-subas (:9971) and /seqob-subasbuy (:9966). The SeqDEX site at /dex/
+	# reads a market's book at /seqob/v1/market/{base}/{quote}/orderbook and the
+	# fills of its covenant orders, each with where it stands (confirmed, final
+	# or undone), at /seqob/v1/market/{base}/{quote}/fills, both through this
+	# route, so the book and its fills come from the same relay.
+	handle /seqob/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+	# The confidential book's relay, proxied directly.
 	handle_path /seqob-conf/* {
 		reverse_proxy 127.0.0.1:9975
 	}

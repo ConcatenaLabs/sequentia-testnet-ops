@@ -39,6 +39,17 @@ bridge, Emissio and the Sequentia Core download, and the full menu of every prod
 Two paths sit behind basic auth because they show simulated regulated data;
 the SBTC peg path carries a bearer token the browser never sees.
 
+The SeqDEX order-book relays each have a mount. `/seqob` is the on-chain book
+(the relay on port 9955), `/seqob-pln` the Lightning book (9965), `/seqob-subas`
+and `/seqob-subasbuy` the sub-asset books (9971, 9966): the Caddyfile hands each
+to the explorer's server, which forwards every path under a mount to its relay,
+the courier's WebSocket included. `/seqob-conf` is the confidential book (9975),
+proxied directly. The SeqDEX site at `/dex/` reads a market's book and the fills
+of its covenant orders under `/seqob`
+(`/seqob/v1/market/{base}/{quote}/orderbook` and `…/fills`), so both come from
+the same relay. `apply-caddy.sh` checks that `/seqob`, `/seqob-pln` and
+`/seqob-conf` answer, besides the products' pages.
+
 ## Changing a route
 
 On a laptop, in a branch: edit `caddy/Caddyfile`, open a pull request, merge
