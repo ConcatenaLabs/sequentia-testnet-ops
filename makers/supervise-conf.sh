@@ -1,6 +1,8 @@
 #!/bin/bash
 # Confidential (blinded) maker fleet: one funded confidential ocean account per
-# directed pair, both sides. Run by seqob-conf-maker.service. Accounts are
+# directed pair, both sides. Run by seqob-conf-maker.service. A maker retires
+# its offers at expiry (an hour) and is relaunched at the feed's price of that
+# moment, read again at every launch. Accounts are
 # NEVER shared with the transparent same-chain fleet (coin races corrupt
 # fills). Keys are box-local.
 set +u
@@ -66,33 +68,35 @@ keep_running() { # logfile command...
   done
 }
 
-run_side() { # acct base quote side base_amount quote_amount [keyfile [logfile]]
-  local acct=$1 b=$2 q=$3 side=$4 bamt=$5 qamt=$6
-  local key=${7:-keys/conf-$acct-$side.priv} log=${8:-run/conf-$acct-$side.log}
-  is_atoms "$bamt" && is_atoms "$qamt" || { echo "$acct $side: amounts '$bamt'/'$qamt' are not whole atoms; not started" >&2; return; }
+# One maker, priced now: ~$usd of the base against ~$usd of the quote, from the
+# feed at this launch. Priced once at service start instead, every hourly
+# relaunch reposted the start's price: 3-4% off the market a day later.
+launch_side() { # acct base quote side baseT quoteT usd key
+  local acct=$1 b=$2 q=$3 side=$4 bt=$5 qt=$6 usd=$7 key=$8 bamt qamt
+  bamt=$(python3 feed_atoms.py $bt $usd 2>/dev/null); qamt=$(python3 feed_atoms.py $qt $usd 2>/dev/null)
+  is_atoms "$bamt" && is_atoms "$qamt" || { echo "$acct $side: amounts '$bamt'/'$qamt' are not whole atoms; retrying"; return 1; }
   # 20 bps each side of the feed so the touch is a spread, not bid == ask.
   if [ "$side" = sell ]; then qamt=$(python3 -c "print(int($qamt*1.002))"); else qamt=$(python3 -c "print(int($qamt*0.998))"); fi
+  ./seqob-maker-sc -relay $RELAY -ocean $OCEAN -node-rpc "$SEQ_NODE_RPC" -account $acct     -base "$b" -quote "$q" -side $side -base-amount "$bamt" -quote-amount "$qamt"     -confidential=true -levels 20 -level-bps 40 -level-growth 1.12 -msats-per-byte 300     -maker-priv "$(cat "$key")"
+}
+
+run_side() { # acct base quote side baseT quoteT usd [keyfile [logfile]]
+  local acct=$1 b=$2 q=$3 side=$4 bt=$5 qt=$6 usd=$7
+  local key=${8:-keys/conf-$acct-$side.priv} log=${9:-run/conf-$acct-$side.log}
   [ -f "$key" ] || { head -c32 /dev/urandom | xxd -p -c64 > "$key"; chmod 600 "$key"; }
-  keep_running "$log" \
-    ./seqob-maker-sc -relay $RELAY -ocean $OCEAN -node-rpc "$SEQ_NODE_RPC" -account $acct \
-    -base "$b" -quote "$q" -side $side -base-amount "$bamt" -quote-amount "$qamt" \
-    -confidential=true -levels 20 -level-bps 40 -level-growth 1.12 -msats-per-byte 300 \
-    -maker-priv "$(cat "$key")" &
+  keep_running "$log" launch_side $acct $b $q $side $bt $qt $usd "$key" &
 }
 
 pair() { # acct base baseT usd_notional quote quoteT
   local acct=$1 b=$2 bt=$3 bu=$4 q=$5 qt=$6
-  local BAMT=$(python3 feed_atoms.py $bt $bu 2>/dev/null)
-  local QAMT=$(python3 feed_atoms.py $qt $bu 2>/dev/null)
-  run_side $acct $b $q sell "$BAMT" "$QAMT"
-  run_side $acct $b $q buy  "$BAMT" "$QAMT"
+  run_side $acct $b $q sell $bt $qt $bu
+  run_side $acct $b $q buy  $bt $qt $bu
   sleep 1
 }
 
 # The first pair keeps the key and log names it was created with.
-BAMT=$(python3 feed_atoms.py SEQ 50 2>/dev/null); QAMT=$(python3 feed_atoms.py USDX 50 2>/dev/null)
-run_side conf2-SEQ-USDX $SEQ $USDX sell "$BAMT" "$QAMT" keys/conf-SEQ-USDX.priv     run/conf-SEQ-USDX-sell.log
-run_side conf2-SEQ-USDX $SEQ $USDX buy  "$BAMT" "$QAMT" keys/conf-SEQ-USDX-buy.priv run/conf-SEQ-USDX-buy.log
+run_side conf2-SEQ-USDX $SEQ $USDX sell SEQ USDX 50 keys/conf-SEQ-USDX.priv     run/conf-SEQ-USDX-sell.log
+run_side conf2-SEQ-USDX $SEQ $USDX buy  SEQ USDX 50 keys/conf-SEQ-USDX-buy.priv run/conf-SEQ-USDX-buy.log
 
 pair conf2-SEQ-GOLD   $SEQ SEQ 60 $GOLD GOLD
 pair conf2-SEQ-EURX   $SEQ SEQ 60 $EURX EURX
