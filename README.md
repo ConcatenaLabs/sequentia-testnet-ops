@@ -176,12 +176,16 @@ makers (every directed pair, both sides). The maker binaries come from the
 `seqdex` checkout on the box; each maker's key is a box-local file created on
 first use, and each maker appends to its own log in `/root/seqob-test/run`.
 
-Amounts are computed once, at launch, from the price feed and the asset
-registry on the box. Those are separate services, so a script waits until they
-answer before it starts anything, and it starts no maker whose amounts did not
-come out as whole atoms. A maker that exits within a minute is relaunched with
+Amounts come from the price feed and the asset registry on the box. Those are
+separate services, so a script waits until they answer before it starts
+anything, and it starts no maker whose amounts did not come out as whole atoms.
+`supervise-conf.sh` computes them once, at launch. `pureln-fleet.sh` computes
+them each time it launches a maker: a pure-Lightning maker retires its offer at
+expiry (an hour) and is relaunched at the price of that moment. Each level is
+priced on its own size, so the ladder moves away from the market by its offset
+only (20 bps at the touch against BTC, 40 bps between assets, +25 bps a level). A maker that exits within a minute is relaunched with
 a doubling delay, up to five minutes; one that ran longer is relaunched after
-eight seconds. To requote the whole fleet at current prices, restart its
+eight seconds. To requote a whole fleet at current prices at once, restart its
 service.
 
 `supervise-conf.sh` reads the node RPC URL, which carries a password, from
