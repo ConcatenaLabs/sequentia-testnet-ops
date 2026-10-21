@@ -234,6 +234,31 @@ Each node reads its Bitcoin RPC credentials from the `config` file in its own
 directory, on the box only, and the Lightning binaries come from the `seqln`
 checkout there.
 
+## The SeqLN nodes' channel options
+
+Each SeqLN node offers the channel types its peers can use with it. The options
+are lines in the node's own config file, never on a unit's command line, and
+`lightningd` refuses an option its binary does not know, so they are written
+only once the node runs a SeqLN build that has them, and removed before it goes
+back to one that does not.
+
+| Node | Options | Why |
+|---|---|---|
+| The node the LSP's `SUBAS_LP_RPC` names | `taproot-covenant-channels`, `credit-channels`, `plugin=/root/sequentia/seqln/contrib/credit-seq/credit.py` | It opens the inbound channels toward hosted users, so it provides their credit: its `creditinvoice` makes an invoice whose payment it owes the user, while the user's device is away. |
+| Every other node on Sequentia that holds its own key, `arca-ln` among them | `taproot-covenant-channels` | It hosts no user: the covenant channel type with every peer that offers it, and no credit. |
+| The hosted nodes on Sequentia (the LSP's `PROV_DIR`) | `taproot-covenant-channels`, `credit-channels` | Each is keyless: its user's device signs. `lightningd` withdraws each option the device cannot sign, so a user's node offers the covenant type once the device can sign it and holds credit once the device can hold notes. |
+| `btc-maker`, `btc-taker`, the hosted nodes on Bitcoin | none | On Bitcoin the options offer nothing: its scripts have no introspection opcodes. |
+
+The options change only channels opened after them; every channel keeps the
+type it was opened with. `point-locks` is on no node while the node holds a
+channel of an older type: a point-locked HTLC rides only on a covenant
+channel, and SeqLN's `pay` sends one over an older channel between two nodes
+that both take point locks, where the first hop refuses it
+(`WIRE_REQUIRED_CHANNEL_FEATURE_MISSING`) and the payment fails rather than
+falling back to the payment hash. The LSP writes a new hosted node's config
+without these options, so a node it provisions offers them only once they are
+added to that config.
+
 ## Bridge state off the box
 
 ```sh
@@ -336,7 +361,7 @@ asset, and `arcad` names the asset on every hold and payment.
 |---|---|
 | The node | `arca-ln.service`, as the `arca` user; `/var/lib/arca-ln`, its JSON-RPC socket `/var/lib/arca-ln/sequentia-testnet/lightning-rpc`, peers on `127.0.0.1:19850` |
 | Its binaries | `/opt/arca-ln/<commit>`, copied from the box's SeqLN checkout with SeqLN's hold-invoice plugin (`contrib/holdinvoice-seq`), which receiving needs; `/opt/arca-ln/current` names the one in use |
-| Its configuration | `/var/lib/arca-ln/config`, mode 600: it holds the dexnode's RPC password, as `/etc/arca/arcad.toml` does |
+| Its configuration | `/var/lib/arca-ln/config`, mode 600: it holds the dexnode's RPC password, as `/etc/arca/arcad.toml` does, and its channel option (see "The SeqLN nodes' channel options") |
 | `arcad`'s side | each `[[assets]]` entry's `[assets.lightning] rpc` names the socket; `[lightning]` sets the send timeout (four days, the window a swap of BTC for an asset needs) and the receive cap |
 
 The Bitcoin side is the Bitcoin ark's own gateway (`bitcoin-ark-cln`, below):
