@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Pure-LN maker fleet: six assets on both sides against BTC, and every
 # asset/asset pair on both sides, eight price levels each. Run by
-# seqob-pureln-fleet.service. Prices come from the feed once, at launch; a
-# maker requotes its own remainder after a partial fill. Identities are stable
-# per (pair, side, level), box-local, never in git.
+# seqob-pureln-fleet.service. Each launch of a maker reads the feed again: a
+# maker retires its offer at expiry (an hour) and is relaunched at the price of
+# that moment, so the fleet follows the market hour by hour. A maker requotes
+# its own remainder after a partial fill. Identities are stable per (pair,
+# side, level), box-local, never in git.
 #
 # Every level is its OWN process because pure-LN keeps ONE swap in flight per
 # maker, so every rung shown is a rung a taker can actually lift.
@@ -14,6 +16,10 @@ RELAY=http://127.0.0.1:9965
 FEED=http://127.0.0.1:8080/prices
 KEYS=/etc/sequentia/maker-keys
 LOGS=/root/seqob-test/run
+
+# The feed again, for a maker being (re)launched; the last answer stands when it
+# does not answer.
+refresh_prices() { local p; p=$(curl -sf -m 10 "$FEED") && PRICES=$p; }
 
 # The price of a ticker, or 0 when the feed does not carry it.
 px() { echo "$PRICES" | python3 -c "import json,sys; d=json.load(sys.stdin); v=d.get(\"$1\") or d.get(\"t$1\") or 0; print(v[\"price\"] if isinstance(v,dict) else v)" 2>/dev/null; }
@@ -60,42 +66,72 @@ maker_key() { # name -> path of its key file, created on first use
   echo "$key"
 }
 
+# One price level of an asset against BTC, priced now: the quote is the feed's
+# value of THIS level's size, then moved away from the touch by the level's
+# offset. Pricing the first level's size and then growing the size left every
+# deeper level selling 1.5x to 5x more of the asset for the same bitcoin: 30%
+# to 80% under the market on 21/10/2026.
+price_btc() { # ticker side base_atoms level -> "BASE QUOTE", or nothing
+  local T=$1 S=$2 BASE=$3 LVL=$4 AP BTCP
+  refresh_prices
+  AP=$(px $T); BTCP=$(px BTC)
+  is_positive "$AP" && is_positive "$BTCP" || return 1
+  python3 - "$S" "$BASE" "$LVL" "$AP" "$BTCP" <<'PY'
+import math, sys
+s, base, lvl, ap, btcp = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4]), float(sys.argv[5])
+# Ladder: 20 bps at the touch, +25 bps per level out, sizes growing 1.5x per
+# level capped at 5x: the shape of an actively traded book, dense near the
+# touch with real size building behind it.
+base = int(base * min(5, 1.5 ** (lvl - 1)))
+off = 0.002 + (lvl - 1) * 0.0025
+fair = max(200, math.ceil(base / 1e8 * ap / btcp * 1e8))
+print(base, int(fair * (1 - off)) if s == 'buy' else int(fair * (1 + off)))
+PY
+}
+launch_btc() { # ticker assetid side base_atoms level name
+  local T=$1 A=$2 S=$3 B0=$4 LVL=$5 NAME=$6 AMTS BASE QUOTE
+  AMTS=$(price_btc $T $S $B0 $LVL) || { echo "$NAME: the feed has no price for $T or BTC; retrying"; return 1; }
+  read -r BASE QUOTE <<< "$AMTS"
+  is_atoms "$BASE" && is_atoms "$QUOTE" || { echo "$NAME: amounts '$BASE'/'$QUOTE' are not whole atoms"; return 1; }
+  $BIN -mode pureln -side $S -base $A -base-amount $BASE -quote-amount $QUOTE     -asset-ln-socket $ASOCK -ln-socket $BSOCK -btc-asset "" -relay $RELAY     -hold-timeout 3m0s -maker-priv "$(cat "$(maker_key $NAME)")" -logtostderr
+}
 run_maker() { # ticker assetid side base_atoms level(1..8), against BTC
   local T=$1 A=$2 S=$3 BASE=$4 LVL=${5:-1}
   local NAME=pureln-$T-$S-$LVL
-  local AP=$(px $T)
-  is_positive "$AP" || { echo "$NAME: the feed has no price for $T; not started" >&2; return; }
-  local QUOTE=$(python3 -c "import math; print(max(200, math.ceil($BASE/1e8*$AP/$BTCP*1e8)))")
-  # Ladder: 20 bps at the touch, +25 bps per level out, sizes growing 1.5x per
-  # level capped at 5x: the shape of an actively traded book, dense near the
-  # touch with real size building behind it.
-  local OFF=$(python3 -c "print(0.002 + ($LVL-1)*0.0025)")
-  if [ "$S" = buy ]; then QUOTE=$(python3 -c "print(int($QUOTE*(1-$OFF)))"); else QUOTE=$(python3 -c "print(int($QUOTE*(1+$OFF)))"); fi
-  BASE=$(python3 -c "print(int($BASE*min(5, 1.5**($LVL-1))))")
-  is_atoms "$BASE" && is_atoms "$QUOTE" || { echo "$NAME: amounts '$BASE'/'$QUOTE' are not whole atoms; not started" >&2; return; }
-  keep_running "$LOGS/$NAME.log" \
-    $BIN -mode pureln -side $S -base $A -base-amount $BASE -quote-amount $QUOTE \
-    -asset-ln-socket $ASOCK -ln-socket $BSOCK -btc-asset "" -relay $RELAY \
-    -hold-timeout 3m0s -maker-priv "$(cat "$(maker_key $NAME)")" -logtostderr &
+  is_positive "$(px $T)" || { echo "$NAME: the feed has no price for $T; not started" >&2; return; }
+  keep_running "$LOGS/$NAME.log" launch_btc $T $A $S $BASE $LVL $NAME &
 }
 
 # Asset/asset pure-LN pairs: both legs on ln-asset, the quote priced in the
-# quote asset's own atoms from the same feed.
+# quote asset's own atoms from the same feed, and for the same reason after the
+# level's size.
+price_aa() { # baseT quoteT side base_atoms level -> "BASE QUOTE", or nothing
+  local BT=$1 QT=$2 S=$3 BASE=$4 LVL=$5 BP QP
+  refresh_prices
+  BP=$(px $BT); QP=$(px $QT)
+  is_positive "$BP" && is_positive "$QP" || return 1
+  python3 - "$S" "$BASE" "$LVL" "$BP" "$QP" <<'PY'
+import math, sys
+s, base, lvl, bp, qp = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4]), float(sys.argv[5])
+# Same ladder shape as the BTC pairs, 40 bps at the touch.
+base = int(base * min(5, 1.5 ** (lvl - 1)))
+off = 0.004 + (lvl - 1) * 0.0025
+fair = max(1000, math.ceil(base * bp / qp))
+print(base, int(fair * (1 - off)) if s == 'buy' else int(fair * (1 + off)))
+PY
+}
+launch_aa() { # baseT baseId quoteT quoteId side base_atoms level name
+  local BT=$1 BA=$2 QT=$3 QA=$4 S=$5 B0=$6 LVL=$7 NAME=$8 AMTS BASE QUOTE
+  AMTS=$(price_aa $BT $QT $S $B0 $LVL) || { echo "$NAME: the feed has no price for $BT or $QT; retrying"; return 1; }
+  read -r BASE QUOTE <<< "$AMTS"
+  is_atoms "$BASE" && is_atoms "$QUOTE" || { echo "$NAME: amounts '$BASE'/'$QUOTE' are not whole atoms"; return 1; }
+  $BIN -mode pureln -side $S -base $BA -base-amount $BASE -quote-amount $QUOTE     -quote-asset $QA -asset-ln-socket $ASOCK -ln-socket $ASOCK -relay $RELAY     -hold-timeout 3m0s -maker-priv "$(cat "$(maker_key $NAME)")" -logtostderr
+}
 run_aa() { # baseT baseId base_atoms quoteT quoteId side level(1..8)
   local BT=$1 BA=$2 BASE=$3 QT=$4 QA=$5 S=$6 LVL=${7:-1}
   local NAME=pureln-$BT$QT-$S-$LVL
-  local BP=$(px $BT) QP=$(px $QT)
-  is_positive "$BP" && is_positive "$QP" || { echo "$NAME: the feed has no price for $BT or $QT; not started" >&2; return; }
-  local QUOTE=$(python3 -c "import math; print(max(1000, math.ceil($BASE*$BP/$QP)))")
-  # Same ladder shape as the BTC pairs, 40 bps at the touch.
-  local OFF=$(python3 -c "print(0.004 + ($LVL-1)*0.0025)")
-  if [ "$S" = buy ]; then QUOTE=$(python3 -c "print(int($QUOTE*(1-$OFF)))"); else QUOTE=$(python3 -c "print(int($QUOTE*(1+$OFF)))"); fi
-  BASE=$(python3 -c "print(int($BASE*min(5, 1.5**($LVL-1))))")
-  is_atoms "$BASE" && is_atoms "$QUOTE" || { echo "$NAME: amounts '$BASE'/'$QUOTE' are not whole atoms; not started" >&2; return; }
-  keep_running "$LOGS/$NAME.log" \
-    $BIN -mode pureln -side $S -base $BA -base-amount $BASE -quote-amount $QUOTE \
-    -quote-asset $QA -asset-ln-socket $ASOCK -ln-socket $ASOCK -relay $RELAY \
-    -hold-timeout 3m0s -maker-priv "$(cat "$(maker_key $NAME)")" -logtostderr &
+  is_positive "$(px $BT)" && is_positive "$(px $QT)" || { echo "$NAME: the feed has no price for $BT or $QT; not started" >&2; return; }
+  keep_running "$LOGS/$NAME.log" launch_aa $BT $BA $QT $QA $S $BASE $LVL $NAME &
 }
 
 TSEQ=c8eccacf0953e1931cd31e434d8319101cc36e6c38b0e2104d8687552fae3e40
