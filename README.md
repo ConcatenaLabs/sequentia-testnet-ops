@@ -315,7 +315,9 @@ asset, and `arcad` names the asset on every hold and payment.
 The Bitcoin side is the Bitcoin ark's own gateway (`bitcoin-ark-cln`, below):
 `[lightning.bitcoin]` names its socket and the ark, and `arcad` only reads
 the node's state. The gateway's socket is open to its group
-(`rpc-file-mode=0660` in `bitcoin-ark/cln.config`), and
+(`rpc-file-mode=0660` in `bitcoin-ark/cln.config`, and its unit opens the
+network directory that holds the socket, which Core Lightning makes mode 0700,
+to the group as well), and
 `systemd/arcad.service.d/bitcoin-ark.conf` puts `arcad` in that group; it is
 installed only where the ark runs, since the group exists only there.
 
