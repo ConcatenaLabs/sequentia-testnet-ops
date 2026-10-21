@@ -22,7 +22,7 @@ put it in place and keep copies of it.
 | `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. `bitcoin-ark` covers the Bitcoin ark's Bitcoin Core and Lightning logs under `/var/log/bitcoin-ark`: daily or at 50 MB, seven kept. |
 | `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the makers below (`seqob-pureln-fleet`, `seqob-conf-maker`, `seqob-mixed-gold-eurx-buyer-side`, `seqob-mixed-gold-eurx-seller-side`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), and of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key); none holds a credential, each service reads its own mode-600 config. |
 | `bitcoin-ark/` | The Bitcoin ark's configuration templates (Bitcoin Core, the Lightning gateway, Bark's server and watchman) and the one patch its Bark client carries. |
-| `makers/` | The scripts that keep SeqOB makers running on the box: `pureln-fleet.sh` (pure-Lightning makers), `supervise-conf.sh` (confidential makers), `mixed-maker.sh` (the two mixed GOLD/EURX makers) and `covenant_seed_all.mjs` (the on-chain covenant ladder). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the one secret the shell scripts read; the seeder reads the node's `elements.conf`. |
+| `makers/` | The scripts that keep SeqOB makers running on the box: `pureln-fleet.sh` (pure-Lightning makers), `supervise-conf.sh` (confidential makers), `mixed-maker.sh` (the two mixed GOLD/EURX makers), `covenant_seed_all.mjs` (the on-chain covenant ladder) and `covenant_reclaim.py` (which takes back the coins of its expired orders). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the one secret the shell scripts read; the seeder reads the node's `elements.conf`. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
 | `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
 
@@ -176,6 +176,7 @@ The system's daily logrotate timer applies both; nothing needs restarting.
 ```sh
 install -m 755 makers/pureln-fleet.sh makers/supervise-conf.sh makers/mixed-maker.sh /root/seqob-test/
 install -m 644 makers/covenant_seed_all.mjs /root/seqob-test/
+install -m 755 makers/covenant_reclaim.py /root/seqob-test/
 install -m 644 systemd/seqob-pureln-fleet.service systemd/seqob-conf-maker.service   systemd/seqob-mixed-gold-eurx-buyer-side.service systemd/seqob-mixed-gold-eurx-seller-side.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl restart seqob-pureln-fleet.service seqob-conf-maker.service   seqob-mixed-gold-eurx-buyer-side.service seqob-mixed-gold-eurx-seller-side.service
@@ -209,7 +210,17 @@ feed, 20 bps off it on the maker's side, and the maker retires it hourly.
 pairs: twenty levels a side, 30 bps from the feed at the touch and 25 bps more a
 level. The covenant-reseed and seqob-covenant-topup timers run it. A covenant
 keeps the price it was funded at until its locktime (40,000 blocks), so a level
-takes the current price only when it is funded again, after a fill.
+takes the current price only when it is funded again, after a fill or once it
+expires. An order 30 blocks from its lock leaves the ladder for the state's
+`expired` list, and each pass ends by running `covenant_reclaim.py`: for every
+expired order whose lock has passed it spends the covenant through its REFUND
+leaf back to the seeder wallet, the fee paid in the same asset, and an order
+whose covenant is spent is written to `run/covenant-reclaimed.jsonl`. The
+refund is built with the node's Python test framework and seqdex's
+`seqob_covenant.py` (the regtest-proven spend), from the checkouts at
+`/root/sequentia/Sequentia` and `/root/sequentia/seqdex`.
+`covenant_reclaim.py --dry-run` builds and tests each refund without
+broadcasting it.
 
 `supervise-conf.sh` and `mixed-maker.sh` read the node RPC URL, which carries a password, from
 `/etc/sequentia/seqob-makers.env` (mode 600); `makers/seqob-makers.env.example`
