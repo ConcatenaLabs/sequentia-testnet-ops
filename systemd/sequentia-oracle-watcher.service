@@ -1,0 +1,39 @@
+# The oracle-bond watcher: reads every testnet oracle's format-2 attestations
+# (each signer's log and its publisher's /v2/log/raw) and slashes the oracle's
+# bond when it finds two of them for one pair, precision and time at two
+# prices. It holds no oracle key. Its config, written by the owner script that
+# installs it, is /root/sequentia/oracle-watcher/watcher.json (0600: it names
+# the node's RPC password file); sequentia-oracle's doc/runbook.md, "The
+# watcher", describes every setting.
+[Unit]
+Description=Sequentia oracle-bond watcher
+Documentation=https://github.com/ConcatenaLabs/sequentia-oracle
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/sequentia/sequentia-oracle
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -I /root/sequentia/sequentia-oracle/bin/sequentia-oracle-watcher --config /root/sequentia/oracle-watcher/watcher.json
+Restart=always
+RestartSec=30
+# Its records seen, conflicts and slashes: /var/lib/sequentia-oracle-watcher.
+StateDirectory=sequentia-oracle-watcher
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+# The oracle keys are the signers' alone: this service cannot see them.
+InaccessiblePaths=/root/sequentia/oracle-signer
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+RestrictRealtime=yes
+
+[Install]
+WantedBy=multi-user.target
