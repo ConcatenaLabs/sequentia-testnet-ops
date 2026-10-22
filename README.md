@@ -226,7 +226,9 @@ service.
 `samechain-fleet.sh` gives each pair one Ocean account, `lq-sc-<BASE>-<QUOTE>`:
 the sell maker gives the base and the buy maker the quote, so the two never
 reach for the same coin, and each pays its fees in what it gives. Level 0 rests
-20 bps off the feed and holds $100 of the base; each deeper level is 25 bps
+20 bps off the feed and holds $100 of the base, or less where an asset names a
+smaller level 0 in the script's list and a pair takes the smaller of its two
+(USDC.e and EURC.e, minted by the bridge a few units at a time, $0.20); each deeper level is 25 bps
 further and 1.2 times larger, and the maker trims the deepest levels to what
 its account holds. A maker re-posts a level a lift filled, asks the node about
 every coin its wallet selects (`-node-rpc`), so it never answers a lift with a
