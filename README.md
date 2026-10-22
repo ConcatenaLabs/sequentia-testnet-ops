@@ -82,13 +82,18 @@ credential itself. Nothing links to the path.
   with single `raw()` or `addr()` scripts), `decodescript`, `getanchorstatus`,
   `getfeeexchangerates`, `dumpassetlabels` (the node's rates are keyed by
   label) and `sendrawtransaction`, the one call that writes.
-  Every other method, a wallet's path, a batch and named arguments are
-  refused with 403 (or 404, 400) before the node sees them.
+  Every other method, a wallet's path and named arguments are refused with
+  403 (or 404, 400) before the node sees them. A batch of up to 64 of these
+  calls is taken as one request, except `sendrawtransaction` and
+  `scantxoutset`, which go one at a time; a batch carrying any other call is
+  refused whole. The leaf wallet asks for what one check reads of all its
+  coins in a batch, and makes the calls one by one where a batch is refused.
 - **Rate.** Each source (the address Caddy saw; an IPv6 /48) may make 20
-  calls a second, in bursts of 400, and all sources together 200 a second.
-  `scantxoutset` reads the whole UTXO set, and a wallet makes a few for each
-  command (one per window of its on-chain scripts and per output it looks
-  for; three for a wallet with one coin on the chain): thirty in a row from a
+  calls a second, in bursts of 400, and all sources together 200 a second;
+  each call in a batch counts as one. `scantxoutset` reads the whole UTXO
+  set, and a wallet makes a few after each new block (one per window of its
+  on-chain scripts and per output it looks for), none while the chain has not
+  moved since its last command: thirty in a row from a
   source, then one a second, and four a second in all, bursts of sixty; they
   run one at a time, each waiting up to a minute for the one before it. A call past a limit is refused with 429.
   Caddy refuses a body over 1 MB.

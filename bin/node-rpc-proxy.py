@@ -7,14 +7,22 @@ node URL here and holds no node credential: this process adds the node's own,
 read from the node's configuration through a systemd credential, and forwards
 only the calls below, each with the arguments a wallet sends. Everything else
 is refused before the node sees it: every wallet call, every call that changes
-the node, a batch, named arguments, a path under the node's /wallet/.
+the node, named arguments, a path under the node's /wallet/.
+
+A batch (a JSON list of calls) is taken when every call in it is one of those
+below other than sendrawtransaction and scantxoutset, at most MAX_BATCH of them:
+each counts against the caller's budget as a call on its own, and the batch goes
+to the node as one request. The wallet asks for the reads one check makes of all
+its coins together (where each of its rounds and boards is, each block's header,
+each board's output), so a batch saves a round trip per call and costs the node
+the same calls. A batch with any other call in it is refused whole.
 
 The only call that writes is sendrawtransaction. scantxoutset reads the whole
 UTXO set, and the wallet makes one for each window of its on-chain scripts and
-each output it looks for, so a command makes a few (three, for a wallet with one
-coin on the chain, among some thirty calls): it has a budget of its own,
-far tighter than the rest, and the scans of every source wait in turn, one at a
-time, as the node runs them.
+each output it looks for when the chain has moved since its last command (a
+few, after a new block): it has a budget of its own, far tighter than the rest,
+and the scans of every source wait in turn, one at a time, as the node runs
+them.
 
     node-rpc-proxy.py --listen 127.0.0.1:18940 --node-url http://127.0.0.1:18300/ \
         --node-conf /path/to/elements.conf
@@ -106,6 +114,27 @@ ALLOWED = {
     "sendrawtransaction": shape(is_hex, lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0, least=1),
 }
 HEAVY = {"scantxoutset"}
+# Calls a batch may not carry: the one that writes, and the heavy one, which
+# waits its turn on its own.
+NOT_IN_BATCH = {"sendrawtransaction"} | HEAVY
+MAX_BATCH = 64
+
+
+def checked(req):
+    """One call of a request: (method, params, id), or (status, code, message, id) refusing it."""
+    if not isinstance(req, dict):
+        return (400, -32600, "a call is a JSON object", None)
+    rid = req.get("id")
+    method, params = req.get("method"), req.get("params", [])
+    if params is None:
+        params = []
+    if not isinstance(method, str) or method not in ALLOWED:
+        return (403, -32601, "method not allowed here: %s" % str(method)[:64], rid)
+    if not isinstance(params, list):
+        return (403, -32602, "%s: positional arguments only" % method, rid)
+    if not ALLOWED[method](params):
+        return (403, -32602, "%s: arguments not allowed here" % method, rid)
+    return (method, params, rid)
 
 
 class Bucket:
@@ -230,9 +259,9 @@ def make_handler(a, auth, limits, counts, upstream_slots):
             n = self.headers.get("Content-Length")
             if n and n.isdigit() and int(n) <= MAX_BODY:
                 self.rfile.read(int(n))
-                self.refuse(405, -32600, "only POST of one JSON-RPC call")
+                self.refuse(405, -32600, "only POST of a JSON-RPC call or batch")
             else:
-                self.refuse(405, -32600, "only POST of one JSON-RPC call", close=True)
+                self.refuse(405, -32600, "only POST of a JSON-RPC call or batch", close=True)
 
         do_GET = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = other
 
@@ -256,18 +285,12 @@ def make_handler(a, auth, limits, counts, upstream_slots):
                 req = json.loads(body)
             except ValueError:
                 return self.refuse(400, -32700, "the body is not JSON")
-            if not isinstance(req, dict):
-                return self.refuse(400, -32600, "one call at a time: a batch is not taken")
-            rid = req.get("id")
-            method, params = req.get("method"), req.get("params", [])
-            if params is None:
-                params = []
-            if not isinstance(method, str) or method not in ALLOWED:
-                return self.refuse(403, -32601, "method not allowed here: %s" % str(method)[:64], rid)
-            if not isinstance(params, list):
-                return self.refuse(403, -32602, "%s: positional arguments only" % method, rid)
-            if not ALLOWED[method](params):
-                return self.refuse(403, -32602, "%s: arguments not allowed here" % method, rid)
+            if isinstance(req, list):
+                return self.batch(req)
+            c = checked(req)
+            if len(c) == 4:
+                return self.refuse(*c)
+            method, params, rid = c
             why = limits.take(source_of(self), method in HEAVY)
             if why:
                 return self.refuse(429, -32000, why, rid)
@@ -299,6 +322,47 @@ def make_handler(a, auth, limits, counts, upstream_slots):
                 counts.add("node refused the credential")
                 return self.refuse(502, -32000, "the node refused this proxy's credential", rid)
             counts.add(method)
+            self.answer(status if status in (200, 400, 404, 500) else 502, data)
+
+        def batch(self, reqs):
+            if not 1 <= len(reqs) <= MAX_BATCH:
+                return self.refuse(400, -32600, "a batch carries 1 to %d calls" % MAX_BATCH)
+            calls = []
+            for r in reqs:
+                c = checked(r)
+                if len(c) == 4:
+                    return self.refuse(c[0], c[1], "in a batch: " + c[2], c[3])
+                if c[0] in NOT_IN_BATCH:
+                    return self.refuse(403, -32601, "in a batch: %s is taken one call at a time" % c[0], c[2])
+                calls.append(c)
+            source = source_of(self)
+            for _ in calls:
+                why = limits.take(source, False)
+                if why:
+                    return self.refuse(429, -32000, why)
+            if not upstream_slots.acquire(blocking=False):
+                return self.refuse(503, -32000, "the node is busy; try again")
+            try:
+                out = json.dumps([{"jsonrpc": "1.0", "id": rid, "method": m, "params": p} for m, p, rid in calls]).encode()
+                c = http.client.HTTPConnection(node.hostname, node.port or 80, timeout=a.timeout)
+                try:
+                    c.request("POST", "/", out, {"Authorization": "Basic " + auth, "Content-Type": "application/json"})
+                    r = c.getresponse()
+                    data = r.read(64 << 20)
+                    status = r.status
+                finally:
+                    c.close()
+            except (OSError, http.client.HTTPException) as e:
+                counts.add("node unreachable")
+                return self.refuse(502, -32000, "the node did not answer: %s" % type(e).__name__)
+            finally:
+                upstream_slots.release()
+            if status == 401:
+                counts.add("node refused the credential")
+                return self.refuse(502, -32000, "the node refused this proxy's credential")
+            counts.add("batch")
+            for m, _, _ in calls:
+                counts.add(m)
             self.answer(status if status in (200, 400, 404, 500) else 502, data)
 
     return Handler
