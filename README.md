@@ -276,6 +276,7 @@ and no packages:
 ```sh
 bin/seqdex-depth-audit.py                     # the public site's books
 bin/seqdex-depth-audit.py --quiet --json /tmp/depth.json   # only what falls short, and the full report
+bin/seqdex-depth-audit.py --awaiting SBTC,USDC.e,EURC.e     # report these assets' markets without counting them
 ```
 
 The assets are native BTC, tSEQ, USDX, EURX, GOLD, SILVR, OILX, SBTC, USDC.e
@@ -309,7 +310,9 @@ rest in the tree and have no one-step trade against BTC in default mode. A
 market passes when every rail a default-mode surface uses for it reaches its
 target with a liftable best level: covenant, interactive, resting and in-tree
 for a pair of Sequentia assets, the Lightning book and the BTC leaf maker for a
-pair against BTC. The cross-chain and confidential books are the developer
+pair against BTC. `--awaiting` names assets whose markets are shown but not
+counted: a bridged, fully backed asset (SBTC, USDC.e, EURC.e) that no maker can
+hold until a deposit has minted it. The cross-chain and confidential books are the developer
 views' and are reported, marked `~`, without being required. The exit status
 is 0 when every market passes, 1 when one falls short and 2 when a book or the
 price feed could not be read.
