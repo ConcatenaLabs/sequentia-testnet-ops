@@ -468,7 +468,12 @@ def audit(args):
                 cell["required"] = rail in args.required and required(rail, give, get)
                 if cell["required"] and not cell["pass"]:
                     row["short"].append(rail)
-            if row["short"]:
+            waiting = sorted({TICK[a] for a in (give, get)} & args.awaiting)
+            if waiting:
+                row["verdict"] = "awaiting backed supply"
+                row["waiting"] = waiting
+                row["short"] = []
+            elif row["short"]:
                 row["verdict"] = "SHORT"
             elif not any(c.get("required") for c in row["rails"].values()):
                 row["verdict"] = "no default route"
@@ -512,14 +517,19 @@ def render(rep, quiet=False):
         lines.append(f"{row['give'] + ' > ' + row['get']:<22}" + "".join(cells) + "  " + v)
     lines.append("")
     noroute = [r["give"] + " > " + r["get"] for r in rep["markets"] if r["verdict"] == "no default route"]
-    tot = len(rep["markets"]) - len(noroute)
+    waiting = [r for r in rep["markets"] if r["verdict"] == "awaiting backed supply"]
+    tot = len(rep["markets"]) - len(noroute) - len(waiting)
+    if waiting:
+        lines.append(f"awaiting backed supply ({', '.join(sorted({t for r in waiting for t in r['waiting']}))}: bridged and "
+                     f"fully backed, so a maker holds them only once a deposit has minted them): {len(waiting)} markets, not counted")
     if noroute:
         lines.append(f"no one-step default-mode route (the supervised assets carry no Lightning leg): {', '.join(noroute)}")
     lines.append(f"verdict: {tot - nshort} of {tot} directed markets have every required rail "
                  f"({','.join(rep['required'])}) at its levels with a liftable best level; {nshort} short.")
     # per rail: of the markets that require it, how many pass
     for r in rails:
-        req = [row["rails"][r] for row in rep["markets"] if r in row["rails"] and row["rails"][r].get("required")]
+        req = [row["rails"][r] for row in rep["markets"]
+               if r in row["rails"] and row["rails"][r].get("required") and row["verdict"] != "awaiting backed supply"]
         if req:
             lines.append(f"  {r:<8} passes {sum(1 for c in req if c['pass']):>2} of {len(req):>2} markets that require it")
     # the reasons best levels were not liftable, counted
@@ -544,6 +554,8 @@ def main():
     ap.add_argument("--rails", help="comma-separated subset of " + ",".join(RAILS))
     ap.add_argument("--required", default="cov,rest,int,pln,leaf,leafbtc",
                     help="the rails a market may be required to pass on; each market requires those of them a default-mode surface uses for it (see required())")
+    ap.add_argument("--awaiting", default="",
+                    help="comma-separated tickers whose markets are reported but not counted, as awaiting backed supply")
     ap.add_argument("--no-probe", action="store_true", help="skip the courier probe of interactive, cross-chain and Lightning offers")
     ap.add_argument("--json", help="write the full report as JSON here")
     ap.add_argument("--quiet", action="store_true", help="print only the markets that fall short, and the verdict")
@@ -557,6 +569,7 @@ def main():
     args.prices = args.prices or b + "/prices"
     args.esplora = (args.esplora or b + "/api").rstrip("/")
     args.required = set(x for x in args.required.split(",") if x)
+    args.awaiting = set(x for x in args.awaiting.split(",") if x)
     try:
         rep = audit(args)
     except Exception as e:  # noqa: BLE001
