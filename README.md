@@ -16,6 +16,7 @@ put it in place and keep copies of it.
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `bin/node-rpc-proxy.py` | The node JSON-RPC for browser wallets behind `/node-rpc`: the calls a wallet makes and no other, rate-limited, with the node's credential added on the box. Installed at `/usr/local/lib/node-rpc-proxy/`. |
+| `bin/seqdex-depth-audit.py` | How deep every SeqDEX market is on every rail, and whether its best level can be taken now: one table and a verdict per directed market. See "How deep the books are". |
 | `bin/arca-pg-restore-drill.sh` | Restores the Arca operator's database from its newest base backup and every WAL segment after it into a scratch cluster, and checks the last commit is there. |
 | `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep; the Arca operator's daily PostgreSQL base backup; and the user timers that pull the bridge state and the Arca backups off the box. |
@@ -262,6 +263,56 @@ systemctl enable --now seqob-ln-btc-maker.service seqob-ln-btc-taker.service
 Each node reads its Bitcoin RPC credentials from the `config` file in its own
 directory, on the box only, and the Lightning binaries come from the `seqln`
 checkout there.
+
+## How deep the books are
+
+`bin/seqdex-depth-audit.py` reads every book and maker a wallet reaches and
+prints one row per directed market (the taker gives one asset and gets
+another) and one cell per rail: how many price levels the offers make against
+the rail's target, their depth in the price server's reference unit, and
+whether the best level can be taken right now. It runs anywhere with Python 3
+and no packages:
+
+```sh
+bin/seqdex-depth-audit.py                     # the public site's books
+bin/seqdex-depth-audit.py --quiet --json /tmp/depth.json   # only what falls short, and the full report
+```
+
+The assets are native BTC, tSEQ, USDX, EURX, GOLD, SILVR, OILX, SBTC, USDC.e
+and EURC.e: 45 pairs, 90 directed markets. Restricted assets and sale tokens
+are left out, because their issuers govern every transfer of them. The rails:
+
+| Rail | Where | Target | The check on the best level |
+|---|---|---|---|
+| `cov` | covenant orders on the on-chain book (`/seqob`) | 20 | the order's coin is unspent at the tip |
+| `rest` | orders resting as leaves in an operator's tree (`/seqob`) | 8 | the operator calls the order active, at the coin the offer names |
+| `int` | interactive same-chain offers (`/seqob`) | 8 | a lift the relay must refuse (below) |
+| `xbtc` | cross-chain BTC offers (`/seqob`) | 8 | the same |
+| `pln` | the Lightning book (`/seqob-pln`) | 8 | the same |
+| `conf` | the confidential book (`/seqob-conf`) | 8 | the same |
+| `leaf` | the leaf maker's quotes (`/leafmaker`) | 8 | its quote |
+| `leafbtc` | the BTC leaf maker's quotes (`/leafmaker-btc`) | 8 | its quote |
+
+An offer is counted in whichever orientation its maker listed it, as every
+wallet and the SeqDEX site read a pair: an order selling the quote for the base
+on the reversed market is a bid. The check on an interactive, cross-chain or
+Lightning offer asks the relay's courier to lift one atom more than the offer
+has left. The relay answers "maker is not connected" when nobody can fill it
+and "take_amount exceeds active_amount" when its maker is there; either way no
+session opens, nobody signs, and the maker is not disturbed.
+
+Some rails cannot carry some markets, and the table shows `-` there: BTC lives
+on the parent chain, so no covenant, resting, interactive, confidential or
+in-tree order holds it; and the supervised assets (USDC.e, EURC.e) are never
+confidential and have no Lightning leg at the Arca operator, so they do not
+rest in the tree and have no one-step trade against BTC in default mode. A
+market passes when every rail a default-mode surface uses for it reaches its
+target with a liftable best level: covenant, interactive, resting and in-tree
+for a pair of Sequentia assets, the Lightning book and the BTC leaf maker for a
+pair against BTC. The cross-chain and confidential books are the developer
+views' and are reported, marked `~`, without being required. The exit status
+is 0 when every market passes, 1 when one falls short and 2 when a book or the
+price feed could not be read.
 
 ## The SeqLN nodes' channel options
 
