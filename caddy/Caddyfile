@@ -197,6 +197,13 @@ HTML {err.status_code}
 		}
 	}
 
+	# The live leaf maker (the web wallet's tooling/lsp/leaf-maker.mjs, leaf-maker.service):
+	# the in-tree swaps and BTC trades user mode's Trade tab asks it for, at
+	# /leafmaker/v1/… from the wallets on this origin. No page links here.
+	handle_path /leafmaker/* {
+		reverse_proxy 127.0.0.1:9979
+	}
+
 	# A node's JSON-RPC for browser wallets that follow the chain themselves
 	# (the web wallet and the extension, same-origin here). node-rpc-proxy
 	# (bin/node-rpc-proxy.py) forwards only the read calls a wallet makes and
