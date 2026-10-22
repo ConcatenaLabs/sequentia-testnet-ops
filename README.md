@@ -288,9 +288,8 @@ takes `point-locks` beside channels of an older type. A SeqLN build whose
 both take point locks, the first hop refuses it
 (`WIRE_REQUIRED_CHANNEL_FEATURE_MISSING`) and the payment fails, so with such
 a build `point-locks` goes only on a node whose channels are all covenant
-channels. The cutover scripts read which build is the target and set the
-option accordingly. Hosted nodes take no point locks: no device signer takes
-them. The LSP writes a new hosted node's config
+channels. Hosted nodes take no point locks: no device signer takes them. The
+LSP writes a new hosted node's config
 without these options, so a node it provisions offers them only once they are
 added to that config.
 
