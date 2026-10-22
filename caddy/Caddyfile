@@ -204,6 +204,14 @@ HTML {err.status_code}
 		reverse_proxy 127.0.0.1:9979
 	}
 
+	# The live BTC maker (the same leaf-maker.mjs with its BTC desk, on a Bitcoin
+	# Lightning node of its own; leaf-maker-btc.service): BTC for an asset and an
+	# asset for BTC in one hash-lock, at /leafmaker-btc/v1/… from the wallets on
+	# this origin. No page links here.
+	handle_path /leafmaker-btc/* {
+		reverse_proxy 127.0.0.1:9978
+	}
+
 	# A node's JSON-RPC for browser wallets that follow the chain themselves
 	# (the web wallet and the extension, same-origin here). node-rpc-proxy
 	# (bin/node-rpc-proxy.py) forwards only the read calls a wallet makes and
