@@ -1,0 +1,10 @@
+[Unit]
+Description=SeqDEX makers' health every half hour
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=30min
+Unit=seqob-liquidity-health.service
+
+[Install]
+WantedBy=timers.target
