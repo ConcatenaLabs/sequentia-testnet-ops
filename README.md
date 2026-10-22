@@ -273,18 +273,24 @@ back to one that does not.
 
 | Node | Options | Why |
 |---|---|---|
-| The node the LSP's `SUBAS_LP_RPC` names | `taproot-covenant-channels`, `credit-channels`, `plugin=/root/sequentia/seqln/contrib/credit-seq/credit.py` | It opens the inbound channels toward hosted users, so it provides their credit: its `creditinvoice` makes an invoice whose payment it owes the user, while the user's device is away. |
-| Every other node on Sequentia that holds its own key, `arca-ln` among them | `taproot-covenant-channels` | It hosts no user: the covenant channel type with every peer that offers it, and no credit. |
+| The node the LSP's `SUBAS_LP_RPC` names | `taproot-covenant-channels`, `point-locks`, `credit-channels`, `plugin=/root/sequentia/seqln/contrib/credit-seq/credit.py` | It opens the inbound channels toward hosted users, so it provides their credit: its `creditinvoice` makes an invoice whose payment it owes the user, while the user's device is away. |
+| Every other node on Sequentia that holds its own key, `arca-ln` among them | `taproot-covenant-channels`, `point-locks` | It hosts no user: the covenant channel type and point locks with every peer that offers them, and no credit. |
 | The hosted nodes on Sequentia (the LSP's `PROV_DIR`) | `taproot-covenant-channels`, `credit-channels` | Each is keyless: its user's device signs. `lightningd` withdraws each option the device cannot sign, so a user's node offers the covenant type once the device can sign it and holds credit once the device can hold notes. |
 | `btc-maker`, `btc-taker`, the hosted nodes on Bitcoin | none | On Bitcoin the options offer nothing: its scripts have no introspection opcodes. |
 
 The options change only channels opened after them; every channel keeps the
-type it was opened with. `point-locks` is on no node while the node holds a
-channel of an older type: a point-locked HTLC rides only on a covenant
-channel, and SeqLN's `pay` sends one over an older channel between two nodes
-that both take point locks, where the first hop refuses it
-(`WIRE_REQUIRED_CHANNEL_FEATURE_MISSING`) and the payment fails rather than
-falling back to the payment hash. The LSP writes a new hosted node's config
+type it was opened with. A point-locked HTLC rides only on a covenant channel:
+SeqLN's `pay` locks a payment to a point only over its own covenant channels
+and pays by the payment hash wherever a channel cannot carry one, so a node
+takes `point-locks` beside channels of an older type. A SeqLN build whose
+`plugins/libplugin-pay.c` has no `payment_point_lock_channels` does not: its
+`pay` sends a point-locked HTLC over an older channel between two nodes that
+both take point locks, the first hop refuses it
+(`WIRE_REQUIRED_CHANNEL_FEATURE_MISSING`) and the payment fails, so with such
+a build `point-locks` goes only on a node whose channels are all covenant
+channels. The cutover scripts read which build is the target and set the
+option accordingly. Hosted nodes take no point locks: no device signer takes
+them. The LSP writes a new hosted node's config
 without these options, so a node it provisions offers them only once they are
 added to that config.
 
