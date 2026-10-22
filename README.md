@@ -242,9 +242,19 @@ makers (GOLD over Lightning, EURX on-chain): the first sells GOLD on the relay
 at :9966, the second buys it on :9971. Each launch prices the offer from the
 feed, 20 bps off it on the maker's side, and the maker retires it hourly.
 
-`covenant_seed_all.mjs` keeps the on-chain covenant ladder of the same-chain
-pairs: twenty levels a side, 30 bps from the feed at the touch and 25 bps more a
-level. The covenant-reseed and seqob-covenant-topup timers run it. A covenant
+`covenant_seed_all.mjs` keeps the on-chain covenant ladder of every pair of
+tSEQ, USDX, EURX, GOLD, SILVR, OILX, USDC.e and EURC.e: twenty levels a side, 30
+bps from the feed at the touch and 25 bps more a level, each level a fixed sum in
+the reference unit (cents for USDC.e and EURC.e, which the bridge mints a few
+units at a time). Amounts are computed in each asset's atoms (USDC.e and EURC.e
+have six decimals), and the seeder checks a level against the book in atoms too:
+it leaves out a level that would cross a quote within 2% of the feed, and pays no
+heed to a quote further out than that, which is a stale maker's to fix. An order
+is written to the seeder's state before it is listed: one the relay refuses for
+a passing reason (its rate limit, a restart) is listed again on the next pass,
+never funded twice, and one it refuses outright waits for its reclaim at expiry.
+Every path and endpoint can be named in the environment (`COVSEED_*` at the top
+of the file). The covenant-reseed and seqob-covenant-topup timers run it. A covenant
 keeps the price it was funded at until its locktime (40,000 blocks), so a level
 takes the current price only when it is funded again, after a fill or once it
 expires. An order 30 blocks from its lock leaves the ladder for the state's

@@ -1,4 +1,4 @@
-// covenant_seed_all.mjs - COVENANT ladder seeder for the 15 same-chain pairs.
+// covenant_seed_all.mjs - COVENANT ladder seeder for every pair of the transparent Sequentia assets.
 // Replaces the ghost seeder (deep_seed_all.py): every level is a REAL tapscript
 // passive-CLOB covenant order, funded on-chain from the covenant-seeder wallet,
 // fillable permissionlessly while the maker is offline (the whole point).
@@ -8,44 +8,66 @@
 // whose old outpoint was consumed (i.e. actually filled).
 // Reuses the PRODUCTION wallet JS (byte-exact leaf/taptree/offer signing) from
 // /root/sequentia/sequentia-web-wallet - the same code every live browser uses.
-import { planPlaceOrder, buildCovenantTerms } from "/root/sequentia/sequentia-web-wallet/covenant-order.js";
-import { computeRate, buildCovenantOffer } from "/root/sequentia/sequentia-web-wallet/covenant-flow.js";
-import * as seqob from "/root/sequentia/sequentia-web-wallet/seqob.js";
-import { secp256k1, schnorr } from "/root/sequentia/sequentia-web-wallet/btc.js";
+// Every path and endpoint below is the box's, and each can be named in the environment instead
+// (COVSEED_*), which is how a regtest rehearsal runs this same file.
+const ENV = process.env;
+const WW = ENV.COVSEED_WALLET_DIR || "/root/sequentia/sequentia-web-wallet";
+const { planPlaceOrder, buildCovenantTerms } = await import(WW + "/covenant-order.js");
+const { computeRate, buildCovenantOffer } = await import(WW + "/covenant-flow.js");
+const seqob = await import(WW + "/seqob.js");
+const { secp256k1, schnorr } = await import(WW + "/btc.js");
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 
-const RELAY = "http://127.0.0.1:9955";
-const FEED  = "http://127.0.0.1:8088/prices";
-const RPCURL= "http://127.0.0.1:18300/";
-const WALLET= "covenant-seeder";
-const KEYSF = "/root/seqob-test/covenant-seeder-keys.json";
-const STATEF= "/root/seqob-test/run/covenant-seeder-state.json";
-const HRP   = "tb";
+const RELAY = ENV.COVSEED_RELAY || "http://127.0.0.1:9955";
+const FEED  = ENV.COVSEED_FEED || "http://127.0.0.1:8088/prices";
+const RPCURL= ENV.COVSEED_RPC || "http://127.0.0.1:18300/";
+const RPCCONF = ENV.COVSEED_RPC_CONF || "/root/seq-testnet/node000/elements.conf";
+const WALLET= ENV.COVSEED_WALLET || "covenant-seeder";
+const RUNDIR= ENV.COVSEED_RUN || "/root/seqob-test/run";
+const KEYSF = ENV.COVSEED_KEYS || "/root/seqob-test/covenant-seeder-keys.json";
+const STATEF= RUNDIR + "/covenant-seeder-state.json";
+const RECLAIM = ENV.COVSEED_RECLAIM ?? "/root/seqob-test/covenant_reclaim.py";
+const HRP   = ENV.COVSEED_HRP || "tb";
+// The fundings' fee asset: the Sequence token (label "bitcoin" on the node), which the seeder
+// keeps for its fees; any asset the node takes would do.
+const FEE_LABEL = ENV.COVSEED_FEE_LABEL || "bitcoin";
 const COV_LOCKTIME_BLOCKS = 40000;   // refund-reclaimable after ~2-3 weeks
 const OFFER_TTL_S = 167*3600;        // same as the old seeder ladder
 const RELIST_MARGIN_S = 6*3600;      // relist when < 6h of offer TTL left
 
 seqob.setSeqobBase(RELAY);
 
-// Display-order asset ids (the book/pair convention; leaf wants them reversed).
-const IDS = {
-  SEQ:  "c8eccacf0953e1931cd31e434d8319101cc36e6c38b0e2104d8687552fae3e40",
-  USDX: "2a515539da5e6a60caa7766ecd65bac0c10d15717ddd2088844ba58f4d04b9de",
-  EURX: "e39685e718516156679088d9400d11a1eb82bf7cc27c5b9f5a614b8c91246d13",
-  GOLD: "3a0f9192219db59f8d7f87d93ac6311095dfe1255d149727b87baaa7d2cc71a1",
-  SILVR:"57dfa6b0eff594cc3ef1de5555e0526d1eb5590289e014e7663b292edcd63f48",
-  OILX: "4dfe69c334a9cdf4005ddf3889bba1bc397703fa8da669254877f3209caf7c8f",
+// Display-order asset ids (the book/pair convention; leaf wants them reversed), the label the
+// node knows each by (or its id), its precision, and the price feed's key for it.
+// COVSEED_ASSETS (JSON: { SYM: [id, label, precision, feedKey] }) replaces the list.
+const ASSETS = ENV.COVSEED_ASSETS ? JSON.parse(ENV.COVSEED_ASSETS) : {
+  SEQ:   ["c8eccacf0953e1931cd31e434d8319101cc36e6c38b0e2104d8687552fae3e40", "bitcoin", 8, "SEQ"],
+  USDX:  ["2a515539da5e6a60caa7766ecd65bac0c10d15717ddd2088844ba58f4d04b9de", "USDX", 8, "USDX"],
+  EURX:  ["e39685e718516156679088d9400d11a1eb82bf7cc27c5b9f5a614b8c91246d13", "EURX", 8, "EURX"],
+  GOLD:  ["3a0f9192219db59f8d7f87d93ac6311095dfe1255d149727b87baaa7d2cc71a1", "GOLD", 8, "GOLD"],
+  SILVR: ["57dfa6b0eff594cc3ef1de5555e0526d1eb5590289e014e7663b292edcd63f48", "SILVR", 8, "SILVR"],
+  OILX:  ["4dfe69c334a9cdf4005ddf3889bba1bc397703fa8da669254877f3209caf7c8f", "OILX", 8, "OILX"],
+  "USDC.e": ["9121a8204fda7aab6108b8e09b3a07aa5b7858df7b536393a5a8d636801aebfa", "9121a8204fda7aab6108b8e09b3a07aa5b7858df7b536393a5a8d636801aebfa", 6, "USDC"],
+  "EURC.e": ["d1bb6f4d0d12dde93405c23da8da38c6d00270930d75b7cdcb91ad8f0646efef", "d1bb6f4d0d12dde93405c23da8da38c6d00270930d75b7cdcb91ad8f0646efef", 6, "EURC"],
 };
-const LABEL = { SEQ:"bitcoin", USDX:"USDX", EURX:"EURX", GOLD:"GOLD", SILVR:"SILVR", OILX:"OILX" };
-const ORDER = ["SEQ","USDX","EURX","GOLD","SILVR","OILX"];
+const IDS = Object.fromEntries(Object.entries(ASSETS).map(([k, v]) => [k, v[0]]));
+const LABEL = Object.fromEntries(Object.entries(ASSETS).map(([k, v]) => [k, v[1]]));
+const PREC = Object.fromEntries(Object.entries(ASSETS).map(([k, v]) => [k, Number(v[2])]));
+const FEEDKEY = Object.fromEntries(Object.entries(ASSETS).map(([k, v]) => [k, v[3]]));
+const ORDER = Object.keys(ASSETS);
+// A node counts every asset in units of 1e-8, whatever its display precision: an amount the
+// node takes or reports is atoms / 1e8; the feed's price is per display unit, 10**precision atoms.
+const atomsOfUsd = (sym, usd) => Math.round(usd / usdPrice(sym) * 10 ** PREC[sym]);
 const revHex = h => Buffer.from(h,"hex").reverse().toString("hex");
 const INTERNAL = Object.fromEntries(Object.entries(IDS).map(([k,v])=>[k,revHex(v)]));
 
-// Ladder: USD notional per level, per SOLD asset (inventory-bound; treasury
-// reissuance is impossible - tokens orphaned by the Jul-29 treasury2 recreation).
+// Ladder: USD notional per level, per SOLD asset (inventory-bound). USDC.e and EURC.e are
+// minted by the bridge a few units at a time, so their levels are cents.
+const SMALL = Array.from({ length: 20 }, (_, k) => +(0.2 * Math.pow(1.08, k)).toFixed(2));
 const LEVELS = {
+  "USDC.e": SMALL, "EURC.e": SMALL,
   SEQ:   [55,59,64,69,75,81,87,94,102,110,119,128,138,150,162,174,188,204,220,237],
   USDX:  [30,32,35,38,41,44,48,51,56,60,65,70,76,82,88,95,103,111,120,129],
   EURX:  [33,36,38,42,45,48,52,57,61,66,71,77,83,90,97,105,113,122,132,142],
@@ -58,8 +80,8 @@ const LEVELS = {
 // +60% once the price moved (21/10/2026). A covenant keeps the price it was funded at until its
 // locktime, so only levels funded from now on take this scale.
 const SPREADS = [0.003,0.0055,0.008,0.0105,0.013,0.0155,0.018,0.0205,0.023,0.0255,0.028,0.0305,0.033,0.0355,0.038,0.0405,0.043,0.0455,0.048,0.0505];
-// Never spend the wallet below this floor of each asset (units).
-const FLOOR = { SEQ: 150, USDX: 5, EURX: 5, GOLD: 0.01, SILVR: 0.5, OILX: 0.3 };
+// Never spend the wallet below this floor of each asset (the node's units, 1e8 atoms).
+const FLOOR = { SEQ: 150, USDX: 5, EURX: 5, GOLD: 0.01, SILVR: 0.5, OILX: 0.3, "USDC.e": 0.0005, "EURC.e": 0.0005 };
 
 
 // ---------- covenant rate fitting ----------
@@ -96,7 +118,7 @@ function fitRate(sellAtoms, recvAtoms){
 // reports it. That is exactly how the book fell to 2 offers/pair (2026-08-23).
 import { readFileSync as _readFileSync } from "node:fs";
 const RPCAUTH = (() => {
-  const conf = _readFileSync("/root/seq-testnet/node000/elements.conf", "utf8");
+  const conf = _readFileSync(RPCCONF, "utf8");
   const u = /^rpcuser=(.*)$/m.exec(conf), pw = /^rpcpassword=(.*)$/m.exec(conf);
   if (!u || !pw) throw new Error("no rpcuser/rpcpassword in elements.conf");
   return Buffer.from(u[1].trim() + ":" + pw[1].trim()).toString("base64");
@@ -143,15 +165,19 @@ const payoutX = Buffer.from(schnorr.getPublicKey(h2b(KEYS.payoutPriv))).toString
 
 // ---------- state ----------
 function loadState(){ try { return JSON.parse(fs.readFileSync(STATEF,"utf8")); } catch { return {orders:[]}; } }
-function saveState(s){ fs.mkdirSync("/root/seqob-test/run",{recursive:true}); fs.writeFileSync(STATEF, JSON.stringify(s,null,1)); }
+function saveState(s){ fs.mkdirSync(RUNDIR,{recursive:true}); fs.writeFileSync(STATEF, JSON.stringify(s,null,1)); }
 
 // ---------- book helpers (cross-guard) ----------
 async function getBook(baseId, quoteId){
   try { const r=await fetch(`${RELAY}/v1/market/${baseId}/${quoteId}/orderbook`,{cache:"no-store"});
     const j=await r.json(); return j.offers||j.Offers||[]; } catch { return []; }
 }
-// best bid/ask for pair X/Y in Y-per-X units, from BOTH orientations.
-async function bestPrices(X, Y){
+// best bid/ask for pair X/Y in Y atoms per X atom, from BOTH orientations, counting only offers
+// within GUARD_BAND of `mid` (also atoms per atom) on the side that could cross: a stale quote far
+// past the market (a maker priced before the feed moved) is that maker's to fix, and must not
+// keep a whole ladder off the book, as one stale tSEQ bid 5% over the market once did.
+const GUARD_BAND = 0.02;
+async function bestPrices(X, Y, mid){
   const fwd=await getBook(IDS[X],IDS[Y]), rev=await getBook(IDS[Y],IDS[X]);
   let bid=0, ask=Infinity;
   for (const o of fwd){
@@ -165,6 +191,10 @@ async function bestPrices(X, Y){
     if(!off||!want) continue;
     if (dir===1||dir==="TRADE_DIR_SELL"){ bid=Math.max(bid, off/want); }       // sells Y for X = a bid on X/Y
     else if (dir===2||dir==="TRADE_DIR_BUY"){ ask=Math.min(ask, want/off); }
+  }
+  if (mid > 0){
+    if (bid > mid * (1 + GUARD_BAND)) bid = 0;
+    if (isFinite(ask) && ask < mid * (1 - GUARD_BAND)) ask = Infinity;
   }
   return {bid, ask};
 }
@@ -205,8 +235,9 @@ async function sendRetry(args, wallet){
 // ---------- main ----------
 const usd = {}; {
   const feed = await (await fetch(FEED)).json();
-  for (const s of ORDER) usd[s] = Number(feed[s==="SEQ"?"SEQ":s].price);
+  for (const s of ORDER){ const v = feed[FEEDKEY[s]]; usd[s] = Number(v && typeof v === "object" ? v.price : v) || 0; }
 }
+function usdPrice(sym){ return usd[sym]; }
 const tip = await rpc("getblockcount");
 const now = Math.floor(Date.now()/1000);
 const state = loadState();
@@ -260,11 +291,26 @@ for (const o of state.orders){
       ttlSecs: OFFER_TTL_S, allowPartial: true, minLot: BigInt(o.signedOffer.min_lot||1),
     });
     const st = await seqob.postCovenantOffer(offer, MPRIV).catch(e=>({err:String(e)}));
-    if (st.err){ console.log(`RELIST-FAIL ${o.levelKey}: ${st.err}`); removed++; continue; }
+    if (st.err){
+      if (/rate limit|ECONN|fetch failed|timeout|socket|50[0-9]/i.test(st.err)){
+        console.log(`RELIST-LATER ${o.levelKey}: ${st.err.slice(0, 120)}`); alive.set(o.levelKey, o); keep.push(o); continue;
+      }
+      console.log(`RELIST-FAIL ${o.levelKey}: ${st.err}`); (state.expired ||= []).push(o); removed++; continue;
+    }
     o.signedOffer = offer; relisted++;
   } else {
     const st = await seqob.postCovenantOffer(o.signedOffer, MPRIV).catch(e=>({err:String(e)}));
-    if (st.err && !/resting|exists/i.test(st.err)){ console.log(`REPOST-FAIL ${o.levelKey}: ${st.err}`); removed++; continue; }
+    if (st.err && !/resting|exists|already listed/i.test(st.err)){
+      // A refusal for a passing reason (the relay's rate limit, the relay restarting) keeps the
+      // order: its coins are still in the covenant, and funding its level again would lock a
+      // second set beside them until the first expires. Only a refusal that says the coin is
+      // gone or the offer invalid drops it.
+      if (/rate limit|ECONN|fetch failed|timeout|socket|50[0-9]/i.test(st.err)){
+        console.log(`REPOST-LATER ${o.levelKey}: ${st.err.slice(0, 120)}`); alive.set(o.levelKey, o); keep.push(o); continue;
+      }
+      // The relay will not list it: its coins wait in the covenant for the reclaim at expiry.
+      console.log(`REPOST-FAIL ${o.levelKey}: ${st.err}`); (state.expired ||= []).push(o); removed++; continue;
+    }
     reposted++;
   }
   alive.set(o.levelKey, o); keep.push(o);
@@ -274,13 +320,15 @@ saveState(state);
 
 // 2) top up missing levels
 const bal = await rpc("getbalances",[],WALLET).then(b=>b.mine.trusted);
-const balOf = s => Number(bal[LABEL[s]==="bitcoin"?"bitcoin":LABEL[s]]||0);
+const balOf = s => Number(bal[LABEL[s]] ?? bal[IDS[s]] ?? 0);
 const spent = Object.fromEntries(ORDER.map(s=>[s,0]));
 
 for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
   const X=ORDER[i], Y=ORDER[j];
-  const {bid,ask} = await bestPrices(X,Y);
-  const mid = usd[X]/usd[Y];
+  if (!(usd[X] > 0 && usd[Y] > 0)){ console.log(`SKIP ${X}_${Y}: no price in the feed`); continue; }
+  const mid = usd[X]/usd[Y];                                  // Y per X, display units
+  const atomMid = mid * 10 ** (PREC[Y] - PREC[X]);            // Y atoms per X atom
+  const {bid,ask} = await bestPrices(X,Y,atomMid);
   for (const side of ["ask","bid"]){
     const sellSym = side==="ask" ? X : Y, recvSym = side==="ask" ? Y : X;
     const plan = LEVELS[sellSym];
@@ -288,13 +336,14 @@ for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
       const key = `${X}_${Y}:${side}:${lvl}`;
       if (alive.has(key)) continue;
       const n = plan[lvl], sp = SPREADS[Math.min(lvl,SPREADS.length-1)];
-      const price = side==="ask" ? mid*(1+sp) : mid*(1-sp);   // Y per X
-      if (side==="ask" && bid>0 && price<=bid*1.001){ crossSkipped++; continue; }
-      if (side==="bid" && isFinite(ask) && price>=ask*0.999){ crossSkipped++; continue; }
-      const sellAtomsRaw = Math.max(1000, Math.round(n/usd[sellSym]*1e8));
+      const price = side==="ask" ? mid*(1+sp) : mid*(1-sp);   // Y per X, display units
+      const atomPrice = price * 10 ** (PREC[Y] - PREC[X]);    // compared with the book in atoms
+      if (side==="ask" && bid>0 && atomPrice<=bid*1.001){ crossSkipped++; continue; }
+      if (side==="bid" && isFinite(ask) && atomPrice>=ask*0.999){ crossSkipped++; continue; }
+      const sellAtomsRaw = Math.max(1000, atomsOfUsd(sellSym, n));
       const recvAtomsRaw = side==="ask"
-        ? Math.max(1, Math.round(n*(1+sp)/usd[Y]*1e8))
-        : Math.max(1, Math.round(n/((1-sp))/usd[X]*1e8));
+        ? Math.max(1, atomsOfUsd(Y, n*(1+sp)))
+        : Math.max(1, atomsOfUsd(X, n/(1-sp)));
       // Fit the rate to the FILL leaf's 64-bit bound BEFORE spending anything.
       const fitted = fitRate(sellAtomsRaw, recvAtomsRaw);
       if (!fitted){
@@ -320,7 +369,7 @@ for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
         if (!va.isvalid || va.witness_version!==1 || va.witness_program!==p.spkHex.slice(4))
           throw new Error("bech32m self-check failed");
         const amount = (sellAtoms/1e8).toFixed(8);
-        const txid = await sendRetry({address:covAddr, amount:Number(amount), assetlabel:LABEL[sellSym], fee_asset_label:"bitcoin", fee_rate:2},WALLET);
+        const txid = await sendRetry({address:covAddr, amount:Number(amount), assetlabel:LABEL[sellSym], fee_asset_label:FEE_LABEL, fee_rate:2},WALLET);
         // resolve vout by spk
         const gt = await rpc("gettransaction",[txid],WALLET);
         const dec = await rpc("decoderawtransaction",[gt.hex]);
@@ -334,22 +383,26 @@ for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
           covenant, makerPubkey: makerPub, recvAddress: "", offerId,
           ttlSecs: OFFER_TTL_S, allowPartial: true, minLot: params.minLot,
         });
-        await seqob.postCovenantOffer(offer, MPRIV);
+        // Recorded before it is posted: the coins are in the covenant from here on, so the order
+        // must be in the state whatever the relay says, to be listed again next pass or taken
+        // back at its expiry.
         spent[sellSym]+=unitsNeeded;
         const rec = { levelKey:key, sellSym, recvSym, sellAtoms, recvAtoms,
           covTxid:txid, covVout:vout, spkHex:p.spkHex, expiryLocktime:params.expiryLocktime,
           signedOffer:offer, createdUnix:now };
         state.orders.push(rec); alive.set(key, rec); saveState(state);
         fundedNew++;
-        console.log(`SEEDED ${key} sell ${amount} ${sellSym} @ ${price.toFixed(6)} ${Y}/${X}  cov ${txid.slice(0,12)}:${vout}`);
+        const pst = await seqob.postCovenantOffer(offer, MPRIV).catch(e=>({err:String(e)}));
+        if (pst && pst.err) console.log(`FUNDED ${key}, listed next pass: ${pst.err.slice(0, 120)}`);
+        else console.log(`SEEDED ${key} sell ${sellAtoms} ${sellSym} atoms @ ${price.toPrecision(6)} ${Y}/${X}  cov ${txid.slice(0,12)}:${vout}`);
       } catch(e){ console.log(`FAIL ${key}: ${e.message||e}`); skipped++; }
     }
   }
 }
 
 // 3) take back the coins of expired orders whose lock has passed
-{
-  const r = spawnSync("python3", ["/root/seqob-test/covenant_reclaim.py"], { encoding: "utf8", timeout: 15*60_000 });
+if (RECLAIM) {
+  const r = spawnSync("python3", [RECLAIM], { encoding: "utf8", timeout: 15*60_000 });
   process.stdout.write(r.stdout || ""); if (r.status !== 0) console.log("reclaim failed: " + (r.stderr || r.error || r.status));
 }
 
