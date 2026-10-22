@@ -193,6 +193,35 @@ The system's daily logrotate timer applies both; nothing needs restarting.
 
 ## The maker fleets
 
+Every SeqDEX book's depth comes from a maker that is there, or from coins
+locked in a covenant on the chain; an offer nobody can fill is never posted. The
+assets made markets in are native BTC, tSEQ, USDX, EURX, GOLD, SILVR, OILX,
+USDC.e and EURC.e. Restricted assets and sale tokens are left out: their issuers
+govern every transfer of them. Each rail, what keeps it deep, and whose coins:
+
+| Rail | Book or endpoint | Maker | Pairs | Coins |
+|---|---|---|---|---|
+| Covenant orders | `/seqob` (9955) | `makers/covenant_seed_all.mjs`, run by the covenant-reseed and seqob-covenant-topup timers | every pair of the eight Sequentia assets, twenty levels a side | node wallet `covenant-seeder` (dexnode) |
+| Interactive same-chain | `/seqob` (9955) | `makers/samechain-fleet.sh`, `seqob-samechain-fleet.service` | every pair of the eight, both sides, ten levels | Ocean accounts `lq-sc-<BASE>-<QUOTE>` |
+| Orders resting in the Arca tree | `/seqob` (9955) | the leaf maker's resting desk (`leaf-maker.service`) | every directed pair of the six non-supervised assets, eight levels | the leaf maker's own wallet |
+| In-tree swaps (the wallets' user mode) | `/leafmaker` (9979) | `leaf-maker.service` (sequentia-web-wallet `tooling/lsp/leaf-maker.mjs`) | every directed pair of the eight, eight levels | the leaf maker's own wallet |
+| BTC in one hash-lock | `/leafmaker-btc` (9978) | `leaf-maker-btc.service`, the same maker with its BTC desk and its own testnet4 Lightning node | BTC against each of the six non-supervised assets, both ways, eight levels | its own wallet and node |
+| Lightning | `/seqob-pln` (9965) | `makers/pureln-fleet.sh` | BTC and every pair of the six non-supervised assets, eight levels | the `ln-asset` and `btc-maker` Lightning nodes |
+| Cross-chain BTC | `/seqob` (9955) | `supervise-xmakers.sh` on the box | BTC against each of the six, twelve levels | `xmm` (Sequentia), `seqdex-mm-btc` (testnet4) |
+| Confidential | `/seqob-conf` (9975) | `makers/supervise-conf.sh` | every directed pair of the six, twenty levels | Ocean accounts `conf2-<BASE>-<QUOTE>` |
+
+USDC.e and EURC.e are supervised: they are never confidential, they do not rest
+in the Arca tree, and no Lightning leg carries them, so they trade on the
+covenant, interactive and in-tree rails only, and there is no one-step trade
+between them and BTC. They are minted by the Compages bridge as deposits arrive,
+into the dexnode wallet `maker-bridged`, so their levels are cents and deepen as
+supply does. The makers are funded from `treasury2026` (node000) and, for those
+two, `maker-bridged`, and from nowhere else; "The makers' health" keeps them
+topped up. To see how deep every book is right now, run
+`bin/seqdex-depth-audit.py` (see "How deep the books are"), or read
+`/root/seqob-test/run/depth-audit.txt` on the box, which the health timer
+rewrites every half hour.
+
 ```sh
 install -m 755 makers/pureln-fleet.sh makers/supervise-conf.sh makers/mixed-maker.sh makers/samechain-fleet.sh /root/seqob-test/
 install -m 644 makers/covenant_seed_all.mjs /root/seqob-test/
