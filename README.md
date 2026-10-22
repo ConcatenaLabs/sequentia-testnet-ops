@@ -50,6 +50,12 @@ of its covenant orders under `/seqob`
 the same relay. `apply-caddy.sh` checks that `/seqob`, `/seqob-pln` and
 `/seqob-conf` answer, besides the products' pages.
 
+`/leafmaker` is the live leaf maker on port 9979 (the web wallet's
+`tooling/lsp/leaf-maker.mjs`, run by `leaf-maker.service` as its own user): the
+web wallet's and Ambra's user mode ask it for in-tree swaps at
+`/leafmaker/v1/…`. It is not among the routes `apply-caddy.sh` checks, since
+the maker runs only once its own owner script has set it up.
+
 ## Changing a route
 
 On a laptop, in a branch: edit `caddy/Caddyfile`, open a pull request, merge
