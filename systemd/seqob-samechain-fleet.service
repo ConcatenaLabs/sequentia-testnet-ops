@@ -1,0 +1,12 @@
+[Unit]
+Description=SeqOB interactive same-chain maker fleet (every pair, both sides, a ladder of levels)
+After=network.target seqobd.service seq-mock-price-api.service
+
+[Service]
+ExecStart=/root/seqob-test/samechain-fleet.sh
+KillMode=control-group
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
