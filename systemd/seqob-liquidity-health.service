@@ -1,0 +1,8 @@
+[Unit]
+Description=SeqDEX makers' health: the depth audit, and top-ups of every maker below half its target
+After=network-online.target seqobd.service
+
+[Service]
+Type=oneshot
+ExecStart=/root/sequentia/sequentia-testnet-ops/makers/liquidity-health.sh
+Nice=10
