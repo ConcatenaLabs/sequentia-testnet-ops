@@ -56,6 +56,13 @@ web wallet's and Ambra's user mode ask it for in-tree swaps at
 `/leafmaker/v1/…`. It is not among the routes `apply-caddy.sh` checks, since
 the maker runs only once its own owner script has set it up.
 
+`/leafmaker-btc` is the live BTC maker on port 9978: the same program with its
+BTC desk, run by `leaf-maker-btc.service` as its own user, its Bitcoin Lightning
+node `leaf-maker-btc-ln.service` of its own (channel peer: the service's Bitcoin
+node every wallet's hosted Bitcoin node has its channel with). User mode asks it
+for BTC trades at `/leafmaker-btc/v1/…`. Like `/leafmaker`, `apply-caddy.sh`
+does not check it.
+
 ## Changing a route
 
 On a laptop, in a branch: edit `caddy/Caddyfile`, open a pull request, merge
