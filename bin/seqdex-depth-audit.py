@@ -45,7 +45,6 @@ ASSETS = [
     ("GOLD",   "3a0f9192219db59f8d7f87d93ac6311095dfe1255d149727b87baaa7d2cc71a1", 8, "GOLD"),
     ("SILVR",  "57dfa6b0eff594cc3ef1de5555e0526d1eb5590289e014e7663b292edcd63f48", 8, "SILVR"),
     ("OILX",   "4dfe69c334a9cdf4005ddf3889bba1bc397703fa8da669254877f3209caf7c8f", 8, "OILX"),
-    ("SBTC",   "288677892fa3ce0d3b0f789b6fc8c4a23fe5271f398c30da60d4827639de3e8b", 8, "tBTC"),
     ("USDC.e", "9121a8204fda7aab6108b8e09b3a07aa5b7858df7b536393a5a8d636801aebfa", 6, "USDC"),
     ("EURC.e", "d1bb6f4d0d12dde93405c23da8da38c6d00270930d75b7cdcb91ad8f0646efef", 6, "EURC"),
 ]
@@ -554,6 +553,8 @@ def main():
     ap.add_argument("--rails", help="comma-separated subset of " + ",".join(RAILS))
     ap.add_argument("--required", default="cov,rest,int,pln,leaf,leafbtc",
                     help="the rails a market may be required to pass on; each market requires those of them a default-mode surface uses for it (see required())")
+    ap.add_argument("--assets", help="a JSON file of [ticker, asset id, precision, feed key] rows in place of the "
+                    "testnet's assets (a regtest rehearsal's own)")
     ap.add_argument("--awaiting", default="",
                     help="comma-separated tickers whose markets are reported but not counted, as awaiting backed supply")
     ap.add_argument("--no-probe", action="store_true", help="skip the courier probe of interactive, cross-chain and Lightning offers")
@@ -569,6 +570,12 @@ def main():
     args.prices = args.prices or b + "/prices"
     args.esplora = (args.esplora or b + "/api").rstrip("/")
     args.required = set(x for x in args.required.split(",") if x)
+    if args.assets:
+        with open(args.assets) as f:
+            rows = [tuple(r) for r in json.load(f)]
+        ASSETS[:] = rows
+        BY_ID.clear(); BY_ID.update({a[1]: a for a in rows})
+        TICK.clear(); TICK.update({a[1]: a[0] for a in rows})
     args.awaiting = set(x for x in args.awaiting.split(",") if x)
     try:
         rep = audit(args)

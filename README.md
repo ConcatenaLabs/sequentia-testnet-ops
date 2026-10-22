@@ -21,9 +21,9 @@ put it in place and keep copies of it.
 | `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep; the Arca operator's daily PostgreSQL base backup; and the user timers that pull the bridge state and the Arca backups off the box. |
 | `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. `bitcoin-ark` covers the Bitcoin ark's Bitcoin Core and Lightning logs under `/var/log/bitcoin-ark`: daily or at 50 MB, seven kept. |
-| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the makers below (`seqob-pureln-fleet`, `seqob-conf-maker`, `seqob-mixed-gold-eurx-buyer-side`, `seqob-mixed-gold-eurx-seller-side`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), and of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key); none holds a credential, each service reads its own mode-600 config. |
+| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the makers below (`seqob-pureln-fleet`, `seqob-conf-maker`, `seqob-samechain-fleet`, `seqob-mixed-gold-eurx-buyer-side`, `seqob-mixed-gold-eurx-seller-side`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), and of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key); none holds a credential, each service reads its own mode-600 config. |
 | `bitcoin-ark/` | The Bitcoin ark's configuration templates (Bitcoin Core, the Lightning gateway, Bark's server and watchman) and the one patch its Bark client carries. |
-| `makers/` | The scripts that keep SeqOB makers running on the box: `pureln-fleet.sh` (pure-Lightning makers), `supervise-conf.sh` (confidential makers), `mixed-maker.sh` (the two mixed GOLD/EURX makers), `covenant_seed_all.mjs` (the on-chain covenant ladder) and `covenant_reclaim.py` (which takes back the coins of its expired orders). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the one secret the shell scripts read; the seeder reads the node's `elements.conf`. |
+| `makers/` | The scripts that keep SeqOB makers running on the box: `pureln-fleet.sh` (pure-Lightning makers), `supervise-conf.sh` (confidential makers), `samechain-fleet.sh` (interactive same-chain makers), `mixed-maker.sh` (the two mixed GOLD/EURX makers), `covenant_seed_all.mjs` (the on-chain covenant ladder) and `covenant_reclaim.py` (which takes back the coins of its expired orders). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the one secret the shell scripts read; the seeder reads the node's `elements.conf`. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
 | `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
 
@@ -193,18 +193,21 @@ The system's daily logrotate timer applies both; nothing needs restarting.
 ## The maker fleets
 
 ```sh
-install -m 755 makers/pureln-fleet.sh makers/supervise-conf.sh makers/mixed-maker.sh /root/seqob-test/
+install -m 755 makers/pureln-fleet.sh makers/supervise-conf.sh makers/mixed-maker.sh makers/samechain-fleet.sh /root/seqob-test/
 install -m 644 makers/covenant_seed_all.mjs /root/seqob-test/
 install -m 755 makers/covenant_reclaim.py /root/seqob-test/
-install -m 644 systemd/seqob-pureln-fleet.service systemd/seqob-conf-maker.service   systemd/seqob-mixed-gold-eurx-buyer-side.service systemd/seqob-mixed-gold-eurx-seller-side.service /etc/systemd/system/
+install -m 644 systemd/seqob-pureln-fleet.service systemd/seqob-conf-maker.service systemd/seqob-samechain-fleet.service   systemd/seqob-mixed-gold-eurx-buyer-side.service systemd/seqob-mixed-gold-eurx-seller-side.service /etc/systemd/system/
 systemctl daemon-reload
-systemctl restart seqob-pureln-fleet.service seqob-conf-maker.service   seqob-mixed-gold-eurx-buyer-side.service seqob-mixed-gold-eurx-seller-side.service
+systemctl restart seqob-pureln-fleet.service seqob-conf-maker.service seqob-samechain-fleet.service   seqob-mixed-gold-eurx-buyer-side.service seqob-mixed-gold-eurx-seller-side.service
 ```
 
 Each script launches one maker process per price level and keeps it running:
 `pureln-fleet.sh` the pure-Lightning makers (six assets against BTC and every
 asset pair, both sides, eight levels), `supervise-conf.sh` the confidential
-makers (every directed pair, both sides). The maker binaries come from the
+makers (every directed pair, both sides), `samechain-fleet.sh` the interactive
+same-chain makers on the on-chain book (every pair of tSEQ, USDX, EURX, GOLD,
+SILVR, OILX, USDC.e and EURC.e, both sides, ten levels a side from one process
+each). The maker binaries come from the
 `seqdex` checkout on the box; each maker's key is a box-local file created on
 first use, and each maker appends to its own log in `/root/seqob-test/run`.
 
@@ -219,6 +222,18 @@ between assets, +25 bps a level). A maker that exits within a minute is relaunch
 a doubling delay, up to five minutes; one that ran longer is relaunched after
 eight seconds. To requote a whole fleet at current prices at once, restart its
 service.
+
+`samechain-fleet.sh` gives each pair one Ocean account, `lq-sc-<BASE>-<QUOTE>`:
+the sell maker gives the base and the buy maker the quote, so the two never
+reach for the same coin, and each pays its fees in what it gives. Level 0 rests
+20 bps off the feed and holds $100 of the base; each deeper level is 25 bps
+further and 1.2 times larger, and the maker trims the deepest levels to what
+its account holds. A maker re-posts a level a lift filled, asks the node about
+every coin its wallet selects (`-node-rpc`), so it never answers a lift with a
+coin one of its own swaps spent, and retires its ladder after ten minutes to be
+priced again. A pair whose account holds nothing of what one side gives shows no
+offers on that side until it is funded. Every setting is an environment
+variable at the top of the script.
 
 `mixed-maker.sh sell` and `mixed-maker.sh buy` are the two mixed GOLD/EURX
 makers (GOLD over Lightning, EURX on-chain): the first sells GOLD on the relay
@@ -241,7 +256,7 @@ refund is built with the node's Python test framework and seqdex's
 `covenant_reclaim.py --dry-run` builds and tests each refund without
 broadcasting it.
 
-`supervise-conf.sh` and `mixed-maker.sh` read the node RPC URL, which carries a password, from
+`supervise-conf.sh`, `samechain-fleet.sh` and `mixed-maker.sh` read the node RPC URL, which carries a password, from
 `/etc/sequentia/seqob-makers.env` (mode 600); `makers/seqob-makers.env.example`
 names it.
 
@@ -276,11 +291,11 @@ and no packages:
 ```sh
 bin/seqdex-depth-audit.py                     # the public site's books
 bin/seqdex-depth-audit.py --quiet --json /tmp/depth.json   # only what falls short, and the full report
-bin/seqdex-depth-audit.py --awaiting SBTC,USDC.e,EURC.e     # report these assets' markets without counting them
+bin/seqdex-depth-audit.py --awaiting USDC.e,EURC.e     # report these assets' markets without counting them
 ```
 
-The assets are native BTC, tSEQ, USDX, EURX, GOLD, SILVR, OILX, SBTC, USDC.e
-and EURC.e: 45 pairs, 90 directed markets. Restricted assets and sale tokens
+The assets are native BTC, tSEQ, USDX, EURX, GOLD, SILVR, OILX, USDC.e and
+EURC.e: 36 pairs, 72 directed markets. Restricted assets and sale tokens
 are left out, because their issuers govern every transfer of them. The rails:
 
 | Rail | Where | Target | The check on the best level |
@@ -311,7 +326,7 @@ market passes when every rail a default-mode surface uses for it reaches its
 target with a liftable best level: covenant, interactive, resting and in-tree
 for a pair of Sequentia assets, the Lightning book and the BTC leaf maker for a
 pair against BTC. `--awaiting` names assets whose markets are shown but not
-counted: a bridged, fully backed asset (SBTC, USDC.e, EURC.e) that no maker can
+counted: a bridged, fully backed asset (USDC.e, EURC.e) that no maker can
 hold until a deposit has minted it. The cross-chain and confidential books are the developer
 views' and are reported, marked `~`, without being required. The exit status
 is 0 when every market passes, 1 when one falls short and 2 when a book or the
