@@ -204,8 +204,9 @@ async function bestPrices(X, Y, mid){
 // Anchor reorgs WIPE the node mempool (Bitcoin anchoring is supreme; the chain
 // follows Bitcoin in real time), which strands our unconfirmed change chain. On
 // any send failure: rebroadcast our own unconfirmed sends, then wait a block.
+// Answers how many of the wallet's own sends are unconfirmed.
 async function rebroadcastUnconfirmed(wallet){
-  const ts = await rpc("listtransactions",["*",50,0],wallet).catch(()=>[]);
+  const ts = await rpc("listtransactions",["*",500,0],wallet).catch(()=>[]);
   const seen=new Set();
   for (const t of ts){
     if (seen.has(t.txid) || t.category!=="send" || (t.confirmations??1)!==0) continue;
@@ -216,13 +217,36 @@ async function rebroadcastUnconfirmed(wallet){
       console.log("  rebroadcast "+t.txid.slice(0,12));
     } catch(e){ console.log("  rebroadcast "+t.txid.slice(0,12)+" failed: "+String(e.message||e).slice(0,60)); }
   }
+  return seen.size;
 }
+async function nextBlock(maxMs = 180000){
+  const h0 = await rpc("getblockcount");
+  for (const t0 = Date.now(); Date.now() - t0 < maxMs; ) {
+    await new Promise(r=>setTimeout(r,5000));
+    if (await rpc("getblockcount") > h0) return true;
+  }
+  return false;
+}
+// "Insufficient funds" is said both of coins the wallet does not hold and of coins it holds as
+// change of its own unconfirmed sends: too deep a chain for the mempool (25 transactions), or
+// sends the mempool dropped. While the wallet has unconfirmed sends, they are broadcast again
+// and the send is tried after the next block (ten blocks at the most): they clear block by
+// block. Once it has none, the shortage is real: thrown at once with `short` set, so that the
+// caller funds nothing more of that asset this pass.
 async function sendRetry(args, wallet){
   for (let a=0;;a++){
     try { return await rpc("sendtoaddress", args, wallet); }
     catch(e){
       const m=String(e.message||e);
-      if (a<10 && /chain|mempool|insufficient|missingorspent|unconf|fee/i.test(m)){
+      if (/insufficient funds/i.test(m)){
+        const pending = await rebroadcastUnconfirmed(wallet);
+        if (!pending || a >= 10) {
+          const err = new Error(`${m} (${pending ? "still, after ten blocks" : "with every send of the wallet confirmed"})`); err.short = true; throw err;
+        }
+        console.log(`  insufficient funds with ${pending} send(s) of the wallet unconfirmed: again after the next block`);
+        await nextBlock(); continue;
+      }
+      if (a<10 && /chain|mempool|missingorspent|unconf|fee/i.test(m)){
         console.log("  send retry ("+m.slice(0,80)+")");
         await rebroadcastUnconfirmed(wallet);
         await new Promise(r=>setTimeout(r,45000)); continue;
@@ -322,6 +346,29 @@ saveState(state);
 const bal = await rpc("getbalances",[],WALLET).then(b=>b.mine.trusted);
 const balOf = s => Number(bal[LABEL[s]] ?? bal[IDS[s]] ?? 0);
 const spent = Object.fromEntries(ORDER.map(s=>[s,0]));
+// An asset the wallet turned out not to hold enough of: its other levels wait for the next pass.
+const short = new Set();
+
+// The levels this pass would fund, in USD of the asset sold: what each asset's ladders ask of it.
+const asked = Object.fromEntries(ORDER.map(s=>[s,0]));
+for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
+  const X=ORDER[i], Y=ORDER[j];
+  if (!(usd[X] > 0 && usd[Y] > 0)) continue;
+  for (const side of ["ask","bid"]){
+    const sellSym = side==="ask" ? X : Y;
+    LEVELS[sellSym].forEach((n, lvl) => { if (!alive.has(`${X}_${Y}:${side}:${lvl}`)) asked[sellSym] += n; });
+  }
+}
+// USDC.e and EURC.e come as the bridge mints them, a few units at a time: their ladders are
+// sized to what the wallet holds, every level scaled alike, rather than funded until it runs out.
+const scale = Object.fromEntries(ORDER.map(s=>[s,1]));
+for (const s of ORDER){
+  if (LEVELS[s] !== SMALL || !(asked[s] > 0) || !(usd[s] > 0)) continue;
+  const holdsUsd = Math.max(0, balOf(s) - FLOOR[s]) * 1e8 / 10 ** PREC[s] * usd[s];
+  // A margin for rounding each level up to whole atoms.
+  scale[s] = Math.min(1, 0.97 * holdsUsd / asked[s]);
+  if (scale[s] < 1) console.log(`SIZED ${s}: holds $${holdsUsd.toFixed(2)} for ladders of $${asked[s].toFixed(2)}: every level x${scale[s].toFixed(3)}`);
+}
 
 for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
   const X=ORDER[i], Y=ORDER[j];
@@ -335,7 +382,8 @@ for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
     for (let lvl=0; lvl<plan.length; lvl++){
       const key = `${X}_${Y}:${side}:${lvl}`;
       if (alive.has(key)) continue;
-      const n = plan[lvl], sp = SPREADS[Math.min(lvl,SPREADS.length-1)];
+      if (short.has(sellSym)) { skipped++; continue; }
+      const n = plan[lvl] * scale[sellSym], sp = SPREADS[Math.min(lvl,SPREADS.length-1)];
       const price = side==="ask" ? mid*(1+sp) : mid*(1-sp);   // Y per X, display units
       const atomPrice = price * 10 ** (PREC[Y] - PREC[X]);    // compared with the book in atoms
       if (side==="ask" && bid>0 && atomPrice<=bid*1.001){ crossSkipped++; continue; }
@@ -395,7 +443,16 @@ for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
         const pst = await seqob.postCovenantOffer(offer, MPRIV).catch(e=>({err:String(e)}));
         if (pst && pst.err) console.log(`FUNDED ${key}, listed next pass: ${pst.err.slice(0, 120)}`);
         else console.log(`SEEDED ${key} sell ${sellAtoms} ${sellSym} atoms @ ${price.toPrecision(6)} ${Y}/${X}  cov ${txid.slice(0,12)}:${vout}`);
-      } catch(e){ console.log(`FAIL ${key}: ${e.message||e}`); skipped++; }
+      } catch(e){
+        const m = String(e.message||e);
+        if (e.short) {
+          // Nothing was spent: the wallet does not hold this much of the asset (or of the fee
+          // asset). Its other levels wait for the next pass, when it holds more.
+          short.add(sellSym);
+          console.log(`AWAITING SUPPLY ${sellSym}: ${key} not funded (${m.slice(0, 80)}); its other levels wait for the next pass`);
+        } else console.log(`FAIL ${key}: ${m}`);
+        skipped++;
+      }
     }
   }
 }
@@ -414,4 +471,4 @@ for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
   const cf=fwd.filter(o=>o.covenant||o.Covenant).length, cr=rev.filter(o=>o.covenant||o.Covenant).length;
   console.log(`${X}/${Y}: asks(cov)=${cf} bids(cov)=${cr}  (total fwd=${fwd.length} rev=${rev.length})`);
 }
-console.log(`\nsummary: reposted=${reposted} relisted=${relisted} removedFromState=${removed} fundedNew=${fundedNew} skipped=${skipped} crossSkipped=${crossSkipped}`);
+console.log(`\nsummary: reposted=${reposted} relisted=${relisted} removedFromState=${removed} fundedNew=${fundedNew} skipped=${skipped} crossSkipped=${crossSkipped}${short.size ? " awaitingSupply=" + [...short].join(",") : ""}`);
