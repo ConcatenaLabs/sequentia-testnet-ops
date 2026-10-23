@@ -357,7 +357,7 @@ def check_cov(e, esplora):
 
 
 def check_rest(e):
-    """The operator's own word on the order (`/v1/order_state`): active, at the coin the offer
+    """The operator's own word on the order (`/v1/order_state`): resting, at the coin the offer
     names, with fills left."""
     r = e["offer"]["resting_leaf"]
     j, err = try_json(r["operator_url"].rstrip("/") + "/v1/order_state", {"orders": [r["order_id"]]})
@@ -366,13 +366,15 @@ def check_rest(e):
     st = next((x for x in (j.get("orders") or []) if str(x.get("order", "")).lower() == r["order_id"].lower()), None)
     if not st:
         return False, "operator: order not published"
-    if st.get("state") != "active":
+    # The operator's states: `resting` is live and fillable; `exhausted`, `filling`, `filled`,
+    # `cancelled`, `landed`, `pending` and `unknown` are not.
+    if st.get("state") != "resting":
         return False, f"operator: {st.get('state')}"
     if r.get("coin") and st.get("coin") and st["coin"].lower() != r["coin"].lower():
         return False, "operator: the order moved to another coin"
     if int(st.get("fills_left") or 1) <= 0:
         return False, "operator: no fills left"
-    return True, "operator: active"
+    return True, "operator: resting"
 
 
 # ---------------------------------------------------------------- the audit
