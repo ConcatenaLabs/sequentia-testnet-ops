@@ -111,7 +111,7 @@ ppm_expiry_table = [
 
 # Leaves kept ready for Lightning receives.
 [vtxopool]
-vtxo_targets = [ "10000sat:20", "100000sat:10" ]
+vtxo_targets = [ "10000sat:50", "100000sat:30", "1000000sat:10" ]
 vtxo_target_issue_threshold = 80
 vtxo_lifetime = 432
 vtxo_pre_expiry = 144
