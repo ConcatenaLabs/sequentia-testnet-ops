@@ -7,7 +7,6 @@ import { newExtensionWallet } from './seqdex.mjs'
 const W = 'popup'
 const tab = async (h, t) => { await h.click(`.tabs [data-tab=${t}]`); await sleep(1500) }
 const rows = (h) => h.eval("[...document.querySelectorAll('#assetList .asset-row')].map(r=>({k:r.dataset.key, tk:(r.querySelector('.tk')||{}).innerText, fig:(r.querySelector('.fig')||{}).innerText}))")
-const options = (h, sel) => h.eval(`(()=>{const s=document.querySelector(${JSON.stringify(sel)}); if(!s) return null; return {tag:s.tagName, rows: s.tagName==='SELECT' ? [...s.options].map(o=>o.text.trim()) : []}})()`)
 
 export async function run ({ b, report, funded, problems }) {
   const R = (id, line, h, fn) => report.line('AB-' + id, W, line, h && h.page, fn)
@@ -49,8 +48,9 @@ export async function run ({ b, report, funded, problems }) {
     const r = await h.eval("({hint:document.querySelector('#sendDTo').placeholder, label:(document.querySelector('label[for=sendDTo]')||document.querySelector('#sendDTo').previousElementSibling||{}).innerText, avail:document.querySelector('#sendDAvail').innerText.trim()})")
     return { ok: r.hint === 'a receive code, an address or an invoice' && /recipient/i.test(r.label || '') && /^balance /.test(r.avail), detail: r }
   })
-  await R('SND-PICKER', 'Send: the asset picker lists BTC first', h, async () => {
-    const o = await options(h, '#sendDAsset'); return { ok: !!o && o.rows[0] === 'BTC', detail: o }
+  await R('SND-PICKER', 'Send: the asset is the shared chooser, searchable, BTC first', h, async () => {
+    const p = await h.eval(PICKER('#sendDAssetChooser')); await h.eval(CLOSE)
+    return { at: '#sendDAssetChooser', ok: p.kind === 'list' && p.search && p.rows[0] === 'BTC', detail: p }
   })
 
   await tab(h, 'trade'); await sleep(4000)
@@ -97,6 +97,20 @@ export async function run ({ b, report, funded, problems }) {
     await tab(h, 'settings'); await h.eval("(()=>{const s=document.querySelector('#setMode'); s.value='user'; s.dispatchEvent(new Event('change')); return 1})()"); await sleep(3000)
     await tab(h, 'receive'); const back = await h.visible('#recvDCode')
     return { ok: dev && back, detail: { dev, back } }
+  })
+  await R('ASSET-MENUS', 'Every asset menu, in both modes, is the shared chooser: no plain asset <select> on any tab', h, async () => {
+    // A visible <select> whose every option is an asset (BTC or an asset id; '' for a "choose…" line)
+    // is a menu the chooser should front. The reference currency's menu (USD, EUR, …) is not one.
+    const SCAN = "[...document.querySelectorAll('#vApp select')].filter(s=>{const v=[...s.options].map(o=>o.value).filter(x=>x!==''); return s.getClientRects().length && v.length && v.every(x=>x==='BTC'||/^(oamp:)?[0-9a-f]{64}$/.test(x))}).map(s=>s.id||'(no id)')"
+    const setMode = (m) => h.eval(`(()=>{const s=document.querySelector('#setMode'); s.value='${m}'; s.dispatchEvent(new Event('change')); return 1})()`)
+    const found = {}; let dev = null
+    for (const m of ['user', 'developer']) {
+      await tab(h, 'settings'); await setMode(m); await sleep(2500)
+      for (const t of ['send', 'receive', 'stake', 'settings']) { await tab(h, t); const f = await h.eval(SCAN); if (f.length) found[m + '/' + t] = f }
+      if (m === 'developer') { await tab(h, 'send'); dev = await h.eval(PICKER('#sendAssetChooser')).catch((e) => ({ error: e.message })); await h.eval(CLOSE) }
+    }
+    await tab(h, 'settings'); await setMode('user'); await sleep(2500)
+    return { ok: !Object.keys(found).length && !!dev && dev.search, detail: { plainSelects: found, developerSend: dev } }
   })
   await R('NO-ERRORS', 'No uncaught error in the popup', null, async () => ({ ok: problems(pop).length === 0, detail: problems(pop).slice(0, 4) }))
 

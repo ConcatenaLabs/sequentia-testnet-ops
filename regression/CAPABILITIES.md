@@ -124,7 +124,8 @@ wallet connected).
 | AB-RCV-WORDS | read the tip, Copy receive code, New code, Amount in BTC (optional) | Receive |
 | AB-FAUCET | ask the testnet faucet | Receive |
 | AB-SND-RECIPIENT | use "Recipient" with its hint and "balance <amount>" | Send |
-| AB-SND-PICKER | choose the asset to send, BTC first | Asset pickers |
+| AB-SND-PICKER | choose the asset to send with the shared chooser, searchable, BTC first | Asset pickers |
+| AB-ASSET-MENUS | meet the shared chooser in every asset menu, in both modes (no plain asset menu on any tab) | Asset pickers |
 | AB-TRD-FORM | trade with You pay, You receive, their amounts and Review | Trade |
 | AB-TRD-PAY-SEARCH, AB-TRD-GET-SEARCH | search the Trade pickers | Asset pickers |
 | AB-TRD-HELD-FIRST | see BTC, then what the wallet holds, before the rest | Asset pickers |
