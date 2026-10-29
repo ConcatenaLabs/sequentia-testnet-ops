@@ -184,6 +184,21 @@ const makerPub = Buffer.from(secp256k1.getPublicKey(MPRIV, true)).toString("hex"
 // Payout: a raw x-only key as the v1 witness program (proven shape - the regtest
 // covenant tests use exactly this). Spendable key-path with payoutPriv.
 const payoutX = Buffer.from(schnorr.getPublicKey(h2b(KEYS.payoutPriv))).toString("hex");
+// Where a fill pays the seeder: the witness program of a taproot address of the seeder's own wallet,
+// so what its orders earn comes back to the wallet that funds the next levels. (Orders funded
+// before paid the raw payout key above, which no wallet holds.) Drawn once and kept in the keys
+// file; the raw key stays the REFUND key (makerX).
+async function payoutProgram(){
+  if (KEYS.payoutProg) return KEYS.payoutProg;
+  const addr = await rpc("getnewaddress", ["covenant-payouts", "bech32m"], WALLET);
+  const va = await rpc("validateaddress", [addr]);
+  if (!va.isvalid || va.witness_version !== 1 || String(va.witness_program).length !== 64)
+    throw new Error("the wallet's bech32m address is not a v1 program of 32 bytes: " + addr);
+  KEYS.payoutProg = va.witness_program; KEYS.payoutAddress = addr;
+  fs.writeFileSync(KEYSF, JSON.stringify(KEYS,null,1), {mode:0o600});
+  console.log(`fills of new orders pay ${addr} (wallet ${WALLET})`);
+  return KEYS.payoutProg;
+}
 
 // ---------- state ----------
 function loadState(){ try { return JSON.parse(fs.readFileSync(STATEF,"utf8")); } catch { return {orders:[]}; } }
@@ -323,9 +338,13 @@ const tooYoungToPark = o => isProbe(o) && now - Number(o.createdUnix||0) < PROBE
 const PROBE = (() => {
   if (MODE !== "probe") return null;
   const m = /^([^_:]+)_([^_:]+):(ask|bid):(\d+(?:\.\d+)?)$/.exec(ENV.COVSEED_PROBE || "");
-  if (!m || !ASSETS[m[1]] || !ASSETS[m[2]] || ORDER.indexOf(m[1]) >= ORDER.indexOf(m[2]))
-    throw new Error(`COVSEED_PROBE="X_Y:ask|bid:BPS" with X before Y in ${ORDER.join(",")}`);
-  return { X: m[1], Y: m[2], side: m[3], bps: Number(m[4]), usd: Number(ENV.COVSEED_PROBE_USD || 20) };
+  if (!m || !ASSETS[m[1]] || !ASSETS[m[2]] || m[1] === m[2])
+    throw new Error(`COVSEED_PROBE="X_Y:ask|bid:BPS" with X and Y two of ${ORDER.join(",")}`);
+  // The ladder names a pair in ORDER's order. Selling X for Y under the mid ("X_Y:ask") is, in
+  // the pair Y_X, selling Y's quote asset over the mid ("Y_X:bid"): the same order either way.
+  const flip = ORDER.indexOf(m[1]) > ORDER.indexOf(m[2]);
+  const side = flip ? (m[3] === "ask" ? "bid" : "ask") : m[3];
+  return { X: flip ? m[2] : m[1], Y: flip ? m[1] : m[2], side, bps: Number(m[4]), usd: Number(ENV.COVSEED_PROBE_USD || 20) };
 })();
 const tip = await rpc("getblockcount");
 const now = Math.floor(Date.now()/1000);
@@ -518,7 +537,7 @@ for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
           sellAtoms: BigInt(sellAtoms), rateNum: rate.rateNum, rateDen: rate.rateDen,
           minLot: (BigInt(sellAtoms)/1000n)>0n ? (BigInt(sellAtoms)/1000n) : 1n,
           expiryLocktime: tip + COV_LOCKTIME_BLOCKS,
-          makerProg: payoutX, makerX: payoutX,
+          makerProg: await payoutProgram(), makerX: payoutX,
         };
         const p = planPlaceOrder(params);
         const covAddr = bech32mEncode(HRP, 1, Buffer.from(p.spkHex.slice(4),"hex"));

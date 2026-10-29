@@ -284,7 +284,10 @@ it leaves out a level that would cross the book or come within 10 bps of its bes
 price on the other side. A listed order the feed's price has moved through is
 parked (see "How the makers price"), by every pass and by the park pass that
 `seqob-covenant-park.timer` runs every two minutes (`COVSEED_MODE=park`, under
-its own lock, writing only `run/covenant-parked.json`). An order
+its own lock, writing only `run/covenant-parked.json`). A fill pays
+the seeder at a taproot address of its own wallet (drawn once, kept in its keys
+file as `payoutAddress`), so what the ladder earns funds its next levels; the
+raw payout key in that file is the REFUND key. An order
 is written to the seeder's state before it is listed: one the relay refuses for
 a passing reason (its rate limit, a restart) is listed again on the next pass,
 never funded twice, and one it refuses outright waits for its reclaim at expiry.
@@ -310,7 +313,8 @@ systemctl daemon-reload && systemctl enable --now seqob-covenant-park.timer
 ```
 
 `COVSEED_MODE=probe COVSEED_PROBE=GOLD_USDX:ask:100` funds one deliberately
-crossing order, here GOLD sold for USDX 100 bps under the feed's price, of
+crossing order, here GOLD sold for USDX 100 bps under the feed's price (the two
+assets may be named in either order), of
 `COVSEED_PROBE_USD` ($20), and exits; pasted again while it rests, it funds
 nothing more, and once it has been taken, a new one. It checks that the book un-crosses by itself: the park passes
 leave a probe alone for its first ten minutes, so the order crosser has the
