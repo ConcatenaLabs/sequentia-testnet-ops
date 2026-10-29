@@ -264,6 +264,14 @@ HTML {err.status_code}
 		}
 	}
 
+	# The tester guide: ConcatenaLabs/sequentia-docs, built and installed in
+	# /srv/docs by bin/apply-docs.sh.
+	redir /docs /docs/ permanent
+	handle_path /docs/* {
+		root * /srv/docs
+		file_server
+	}
+
 	# The status page (status/ in this repository): the static page from
 	# /srv/status and two read-only views of its checker, Gatus on
 	# 127.0.0.1:8097 (status/gatus.yaml): the newest results of every check,
