@@ -10,6 +10,24 @@
 // /root/sequentia/sequentia-web-wallet - the same code every live browser uses.
 // Every path and endpoint below is the box's, and each can be named in the environment instead
 // (COVSEED_*), which is how a regtest rehearsal runs this same file.
+//
+// Pricing (the rule every maker of the books follows; sequentia-testnet-ops README, "How the
+// makers price"): one feed, the price server's /prices; a level is never funded or listed at a
+// price that crosses the pair's combined best bid or ask (the relay's ticker: every rail of the
+// on-chain book, both orientations) or comes within GUARD_BPS of it; and a listed order the
+// feed's mid has moved through (an ask of the sold asset at or below mid * (1 + GUARD_BPS)) is
+// stale: its listing is cancelled and the order PARKED. A covenant cannot be taken back before
+// its lock, so a parked order's coins stay in it, its level is not funded again, and it is listed
+// again, under a new offer id, once the price is back on its right side; parked for PARK_FOR_S,
+// it goes the way of an expiring order (its level funded anew, its coins reclaimed at the lock).
+//
+// COVSEED_MODE: "full" (the default) is the pass above; "park" only parks stale orders and
+// exits, writing nothing but the parked list, so it can run every few minutes beside a full pass
+// (seqob-covenant-park.timer); "probe" funds one deliberately crossing order and exits:
+// COVSEED_PROBE="X_Y:ask:BPS" sells X for Y at BPS basis points UNDER the feed's mid
+// ("X_Y:bid:BPS" sells Y for X, BPS over it), of COVSEED_PROBE_USD (20) in the reference unit,
+// to check that the book un-crosses by itself. A probe is not parked for its first PROBE_GRACE_S,
+// so the order crosser has the first chance to take it.
 const ENV = process.env;
 const WW = ENV.COVSEED_WALLET_DIR || "/root/sequentia/sequentia-web-wallet";
 const { planPlaceOrder, buildCovenantTerms } = await import(WW + "/covenant-order.js");
@@ -36,6 +54,10 @@ const FEE_LABEL = ENV.COVSEED_FEE_LABEL || "bitcoin";
 const COV_LOCKTIME_BLOCKS = 40000;   // refund-reclaimable after ~2-3 weeks
 const OFFER_TTL_S = 167*3600;        // same as the old seeder ladder
 const RELIST_MARGIN_S = 6*3600;      // relist when < 6h of offer TTL left
+const MODE = ENV.COVSEED_MODE || "full";
+const GUARD_BPS = Number(ENV.COVSEED_GUARD_BPS || 10);   // the margin from the mid and the book
+const PARK_FOR_S = Number(ENV.COVSEED_PARK_FOR_S || 24*3600);
+const PROBE_GRACE_S = Number(ENV.COVSEED_PROBE_GRACE_S || 600);
 
 seqob.setSeqobBase(RELAY);
 
@@ -165,39 +187,28 @@ const payoutX = Buffer.from(schnorr.getPublicKey(h2b(KEYS.payoutPriv))).toString
 
 // ---------- state ----------
 function loadState(){ try { return JSON.parse(fs.readFileSync(STATEF,"utf8")); } catch { return {orders:[]}; } }
-function saveState(s){ fs.mkdirSync(RUNDIR,{recursive:true}); fs.writeFileSync(STATEF, JSON.stringify(s,null,1)); }
+// Written whole and renamed into place: the park pass reads it while a full pass runs.
+function saveState(s){ fs.mkdirSync(RUNDIR,{recursive:true}); fs.writeFileSync(STATEF+".tmp", JSON.stringify(s,null,1)); fs.renameSync(STATEF+".tmp", STATEF); }
+// The parked orders, offer id -> unix time parked. The park pass writes only this file.
+const PARKF = RUNDIR + "/covenant-parked.json";
+function loadParked(){ try { return JSON.parse(fs.readFileSync(PARKF,"utf8")); } catch { return {}; } }
+function saveParked(p){ fs.mkdirSync(RUNDIR,{recursive:true}); fs.writeFileSync(PARKF+".tmp", JSON.stringify(p,null,1)); fs.renameSync(PARKF+".tmp", PARKF); }
 
 // ---------- book helpers (cross-guard) ----------
 async function getBook(baseId, quoteId){
   try { const r=await fetch(`${RELAY}/v1/market/${baseId}/${quoteId}/orderbook`,{cache:"no-store"});
     const j=await r.json(); return j.offers||j.Offers||[]; } catch { return []; }
 }
-// best bid/ask for pair X/Y in Y atoms per X atom, from BOTH orientations, counting only offers
-// within GUARD_BAND of `mid` (also atoms per atom) on the side that could cross: a stale quote far
-// past the market (a maker priced before the feed moved) is that maker's to fix, and must not
-// keep a whole ladder off the book, as one stale tSEQ bid 5% over the market once did.
-const GUARD_BAND = 0.02;
-async function bestPrices(X, Y, mid){
-  const fwd=await getBook(IDS[X],IDS[Y]), rev=await getBook(IDS[Y],IDS[X]);
-  let bid=0, ask=Infinity;
-  for (const o of fwd){
-    const dir=o.trade_dir??o.tradeDir; const off=Number(o.offer_amount||o.offerAmount), want=Number(o.want_amount||o.wantAmount);
-    if(!off||!want) continue;
-    if (dir===1||dir==="TRADE_DIR_SELL"){ ask=Math.min(ask, want/off); }
-    else if (dir===2||dir==="TRADE_DIR_BUY"){ bid=Math.max(bid, off/want); }
-  }
-  for (const o of rev){
-    const dir=o.trade_dir??o.tradeDir; const off=Number(o.offer_amount||o.offerAmount), want=Number(o.want_amount||o.wantAmount);
-    if(!off||!want) continue;
-    if (dir===1||dir==="TRADE_DIR_SELL"){ bid=Math.max(bid, off/want); }       // sells Y for X = a bid on X/Y
-    else if (dir===2||dir==="TRADE_DIR_BUY"){ ask=Math.min(ask, want/off); }
-  }
-  if (mid > 0){
-    if (bid > mid * (1 + GUARD_BAND)) bid = 0;
-    if (isFinite(ask) && ask < mid * (1 - GUARD_BAND)) ask = Infinity;
-  }
-  return {bid, ask};
+// The pair's combined best bid and ask, in quote atoms per base atom, from the relay's ticker:
+// every rail of the on-chain book, both orientations of the pair, liftable offers only. Every
+// quote counts, a stale one too: a level that crossed it would cross the book, and a stale quote
+// is its maker's to take back (this seeder parks its own) or a taker's to take.
+async function ticker(baseId, quoteId){
+  try { const r=await fetch(`${RELAY}/v1/market/${baseId}/${quoteId}/ticker`,{cache:"no-store"});
+    const j=await r.json(); return { bid: Number(j.best_bid)||0, ask: Number(j.best_ask)||Infinity }; }
+  catch { return { bid: 0, ask: Infinity }; }
 }
+const g = GUARD_BPS/1e4;
 
 // send with retry: unconfirmed-change chains can trip the mempool chain limit;
 // wait a block and retry instead of dropping the level.
@@ -262,9 +273,75 @@ const usd = {}; {
   for (const s of ORDER){ const v = feed[FEEDKEY[s]]; usd[s] = Number(v && typeof v === "object" ? v.price : v) || 0; }
 }
 function usdPrice(sym){ return usd[sym]; }
+// An order sells sellSym for recvSym at its covenant's rate: recv atoms per sold atom.
+const rateOf = o => { const c=o.signedOffer.covenant; return Number(c.rate_num)/Number(c.rate_den); };
+// The feed's mid in the same terms.
+const midOf = (sell, recv) => usd[sell] > 0 && usd[recv] > 0 ? usd[sell]/usd[recv] * 10 ** (PREC[recv] - PREC[sell]) : 0;
+// Stale: the mid has moved through the order (it sells at or below mid * (1 + GUARD_BPS)).
+const isStale = o => { const m = midOf(o.sellSym, o.recvSym); return m > 0 && rateOf(o) <= m * (1 + g); };
+const isProbe = o => String(o.levelKey).startsWith("probe:");
+const parked = loadParked();
+let parkedNow=0, unparked=0;
+async function park(o, why){
+  const id = o.signedOffer.offer_id;
+  if (parked[id]) return;
+  const r = await seqob.signAndCancel(id, MPRIV).catch(e=>({err:String(e)}));
+  parked[id] = now; parkedNow++;
+  console.log(`PARKED ${o.levelKey} (${why})${r && r.err ? ", cancel: " + r.err.slice(0, 80) : ""}`);
+}
+// A parked order back on its right side, clear of the book: listed again under a new offer id
+// (its old one is cancelled), at what the covenant holds now.
+async function unpark(o){
+  const id = o.signedOffer.offer_id;
+  const t = await ticker(o.signedOffer.pair.base_asset, o.signedOffer.pair.quote_asset);
+  if (rateOf(o) <= t.bid * (1 + g)) return false;
+  const c = o.signedOffer.covenant;
+  const sell = BigInt(o.sellAtoms), recv = (sell * BigInt(c.rate_num) + BigInt(c.rate_den) - 1n) / BigInt(c.rate_den);
+  const offer = buildCovenantOffer({
+    assetA: o.signedOffer.pair.base_asset, assetB: o.signedOffer.pair.quote_asset,
+    sellAtoms: sell, recvAtoms: recv, covenant: c, makerPubkey: makerPub, recvAddress: "",
+    offerId: crypto.randomBytes(16).toString("hex"), ttlSecs: OFFER_TTL_S, allowPartial: true,
+    minLot: BigInt(o.signedOffer.min_lot||1),
+  });
+  const st = await seqob.postCovenantOffer(offer, MPRIV).catch(e=>({err:String(e)}));
+  if (st && st.err){ console.log(`UNPARK-LATER ${o.levelKey}: ${st.err.slice(0, 120)}`); return false; }
+  o.signedOffer = offer; delete parked[id]; unparked++;
+  console.log(`UNPARKED ${o.levelKey} @ ${rateOf(o).toPrecision(6)} atoms per atom (mid ${midOf(o.sellSym,o.recvSym).toPrecision(6)})`);
+  return true;
+}
+// A probe is listed at once or not at all: past the relay's rate limit, it is asked again for two
+// minutes. "already listed" counts as listed.
+async function postProbe(offer){
+  for (let i = 0; ; i++){
+    const st = await seqob.postCovenantOffer(offer, MPRIV).catch(e=>({err:String(e)}));
+    if (!st || !st.err || /resting|exists|already listed/i.test(st.err)) return {};
+    if (i >= 12 || !/rate limit|ECONN|fetch failed|timeout|50[0-9]/i.test(st.err)) return st;
+    await new Promise(r=>setTimeout(r, 10000));
+  }
+}
+const tooYoungToPark = o => isProbe(o) && now - Number(o.createdUnix||0) < PROBE_GRACE_S;
+const PROBE = (() => {
+  if (MODE !== "probe") return null;
+  const m = /^([^_:]+)_([^_:]+):(ask|bid):(\d+(?:\.\d+)?)$/.exec(ENV.COVSEED_PROBE || "");
+  if (!m || !ASSETS[m[1]] || !ASSETS[m[2]] || ORDER.indexOf(m[1]) >= ORDER.indexOf(m[2]))
+    throw new Error(`COVSEED_PROBE="X_Y:ask|bid:BPS" with X before Y in ${ORDER.join(",")}`);
+  return { X: m[1], Y: m[2], side: m[3], bps: Number(m[4]), usd: Number(ENV.COVSEED_PROBE_USD || 20) };
+})();
 const tip = await rpc("getblockcount");
 const now = Math.floor(Date.now()/1000);
 const state = loadState();
+if (MODE === "park"){
+  // Read-only on the state; writes only the parked list.
+  for (const o of state.orders){
+    if (!o.signedOffer || !o.signedOffer.covenant || parked[o.signedOffer.offer_id]) continue;
+    if (isStale(o) && !tooYoungToPark(o)) await park(o, `the feed's mid ${midOf(o.sellSym,o.recvSym).toPrecision(6)} is through its ${rateOf(o).toPrecision(6)}`);
+  }
+  const ids = new Set(state.orders.map(o => o.signedOffer && o.signedOffer.offer_id));
+  for (const id of Object.keys(parked)) if (!ids.has(id)) delete parked[id];
+  saveParked(parked);
+  console.log(`park pass: parked=${parkedNow} parkedTotal=${Object.keys(parked).length}`);
+  process.exit(0);
+}
 const alive = new Map();   // levelKey -> state order still live+listed
 let removed=0, reposted=0, relisted=0, fundedNew=0, skipped=0, crossSkipped=0;
 
@@ -277,7 +354,9 @@ try {
   for (const of_ of (mj.offers||mj.Offers||[])) mine.set(of_.offer_id||of_.offerId, of_);
 } catch {}
 const keep=[];
-for (const o of state.orders){
+// A probe pass leaves the ladder as it is: every order counts as alive, none is posted.
+if (PROBE) for (const o of state.orders){ alive.set(o.levelKey, o); keep.push(o); }
+for (const o of (PROBE ? [] : state.orders)){
   let txo = await rpc("gettxout",[o.covTxid, o.covVout, true]).catch(()=>null);
   if (!txo){
     const live = mine.get(o.signedOffer.offer_id);
@@ -303,6 +382,20 @@ for (const o of state.orders){
   if (o.expiryLocktime <= tip + 30){
     console.log(`EXPIRING ${o.levelKey} (locktime ${o.expiryLocktime})`);
     (state.expired ||= []).push(o); removed++; continue;
+  }
+  // Stale orders are parked; a parked one comes back once the price does.
+  const pid = o.signedOffer.offer_id;
+  if (isStale(o) && !tooYoungToPark(o)){
+    await park(o, `the feed's mid ${midOf(o.sellSym,o.recvSym).toPrecision(6)} is through its ${rateOf(o).toPrecision(6)}`);
+    if (now - parked[pid] > PARK_FOR_S){
+      console.log(`PARKED-TOO-LONG ${o.levelKey}: its level is funded again, its coins reclaimed at the lock`);
+      delete parked[pid]; (state.expired ||= []).push(o); removed++; continue;
+    }
+    alive.set(o.levelKey, o); keep.push(o); continue;
+  }
+  if (parked[pid]){
+    await unpark(o);
+    alive.set(o.levelKey, o); keep.push(o); continue;
   }
   const expLeft = Number(o.signedOffer.expires_at_unix) - now;
   if (expLeft < RELIST_MARGIN_S){
@@ -341,6 +434,8 @@ for (const o of state.orders){
 }
 state.orders = keep;
 saveState(state);
+{ const ids = new Set(keep.map(o => o.signedOffer.offer_id)); for (const id of Object.keys(parked)) if (!ids.has(id)) delete parked[id]; }
+saveParked(parked);
 
 // 2) top up missing levels
 const bal = await rpc("getbalances",[],WALLET).then(b=>b.mine.trusted);
@@ -373,21 +468,29 @@ for (const s of ORDER){
 for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
   const X=ORDER[i], Y=ORDER[j];
   if (!(usd[X] > 0 && usd[Y] > 0)){ console.log(`SKIP ${X}_${Y}: no price in the feed`); continue; }
+  if (PROBE && (X !== PROBE.X || Y !== PROBE.Y)) continue;
   const mid = usd[X]/usd[Y];                                  // Y per X, display units
-  const atomMid = mid * 10 ** (PREC[Y] - PREC[X]);            // Y atoms per X atom
-  const {bid,ask} = await bestPrices(X,Y,atomMid);
-  for (const side of ["ask","bid"]){
+  const {bid,ask} = await ticker(IDS[X],IDS[Y]);
+  for (const side of (PROBE ? [PROBE.side] : ["ask","bid"])){
     const sellSym = side==="ask" ? X : Y, recvSym = side==="ask" ? Y : X;
-    const plan = LEVELS[sellSym];
+    const plan = PROBE ? [PROBE.usd] : LEVELS[sellSym];
     for (let lvl=0; lvl<plan.length; lvl++){
-      const key = `${X}_${Y}:${side}:${lvl}`;
-      if (alive.has(key)) continue;
+      const key = PROBE ? `probe:${X}_${Y}:${side}` : `${X}_${Y}:${side}:${lvl}`;
+      if (alive.has(key)) {
+        if (PROBE) {   // funded on an earlier paste: listed again, in case the relay refused it then
+          const st = await postProbe(alive.get(key).signedOffer);
+          console.log(`PROBE ${key} is already funded; listing: ${st && st.err ? st.err.slice(0, 120) : "listed"}`);
+        }
+        continue;
+      }
       if (short.has(sellSym)) { skipped++; continue; }
-      const n = plan[lvl] * scale[sellSym], sp = SPREADS[Math.min(lvl,SPREADS.length-1)];
+      // A probe is priced THROUGH the mid (a negative spread), and is the one order the cross
+      // guard lets through: crossing the book is what it is for.
+      const n = PROBE ? plan[lvl] : plan[lvl] * scale[sellSym], sp = PROBE ? -PROBE.bps/1e4 : SPREADS[Math.min(lvl,SPREADS.length-1)];
       const price = side==="ask" ? mid*(1+sp) : mid*(1-sp);   // Y per X, display units
       const atomPrice = price * 10 ** (PREC[Y] - PREC[X]);    // compared with the book in atoms
-      if (side==="ask" && bid>0 && atomPrice<=bid*1.001){ crossSkipped++; continue; }
-      if (side==="bid" && isFinite(ask) && atomPrice>=ask*0.999){ crossSkipped++; continue; }
+      if (!PROBE && side==="ask" && bid>0 && atomPrice<=bid*(1+g)){ crossSkipped++; continue; }
+      if (!PROBE && side==="bid" && isFinite(ask) && atomPrice>=ask*(1-g)){ crossSkipped++; continue; }
       const sellAtomsRaw = Math.max(1000, atomsOfUsd(sellSym, n));
       const recvAtomsRaw = side==="ask"
         ? Math.max(1, atomsOfUsd(Y, n*(1+sp)))
@@ -440,7 +543,7 @@ for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
           signedOffer:offer, createdUnix:now };
         state.orders.push(rec); alive.set(key, rec); saveState(state);
         fundedNew++;
-        const pst = await seqob.postCovenantOffer(offer, MPRIV).catch(e=>({err:String(e)}));
+        const pst = PROBE ? await postProbe(offer) : await seqob.postCovenantOffer(offer, MPRIV).catch(e=>({err:String(e)}));
         if (pst && pst.err) console.log(`FUNDED ${key}, listed next pass: ${pst.err.slice(0, 120)}`);
         else console.log(`SEEDED ${key} sell ${sellAtoms} ${sellSym} atoms @ ${price.toPrecision(6)} ${Y}/${X}  cov ${txid.slice(0,12)}:${vout}`);
       } catch(e){
@@ -457,6 +560,8 @@ for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
   }
 }
 
+if (PROBE){ console.log(`probe pass: fundedNew=${fundedNew} skipped=${skipped}`); process.exit(0); }
+
 // 3) take back the coins of expired orders whose lock has passed
 if (RECLAIM) {
   const r = spawnSync("python3", [RECLAIM], { encoding: "utf8", timeout: 15*60_000 });
@@ -471,4 +576,4 @@ for (let i=0;i<ORDER.length;i++) for (let j=i+1;j<ORDER.length;j++){
   const cf=fwd.filter(o=>o.covenant||o.Covenant).length, cr=rev.filter(o=>o.covenant||o.Covenant).length;
   console.log(`${X}/${Y}: asks(cov)=${cf} bids(cov)=${cr}  (total fwd=${fwd.length} rev=${rev.length})`);
 }
-console.log(`\nsummary: reposted=${reposted} relisted=${relisted} removedFromState=${removed} fundedNew=${fundedNew} skipped=${skipped} crossSkipped=${crossSkipped}${short.size ? " awaitingSupply=" + [...short].join(",") : ""}`);
+console.log(`\nsummary: reposted=${reposted} relisted=${relisted} removedFromState=${removed} fundedNew=${fundedNew} skipped=${skipped} crossSkipped=${crossSkipped} parked=${parkedNow} unparked=${unparked} parkedTotal=${Object.keys(parked).length}${short.size ? " awaitingSupply=" + [...short].join(",") : ""}`);

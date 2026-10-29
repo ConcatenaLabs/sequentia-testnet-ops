@@ -1,0 +1,10 @@
+[Unit]
+Description=Covenant ladder park pass every two minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=2min
+Unit=seqob-covenant-park.service
+
+[Install]
+WantedBy=timers.target

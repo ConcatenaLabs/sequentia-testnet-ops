@@ -17,6 +17,12 @@ they make, and their depth in the price server's reference unit, and checks the 
   leaf     the leaf maker's quotes (/leafmaker)
   leafbtc  the BTC leaf maker's quotes (/leafmaker-btc)
 
+A market is CROSSED when its combined book, the one every wallet shows (the on-chain book's
+covenant, resting, interactive and cross-chain offers, both orientations of the pair taken
+together), has a best bid at or above its best ask: a taker could buy and sell back at a
+profit. For every pair the audit prints its best bid and ask, and for a crossed one the two
+offers that cross, their rails, their distance from the feed and their age.
+
 The check on an interactive, cross-chain or Lightning offer is a lift the relay must refuse:
 the relay's courier is asked to lift one atom more than the offer has left. The relay
 answers "maker is not connected" when nobody can fill the offer, and "take_amount exceeds
@@ -25,11 +31,14 @@ sign, and the maker is not disturbed. A leaf maker's check is its quote.
 
 Usage:
   seqdex-depth-audit.py [--base https://sequentiatestnet.com] [--json OUT] [--no-probe]
-                        [--rails cov,rest,...] [--quiet]
+                        [--rails cov,rest,...] [--quiet] [--crossed-only]
+--crossed-only reads the on-chain book and the feed only, prints the crossed-market section
+with every pair's best bid and ask, and exits 1 when any market is crossed.
 The base serves every mount; each mount can be pointed elsewhere (--seqob URL, --pln URL,
 --conf URL, --leaf URL, --leafbtc URL, --prices URL, --esplora URL), e.g. at the box's
-loopback ports. Exit status: 0 when every required rail of every market passes, 1 when
-any falls short, 2 when the audit itself could not run (a feed or book unreachable).
+loopback ports. Exit status: 0 when every required rail of every market passes and no market
+is crossed, 1 when any falls short or is crossed, 2 when the audit itself could not run (a
+feed or book unreachable).
 """
 import argparse, base64, json, os, socket, ssl, struct, sys, time, urllib.parse, urllib.request
 from decimal import Decimal
@@ -377,6 +386,69 @@ def check_rest(e):
     return True, "operator: resting"
 
 
+# ---------------------------------------------------------------- crossed markets
+
+COMBINED = ("cov", "rest", "int", "xbtc")   # the rails of the book every wallet shows
+
+
+def crossed_markets(entries, prices, now=None):
+    """Every pair's combined best bid and ask, and whether they cross.
+
+    A pair X/Y (X before Y in ASSETS) has asks where a taker gives Y and gets X (price in Y per
+    X) and bids where a taker gives X and gets Y (price p in X per Y, a bid of 1/p Y per X). It
+    is crossed when the best bid is at or above the best ask."""
+    now = now or time.time()
+    best = {}
+    for e in entries:
+        if e["rail"] not in COMBINED or e["left"] <= 0:
+            continue
+        k = (e["give"], e["get"])
+        if k not in best or e["price"] < best[k]["price"]:
+            best[k] = e
+
+    def describe(e, px, fair):
+        o = e["offer"]
+        age = now - int(o.get("created_at_unix") or now)
+        d = {"rail": e["rail"], "price": px, "maker": str(o.get("maker_pubkey", ""))[:12],
+             "offer_id": o.get("offer_id"), "age_s": int(age)}
+        if fair:
+            d["off_feed_pct"] = round((px / fair - 1) * 100, 3)
+        return d
+
+    out = []
+    ids = [a[1] for a in ASSETS]
+    for i, x in enumerate(ids):
+        for y in ids[i + 1:]:
+            a, b = best.get((y, x)), best.get((x, y))
+            if not a and not b:
+                continue
+            fair = (prices.get(x) / prices.get(y)) if prices.get(x) and prices.get(y) else None
+            ask = a["price"] if a else None
+            bid = (1 / b["price"]) if b else None
+            row = {"pair": f"{TICK[x]}/{TICK[y]}", "bid": bid, "ask": ask, "feed": fair,
+                   "crossed": bool(ask and bid and bid >= ask)}
+            if row["crossed"]:
+                row["bid_offer"], row["ask_offer"] = describe(b, bid, fair), describe(a, ask, fair)
+            out.append(row)
+    return out
+
+
+def render_crossed(rows):
+    lines = ["crossed markets (the combined book: " + ", ".join(COMBINED) + "; bid >= ask is crossed):"]
+    for r in rows:
+        f = lambda v: f"{v:.6g}" if v else "-"
+        line = f"  {r['pair']:<14} bid {f(r['bid']):>12}  ask {f(r['ask']):>12}  feed {f(r['feed']):>12}"
+        if r["crossed"]:
+            def side(d):
+                off = f" {d['off_feed_pct']:+.2f}% off the feed" if "off_feed_pct" in d else ""
+                return f"{d['rail']} {d['maker']} {d['age_s'] // 60} min old{off}"
+            line += f"  CROSSED: bid {side(r['bid_offer'])} | ask {side(r['ask_offer'])}"
+        lines.append(line)
+    n = sum(1 for r in rows if r["crossed"])
+    lines.append(f"crossed: {n} of {len(rows)} pairs")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------- the audit
 
 def audit(args):
@@ -481,7 +553,18 @@ def audit(args):
             rows.append(row)
     return {"at": int(time.time()), "prices": {TICK[k]: v for k, v in prices.items()},
             "rails": sorted(rails, key=RAILS.index), "required": sorted(args.required, key=RAILS.index),
-            "markets": rows, "problems": problems}
+            "markets": rows, "crossed": crossed_markets(entries, prices), "problems": problems}
+
+
+def audit_crossed(args):
+    """The crossed-market section alone: the on-chain book and the feed, no probes."""
+    problems = []
+    prices = load_prices(args.prices)
+    entries = [e for e in (offer_entry(r, o, s, m) for (r, o, s, m) in read_book(args.seqob, "seqob", problems)) if e]
+    if problems and not entries:
+        raise RuntimeError("; ".join(problems))
+    return {"at": int(time.time()), "prices": {TICK[k]: v for k, v in prices.items()},
+            "crossed": crossed_markets(entries, prices), "problems": problems}
 
 
 def money(x):
@@ -542,6 +625,8 @@ def render(rep, quiet=False):
                 why[(r, c["words"])] += 1
     for (r, w), n in sorted(why.items(), key=lambda x: -x[1]):
         lines.append(f"  best level not liftable: {r}: {w} ({n} markets)")
+    lines.append("")
+    lines.append(render_crossed(rep.get("crossed") or []))
     for p in rep["problems"]:
         lines.append(f"  problem: {p}")
     return "\n".join(lines)
@@ -562,6 +647,7 @@ def main():
     ap.add_argument("--no-probe", action="store_true", help="skip the courier probe of interactive, cross-chain and Lightning offers")
     ap.add_argument("--json", help="write the full report as JSON here")
     ap.add_argument("--quiet", action="store_true", help="print only the markets that fall short, and the verdict")
+    ap.add_argument("--crossed-only", action="store_true", help="only the crossed-market section: the on-chain book and the feed, no probes")
     args = ap.parse_args()
     b = args.base.rstrip("/")
     args.seqob = (args.seqob or b + "/seqob").rstrip("/")
@@ -580,18 +666,24 @@ def main():
         TICK.clear(); TICK.update({a[1]: a[0] for a in rows})
     args.awaiting = set(x for x in args.awaiting.split(",") if x)
     try:
-        rep = audit(args)
+        rep = audit_crossed(args) if args.crossed_only else audit(args)
     except Exception as e:  # noqa: BLE001
         print(f"audit could not run: {type(e).__name__}: {e}", file=sys.stderr)
         return 2
     print(time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(rep["at"])) + "  seqdex depth audit")
-    print(render(rep, args.quiet))
+    if args.crossed_only:
+        print(render_crossed(rep["crossed"]))
+        for p in rep["problems"]:
+            print(f"  problem: {p}")
+    else:
+        print(render(rep, args.quiet))
     if args.json:
         tmp = args.json + ".tmp"
         with open(tmp, "w") as f:
             json.dump(rep, f, indent=1, default=str)
         os.replace(tmp, args.json)
-    return 1 if any(r["short"] for r in rep["markets"]) else 0
+    crossed = any(r["crossed"] for r in rep["crossed"])
+    return 1 if crossed or any(r["short"] for r in rep.get("markets", [])) else 0
 
 
 if __name__ == "__main__":

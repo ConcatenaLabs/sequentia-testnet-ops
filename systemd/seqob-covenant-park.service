@@ -1,0 +1,10 @@
+[Unit]
+Description=Covenant ladder park pass: takes the seeder's stale covenant orders off the book
+After=network-online.target seqobd.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/seqob-test
+Environment=COVSEED_MODE=park
+ExecStart=/usr/bin/flock -n /root/seqob-test/run/covenant-park.lock /root/sequentia/downloads/node22/bin/node /root/seqob-test/covenant_seed_all.mjs
+Nice=5

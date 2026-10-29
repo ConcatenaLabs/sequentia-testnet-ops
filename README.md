@@ -201,7 +201,7 @@ govern every transfer of them. Each rail, what keeps it deep, and whose coins:
 
 | Rail | Book or endpoint | Maker | Pairs | Coins |
 |---|---|---|---|---|
-| Covenant orders | `/seqob` (9955) | `makers/covenant_seed_all.mjs`, run by the covenant-reseed and seqob-covenant-topup timers | every pair of the eight Sequentia assets, twenty levels a side | node wallet `covenant-seeder` (dexnode) |
+| Covenant orders | `/seqob` (9955) | `makers/covenant_seed_all.mjs`, run by the covenant-reseed and seqob-covenant-topup timers, its stale orders parked by seqob-covenant-park.timer | every pair of the eight Sequentia assets, twenty levels a side | node wallet `covenant-seeder` (dexnode) |
 | Interactive same-chain | `/seqob` (9955) | `makers/samechain-fleet.sh`, `seqob-samechain-fleet.service` | every pair of the eight, both sides, ten levels | Ocean accounts `lq-sc-<BASE>-<QUOTE>` |
 | Orders resting in the Arca tree | `/seqob` (9955) | the leaf maker's resting desk (`leaf-maker.service`) | every directed pair of the six non-supervised assets, eight levels | the leaf maker's own wallet |
 | In-tree swaps (the wallets' user mode) | `/leafmaker` (9979) | `leaf-maker.service` (sequentia-web-wallet `tooling/lsp/leaf-maker.mjs`) | every directed pair of the eight, eight levels | the leaf maker's own wallet |
@@ -262,8 +262,10 @@ smaller level 0 in the script's list and a pair takes the smaller of its two
 further and 1.2 times larger, and the maker trims the deepest levels to what
 its account holds. A maker re-posts a level a lift filled, asks the node about
 every coin its wallet selects (`-node-rpc`), so it never answers a lift with a
-coin one of its own swaps spent, and retires its ladder after ten minutes to be
-priced again. A pair whose account holds nothing of what one side gives shows no
+coin one of its own swaps spent, and retires its ladder to be priced again after
+ten minutes, or as soon as the feed's price has moved to within 10 bps of its
+level 0 (`seqob-maker -guard-feed`). Level 0 is kept clear of the pair's best
+bid and ask on the book (see "How the makers price"). A pair whose account holds nothing of what one side gives shows no
 offers on that side until it is funded. Every setting is an environment
 variable at the top of the script.
 
@@ -278,8 +280,11 @@ bps from the feed at the touch and 25 bps more a level, each level a fixed sum i
 the reference unit (cents for USDC.e and EURC.e, which the bridge mints a few
 units at a time). Amounts are computed in each asset's atoms (USDC.e and EURC.e
 have six decimals), and the seeder checks a level against the book in atoms too:
-it leaves out a level that would cross a quote within 2% of the feed, and pays no
-heed to a quote further out than that, which is a stale maker's to fix. An order
+it leaves out a level that would cross the book or come within 10 bps of its best
+price on the other side. A listed order the feed's price has moved through is
+parked (see "How the makers price"), by every pass and by the park pass that
+`seqob-covenant-park.timer` runs every two minutes (`COVSEED_MODE=park`, under
+its own lock, writing only `run/covenant-parked.json`). An order
 is written to the seeder's state before it is listed: one the relay refuses for
 a passing reason (its rate limit, a restart) is listed again on the next pass,
 never funded twice, and one it refuses outright waits for its reclaim at expiry.
@@ -297,6 +302,56 @@ refund is built with the node's Python test framework and seqdex's
 `/root/sequentia/Sequentia` and `/root/sequentia/seqdex`.
 `covenant_reclaim.py --dry-run` builds and tests each refund without
 broadcasting it.
+
+```sh
+install -m 644 makers/covenant_seed_all.mjs /root/seqob-test/
+install -m 644 systemd/seqob-covenant-park.service systemd/seqob-covenant-park.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now seqob-covenant-park.timer
+```
+
+`COVSEED_MODE=probe COVSEED_PROBE=GOLD_USDX:ask:100` funds one deliberately
+crossing order, here GOLD sold for USDX 100 bps under the feed's price, of
+`COVSEED_PROBE_USD` ($20), and exits; pasted again while it rests, it funds
+nothing more. It checks that the book un-crosses by itself: the park passes
+leave a probe alone for its first ten minutes, so the order crosser has the
+first chance to take it.
+
+### How the makers price
+
+Every maker of the on-chain book follows one rule, so that the book every wallet
+shows (covenant, resting, interactive and cross-chain offers, both orientations
+of a pair taken together) is never crossed by its makers:
+
+- **One feed.** Prices come from the box's price server (`/prices`, port 8088).
+- **Never through the book.** Before it quotes, a maker reads the pair's best bid
+  and ask from the relay's ticker (`/v1/market/<base>/<quote>/ticker`, every
+  rail, both orientations, liftable offers only). It never asks at or below the
+  best bid plus 10 bps, nor bids at or above the best ask less 10 bps; a level
+  that would is left out or moved clear of it.
+- **Stale is withdrawn.** A quote is stale once the feed's mid has moved to
+  within 10 bps of it on the wrong side (an ask at or below mid × 1.001, a bid
+  at or above mid × 0.999). The interactive fleet retires and re-quotes; the
+  leaf maker's resting desk cancels and rests the order again; the covenant
+  seeder, whose coins stay in a covenant until its lock, cancels the listing and
+  parks the order. A parked order is listed again, under a new offer id, once
+  the price is back on its right side and clear of the book; parked for a day,
+  its level is funded again and its coins are reclaimed at the lock.
+
+| Maker | Feed read | Book checked | Stale quote |
+|---|---|---|---|
+| interactive fleet (`samechain-fleet.sh`) | at each launch, and every 20 s while it quotes | at each launch | retired and re-quoted |
+| resting desk (`leaf-maker.service`, `rest.guard_bps`) | every minute | before each level is rested | cancelled and rested again |
+| covenant seeder (`covenant_seed_all.mjs`) | at each pass | before each level is funded or listed again | parked, every two minutes |
+
+A cross can still appear: an order from anyone else, or two makers quoting in
+the same second. The order crosser, `seqob-crosser.service` (seqdex
+`cmd/seqob-crosser`, configured in `/etc/sequentia/seqob-crosser.env`), reads
+every relay's book in both orientations of every pair and, when a bid meets an
+ask of another maker at a profit over its costs, takes both: covenant legs with
+`seqob-cli covfill` from the dexnode wallet `lsp-inventory`, interactive legs
+with `seqob-cli lift` from its taker key, cross-chain and Lightning legs on
+their own rails. It keeps the spread, and its exposure to a second leg that
+fails is capped by `-max-exposure-atoms`.
 
 `supervise-conf.sh`, `samechain-fleet.sh` and `mixed-maker.sh` read the node RPC URL, which carries a password, from
 `/etc/sequentia/seqob-makers.env` (mode 600); `makers/seqob-makers.env.example`
@@ -334,6 +389,7 @@ and no packages:
 bin/seqdex-depth-audit.py                     # the public site's books
 bin/seqdex-depth-audit.py --quiet --json /tmp/depth.json   # only what falls short, and the full report
 bin/seqdex-depth-audit.py --awaiting USDC.e,EURC.e     # report these assets' markets without counting them
+bin/seqdex-depth-audit.py --crossed-only      # every pair's best bid and ask, and the crossed ones
 ```
 
 The assets are native BTC, tSEQ, USDX, EURX, GOLD, SILVR, OILX, USDC.e and
@@ -370,9 +426,17 @@ for a pair of Sequentia assets, the Lightning book and the BTC leaf maker for a
 pair against BTC. `--awaiting` names assets whose markets are shown but not
 counted: a bridged, fully backed asset (USDC.e, EURC.e) that no maker can
 hold until a deposit has minted it. The cross-chain and confidential books are the developer
-views' and are reported, marked `~`, without being required. The exit status
-is 0 when every market passes, 1 when one falls short and 2 when a book or the
-price feed could not be read.
+views' and are reported, marked `~`, without being required.
+
+Last, the audit prints every pair's best bid and ask in the book every wallet
+shows (the covenant, resting, interactive and cross-chain offers of `/seqob`,
+both orientations together) beside the feed's price, and marks a pair whose
+best bid is at or above its best ask `CROSSED`, naming the two offers, their
+rails and makers, their distance from the feed and their age.
+`--crossed-only` reads only that book and the feed and prints only this. The
+exit status is 0 when every market passes and none is crossed, 1 when one
+falls short or is crossed, and 2 when a book or the price feed could not be
+read.
 
 ## The makers' health
 
@@ -385,7 +449,8 @@ systemctl daemon-reload && systemctl enable --now seqob-liquidity-health.timer
 ```
 
 Each run audits every book (`bin/seqdex-depth-audit.py`, kept as
-`/root/seqob-test/run/depth-audit.json` and `depth-audit.txt`) and then tops up
+`/root/seqob-test/run/depth-audit.json` and `depth-audit.txt`; every crossed
+market goes to the log as a `CROSSED` line) and then tops up
 every maker below half its target:
 
 - the interactive fleet's Ocean accounts, to one and a half times their ladders

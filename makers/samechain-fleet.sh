@@ -9,7 +9,11 @@
 # per (pair, side), so a restart re-posts under the same identity. Each launch
 # reads the feed: level 0 is TOUCH_BPS off the feed's price, each deeper level
 # LEVEL_BPS further and GROWTH times larger, and the maker retires its ladder
-# after QUOTE_AGE to be relaunched at the price of that moment. A maker re-posts
+# after QUOTE_AGE to be relaunched at the price of that moment, or sooner, once the
+# feed's price has moved to within GUARD_BPS of its level 0 (seqob-maker -guard-feed).
+# Before it quotes, level 0 is kept GUARD_BPS clear of the pair's combined best bid and
+# ask on the relay (its ticker: every rail of the on-chain book, both orientations),
+# so a quote never crosses the book. A maker re-posts
 # a rung that a lift filled (seqob-maker's own re-post) and never answers a lift
 # with a coin one of its own swaps spends. The maker trims the deepest rungs to
 # what its account holds, so the book shows only what can be filled; a maker whose
@@ -33,6 +37,7 @@ GROWTH=${SC_GROWTH:-1.2}         # each level this many times larger
 USD=${SC_USD:-100}               # level 0's size, in the feed's reference unit, where an asset names none
 TOUCH_BPS=${SC_TOUCH_BPS:-20}    # level 0's distance from the feed's price
 QUOTE_AGE=${SC_QUOTE_AGE:-10m}   # how long a ladder rests before it is priced again
+GUARD_BPS=${SC_GUARD_BPS:-10}    # margin from the feed's price and from the book's best bid and ask
 PREFIX=${SC_ACCOUNT_PREFIX:-lq-sc}
 # TICKER FEED_KEY ASSET_ID PRECISION [LEVEL0], one asset a line; every pair of them is
 # quoted. LEVEL0 is that asset's level-0 size in the reference unit: a pair's level 0 is
@@ -56,12 +61,18 @@ mkdir -p "$LOGS" "$KEYS"; chmod 700 "$KEYS"
 is_atoms() { [[ $1 =~ ^[1-9][0-9]*$ ]]; }
 
 # The level-0 sizes of a pair, priced now: "BASE_ATOMS QUOTE_ATOMS", the quote moved
-# TOUCH_BPS to the maker's side; nothing when the feed lacks either price.
-price_pair() { # baseKey basePrec quoteKey quotePrec side usd
-  curl -sf -m 10 "$FEED" | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-bk, bp, qk, qp, side, usd, touch = sys.argv[1], int(sys.argv[2]), sys.argv[3], int(sys.argv[4]), sys.argv[5], float(sys.argv[6]), float(sys.argv[7])
+# TOUCH_BPS to the maker's side and kept GUARD_BPS clear of the book's best price on the
+# other side (an ask at least best bid * (1 + GUARD_BPS), a bid at most best ask *
+# (1 - GUARD_BPS), from the relay's ticker, in quote atoms per base atom); nothing when
+# the feed lacks either price. A ticker that does not answer leaves the feed's price.
+price_pair() { # baseKey basePrec quoteKey quotePrec side usd baseId quoteId
+  local feed ticker
+  feed=$(curl -sf -m 10 "$FEED") || return 1
+  ticker=$(curl -sf -m 10 "$RELAY/v1/market/$7/$8/ticker" 2>/dev/null || echo '{}')
+  python3 -c '
+import json, math, sys
+d, t = json.loads(sys.argv[1]), json.loads(sys.argv[2] or "{}")
+bk, bp, qk, qp, side, usd, touch, guard = sys.argv[3], int(sys.argv[4]), sys.argv[5], int(sys.argv[6]), sys.argv[7], float(sys.argv[8]), float(sys.argv[9]), float(sys.argv[10])
 def px(k):
     v = d.get(k)
     v = v.get("price") if isinstance(v, dict) else v
@@ -70,7 +81,12 @@ b, q = px(bk), px(qk)
 assert b > 0 and q > 0
 base = int(round(usd / b * 10 ** bp))
 quote = usd / q * 10 ** qp * (1 + touch / 1e4 if side == "sell" else 1 - touch / 1e4)
-print(base, int(round(quote)))' "$1" "$2" "$3" "$4" "$5" "$6" "$TOUCH_BPS" 2>/dev/null
+bid, ask = float(t.get("best_bid") or 0), float(t.get("best_ask") or 0)
+if side == "sell" and bid > 0:
+    quote = max(quote, math.ceil(base * bid * (1 + guard / 1e4)))
+if side == "buy" and ask > 0:
+    quote = min(quote, math.floor(base * ask * (1 - guard / 1e4)))
+print(base, int(round(quote)))' "$feed" "$ticker" "$1" "$2" "$3" "$4" "$5" "$6" "$TOUCH_BPS" "$GUARD_BPS" 2>/dev/null
 }
 
 # Keep one maker running for as long as the service lives: a maker that ran a
@@ -92,7 +108,7 @@ keep_running() { # logfile command...
 
 launch() { # acct side baseId baseKey basePrec quoteId quoteKey quotePrec keyfile usd
   local acct=$1 side=$2 b=$3 bk=$4 bp=$5 q=$6 qk=$7 qp=$8 key=$9 usd=${10} amts bamt qamt fee
-  amts=$(price_pair "$bk" "$bp" "$qk" "$qp" "$side" "$usd") || { echo "[sc-fleet] $(date -u +%FT%TZ) no price for $bk or $qk; retrying"; return 1; }
+  amts=$(price_pair "$bk" "$bp" "$qk" "$qp" "$side" "$usd" "$b" "$q") || { echo "[sc-fleet] $(date -u +%FT%TZ) no price for $bk or $qk; retrying"; return 1; }
   read -r bamt qamt <<< "$amts"
   is_atoms "$bamt" && is_atoms "$qamt" || { echo "[sc-fleet] amounts '$bamt'/'$qamt' are not whole atoms; retrying"; return 1; }
   fee=$b; [ "$side" = buy ] && fee=$q
@@ -100,7 +116,8 @@ launch() { # acct side baseId baseKey basePrec quoteId quoteKey quotePrec keyfil
   "$BIN" -mode samechain -relay "$RELAY" -ocean "$OCEAN" -node-rpc "$SEQ_NODE_RPC" -account "$acct" \
     -base "$b" -quote "$q" -side "$side" -base-amount "$bamt" -quote-amount "$qamt" \
     -levels "$LEVELS" -level-bps "$LEVEL_BPS" -level-growth "$GROWTH" \
-    -max-quote-age "$QUOTE_AGE" -expiry 1h -fee-asset "$fee" -confidential=false -msats-per-byte 300 \
+    -max-quote-age "$QUOTE_AGE" -guard-feed "$FEED" -guard-bps "$GUARD_BPS" \
+    -guard-base-key "$bk" -guard-quote-key "$qk" -guard-base-prec "$bp" -guard-quote-prec "$qp" -expiry 1h -fee-asset "$fee" -confidential=false -msats-per-byte 300 \
     -maker-priv "$(cat "$key")"
 }
 
