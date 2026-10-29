@@ -145,9 +145,17 @@ def ocean_balance(octl_bin, ocean, acct):
     return b
 
 
+def ocean_has(octl_bin, ocean, acct):
+    """Whether Ocean holds account `acct` now (a read of its balance answers)."""
+    rc, _ = octl(octl_bin, ocean, "-account", acct, "-action", "balance")
+    return rc == 0
+
+
 def cmd_accounts(a):
     """Create (once) each pair's account and derive its funding addresses: `coins` for the base
-    and `coins` for the quote, so each side is funded in one coin a ladder level."""
+    and `coins` for the quote, so each side is funded in one coin a ladder level. Each account is
+    read back from Ocean: one kept here that Ocean no longer holds is made again, with new
+    addresses, and none is written here before Ocean is seen to hold it."""
     assets = assets_of(a.assets)
     out = json.load(open(a.out)) if os.path.exists(a.out) else {}
     for i in range(len(assets)):
@@ -155,25 +163,39 @@ def cmd_accounts(a):
             acct = "%s-%s-%s" % (a.prefix, assets[i]["t"], assets[j]["t"])
             have = out.get(acct, {})
             if len(have.get("base_addresses", [])) >= a.coins and len(have.get("quote_addresses", [])) >= a.coins:
-                print("  %s: kept (%d addresses)" % (acct, a.coins * 2)); continue
-            ok = False
-            for _ in range(30):
-                rc, txt = octl(a.octl, a.ocean, "-account", acct, "-action", "create")
-                if rc == 0 or "already exists" in txt:
-                    ok = True; break
-                time.sleep(2)
-            if not ok:
-                die("Ocean at %s made no account %s: %s" % (a.ocean, acct, txt.strip()[-200:]))
-            rc, txt = octl(a.octl, a.ocean, "-account", acct, "-action", "address", "-n", str(2 * a.coins))
-            addrs = re.findall(r"address\[\S+\] (\S+)", txt)
+                if ocean_has(a.octl, a.ocean, acct):
+                    print("  %s: kept (%d addresses)" % (acct, a.coins * 2)); continue
+                print("  %s: kept here, but Ocean no longer holds it: made again" % acct)
+                out.pop(acct, None)
+            addrs = []
+            for attempt in range(3):
+                ok = False
+                for _ in range(30):
+                    rc, txt = octl(a.octl, a.ocean, "-account", acct, "-action", "create")
+                    if rc == 0 or "already exist" in txt:
+                        ok = True; break
+                    time.sleep(2)
+                if not ok:
+                    die("Ocean at %s made no account %s: %s" % (a.ocean, acct, txt.strip()[-200:]))
+                rc, txt = octl(a.octl, a.ocean, "-account", acct, "-action", "address", "-n", str(2 * a.coins))
+                addrs = re.findall(r"address\[\S+\] (\S+)", txt)
+                if len(addrs) >= 2 * a.coins and ocean_has(a.octl, a.ocean, acct):
+                    break
+                print("  %s: Ocean did not keep it (%s); again" % (acct, txt.strip()[-120:]))
+                addrs = []
+                time.sleep(3)
             if len(addrs) < 2 * a.coins:
-                die("Ocean derived %d addresses for %s, not %d: %s" % (len(addrs), acct, 2 * a.coins, txt.strip()[-200:]))
+                die("Ocean derived %d addresses for %s, not %d, or did not keep the account: %s" % (len(addrs), acct, 2 * a.coins, txt.strip()[-200:]))
             ex = [explicit_address(a.node, x, a.hrp) for x in addrs]
             out[acct] = {"base": assets[i]["t"], "quote": assets[j]["t"],
                          "base_addresses": ex[:a.coins], "quote_addresses": ex[a.coins:2 * a.coins]}
             print("  %s: %d funding addresses derived (%s …)" % (acct, 2 * a.coins, ex[0]))
             json.dump(out, open(a.out + ".tmp", "w"), indent=1)
             os.replace(a.out + ".tmp", a.out)
+    gone = [x for x in out if not ocean_has(a.octl, a.ocean, x)]
+    if gone:
+        die("Ocean does not hold %s after they were made: paste again" % ", ".join(gone))
+    print("  every account read back from Ocean (%d)" % len(out))
     json.dump(out, open(a.out + ".tmp", "w"), indent=1)
     os.replace(a.out + ".tmp", a.out)
 
@@ -403,7 +425,10 @@ def cmd_fund(a):
                 src = tre if available(tre, x["id"]) >= want else None
             if not src:
                 best = max(sources, key=lambda s0: available(s0, x["id"]))
-                have = available(best, x["id"]) - a.keep_atoms
+                # what a short source can send is what it holds less what it keeps for the send's
+                # own fee, paid in the asset sent (a bridged wallet holds nothing else to pay with)
+                held_src = available(best, x["id"])
+                have = held_src - max(a.keep_atoms, held_src // 50, 10 ** max(0, x["prec"] - 2))
                 if t in a.partial and have > 0:
                     src, want = best, min(want, have)
                 else:
@@ -431,11 +456,19 @@ def cmd_fund(a):
         args = {"dummy": "", "amounts": {ad: float("%.8f" % (v / NODE_ATOMS)) for ad, v in outs.items()},
                 "output_assets": {ad: label for ad in outs}, "fee_asset": label}
         fee_t = t
+        txid = None
         for attempt in range(6):
             try:
                 txid = rpc(node, "sendmany", args, wallet)
                 break
             except RuntimeError as e:
+                if re.search(r"insufficient funds", str(e), re.I) and t in a.partial and attempt < 3:
+                    # a bridged source sends what it has: shrink every output by a quarter and try again
+                    outs = {ad: v * 3 // 4 for ad, v in outs.items() if v * 3 // 4 > 0}
+                    total = sum(outs.values())
+                    args["amounts"] = {ad: float("%.8f" % (v / NODE_ATOMS)) for ad, v in outs.items()}
+                    args["output_assets"] = {ad: label for ad in outs}
+                    print("  %s from %s: insufficient funds; trying %s atoms" % (t, wallet, total)); continue
                 if "not accepted" in str(e) and fee_t == t:
                     # The node takes no fee in the asset sent: pay the fee in an asset it does take
                     # that the source holds, and say which.
@@ -445,8 +478,13 @@ def cmd_fund(a):
                     args["fee_asset"], fee_t = other[0], other[1]
                     print("  the node takes no fee in %s: this send pays its fee in %s" % (t, fee_t)); continue
                 if attempt == 5 or not re.search(r"chain|mempool|missingorspent|unconf", str(e), re.I):
-                    die("sendmany of %s %s from %s failed: %s" % (total, t, wallet, e))
+                    # one asset's send failing stops nothing else: it is reported and skipped
+                    print("  NOT SENT: %s atoms of %s from %s: %s%s" % (total, t, wallet, str(e)[:160],
+                          " (awaiting backed supply)" if t in a.partial else ""))
+                    short.append([wallet, t]); txid = None; break
                 print("  send retry (%s)" % str(e)[:80]); time.sleep(30)
+        if not txid:
+            continue
         sent.append({"asset": t, "atoms": total, "outputs": len(outs), "txid": txid, "source": wallet, "node": node, "fee_asset": fee_t})
         print("  sent %s atoms of %s from %s in %d coins, fee in %s: %s" % (total, t, wallet, len(outs), fee_t, txid))
     json.dump({"sent": sent, "short": short}, open(a.out, "w"), indent=1)
@@ -538,7 +576,7 @@ def cmd_leafcfg(a):
             pairs.append({"give": "BTC", "want": x["id"], "price": True, "min_give": "10000",
                           "ladder": dict(ladder, first=str(int(a.btc_first_sats)))})
             pairs.append({"give": x["id"], "want": "BTC", "price": True, "min_give": atoms(x, 2) or "1",
-                          "ladder": dict(ladder, first=first_of(x))})
+                          "ladder": dict(ladder, first=atoms(x, a.btc_asset_first_usd))})
         cfg["pairs"] = []
         cfg.setdefault("btc", {})["pairs"] = pairs
     else:
@@ -550,13 +588,23 @@ def cmd_leafcfg(a):
                               "min_give": atoms(x, 0.05 if x["t"] in small else 1),
                               "ladder": dict(ladder, first=first_of(x))})
         cfg["pairs"] = pairs
+        if a.rest_relay:
+            # orders resting in the tree, a ladder a directed pair (not the supervised assets,
+            # which do not rest), listed on the on-chain book's relay
+            cfg["rest"] = {"relay": a.rest_relay, "days": 7, "reprice_bps": 300, "refill_pct": 25, "interval_seconds": 60,
+                           "max_new_per_pass": 6,
+                           "pairs": [{"give": x["id"], "want": y["id"], "price": True,
+                                      "ladder": {"levels": a.levels, "step_bps": a.step_bps, "growth": a.rest_growth, "first": atoms(x, a.rest_first_usd)}}
+                                     for x in assets for y in assets
+                                     if x is not y and x["t"] not in small and y["t"] not in small and first_of(x) and price(feed, y["feed"])]}
     cfg["prices"] = {"url": a.feed_url, "spread_bps": a.spread_bps, "assets": pa}
     cfg["coin_size"] = {x["id"]: atoms(x, a.coin_usd_small if x["t"] in small else a.coin_usd) for x in assets if price(feed, x["feed"])}
     cfg["board_keep"] = {x["id"]: atoms(x, 0.05 if x["t"] in small else 2) for x in assets if price(feed, x["feed"])}
     cfg["fee_margin"] = {x["id"]: atoms(x, 0.02 if x["t"] in small else 0.2) for x in assets if price(feed, x["feed"])}
     json.dump(cfg, open(a.out, "w"), indent=2)
-    print("  %d pairs%s, ladder of %d levels from $%s (small-supply assets $%s), %s bps a level" % (
-        len(pairs), " on the BTC desk" if a.btc else "", a.levels, a.first_usd, a.first_usd_small, a.step_bps))
+    print("  %d pairs%s, ladder of %d levels from $%s (small-supply assets $%s), %s bps a level%s" % (
+        len(pairs), " on the BTC desk" if a.btc else "", a.levels, a.first_usd, a.first_usd_small, a.step_bps,
+        ("; %d pairs resting %d orders each in the tree, from $%s" % (len(cfg["rest"]["pairs"]), a.levels, a.rest_first_usd)) if cfg.get("rest") else ""))
 
 
 def cmd_plan_leaf(a):
@@ -594,6 +642,38 @@ def cmd_quotes(a):
     for g, v in sorted(by.items()):
         print("  gives %s: %s" % (g, " ".join(v)))
     print("  %d of %d pairs quoted at %d levels or more" % (full, len(want), a.min))
+
+
+def cmd_plan_covseed(a):
+    """The covenant seeder's funding plan, read from the seeder itself: each asset it sells
+    needs its ladder (the sum of its LEVELS, in the reference unit) once for every other asset
+    it is paired with, times `margin`, and the Sequence token for the fundings' fees besides."""
+    src = open(a.seeder).read()
+    # the levels before COVSEED_SCALE (BASE_LEVELS), times the scale the seeder runs at
+    named = "const BASE_LEVELS" if "const BASE_LEVELS" in src else "const LEVELS"
+    body = src[src.index(named):]
+    body = body[:body.index("};")]
+    m = re.search(r"COVSEED_SCALE \|\| (\d+(?:\.\d+)?)", src)
+    scale = float(os.environ.get("COVSEED_SCALE") or (m.group(1) if m else 1)) if named == "const BASE_LEVELS" else 1.0
+    small = re.search(r"const SMALL = Array.from\(\{ length: (\d+) \}, \(_, k\) => \+\(([\d.]+) \* Math.pow\(([\d.]+), k\)\)", src)
+    sums = {}
+    for m in re.finditer(r'"?([A-Za-z.]+)"?\s*:\s*\[([\d.,\s]+)\]', body):
+        sums[m.group(1)] = sum(float(x) for x in m.group(2).split(",") if x.strip()) * scale
+    if small:
+        n, v0, g = int(small.group(1)), float(small.group(2)), float(small.group(3))
+        for k in re.findall(r'"([A-Za-z.]+)"\s*:\s*SMALL', src):
+            sums[k] = sum(v0 * g ** i for i in range(n))
+    tick = {"SEQ": "tSEQ"}
+    assets = [x["t"] for x in assets_of(a.assets)]
+    need = {}
+    for sym, total in sums.items():
+        t = tick.get(sym, sym)
+        if t in assets:
+            need[t] = round(total * (len(assets) - 1) * a.margin, 2)
+    need["tSEQ"] = need.get("tSEQ", 0) + a.fee_usd
+    plan = [{"name": a.wallet, "kind": "wallet", "node": a.node, "address": a.address, "need": need}]
+    json.dump(plan, open(a.out, "w"), indent=1)
+    print("  %s needs, in the reference unit: %s" % (a.wallet, ", ".join("%s %s" % (k, v) for k, v in sorted(need.items()))))
 
 
 def cmd_plan_sc(a):
@@ -722,10 +802,14 @@ def main():
     c.add_argument("--first-usd", type=float, default=12000); c.add_argument("--first-usd-small", type=float, default=0.25)
     c.add_argument("--coin-usd", type=float, default=25000); c.add_argument("--coin-usd-small", type=float, default=2)
     c.add_argument("--spread-bps", type=int, default=30); c.add_argument("--btc-first-sats", type=int, default=15000000)
+    c.add_argument("--btc-asset-first-usd", type=float, default=12000)
+    c.add_argument("--rest-relay", default=""); c.add_argument("--rest-first-usd", type=float, default=5000); c.add_argument("--rest-growth", type=float, default=1.3)
     c = sp.add_parser("plan-leaf"); c.add_argument("--name"); c.add_argument("--node"); c.add_argument("--address"); c.add_argument("--assets")
     c.add_argument("--held"); c.add_argument("--usd", type=float, default=1000000); c.add_argument("--usd-small", type=float, default=10)
     c.add_argument("--small", default="USDC.e,EURC.e"); c.add_argument("--skip", default=""); c.add_argument("--out")
     c = sp.add_parser("quotes"); c.add_argument("--url"); c.add_argument("--config"); c.add_argument("--assets"); c.add_argument("--min", type=int, default=8); c.add_argument("--minutes", type=int, default=20)
+    c = sp.add_parser("plan-covseed"); c.add_argument("--seeder"); c.add_argument("--assets"); c.add_argument("--wallet"); c.add_argument("--node")
+    c.add_argument("--address"); c.add_argument("--margin", type=float, default=1.25); c.add_argument("--fee-usd", type=float, default=2000); c.add_argument("--out")
     c = sp.add_parser("waitconf"); c.add_argument("--sent"); c.add_argument("--minutes", type=int, default=20)
     c = sp.add_parser("oceancheck"); c.add_argument("--octl"); c.add_argument("--ocean"); c.add_argument("--plan"); c.add_argument("--assets"); c.add_argument("--minutes", type=int, default=5)
     c.add_argument("--awaiting", default="")
@@ -735,7 +819,9 @@ def main():
     for k in ("awaiting", "partial"):
         if hasattr(a, k):
             setattr(a, k, set(x for x in getattr(a, k).split(",") if x))
-    {"mint": cmd_mint, "floors": cmd_floors, "plan-targets": cmd_plan_targets, "accounts": cmd_accounts, "plan-sc": cmd_plan_sc, "leafcfg": cmd_leafcfg, "plan-leaf": cmd_plan_leaf, "quotes": cmd_quotes, "fund": cmd_fund, "waitconf": cmd_waitconf, "oceancheck": cmd_oceancheck, "books": cmd_books}[a.cmd](a)
+    {"mint": cmd_mint, "floors": cmd_floors, "plan-targets": cmd_plan_targets, "accounts": cmd_accounts, "plan-sc": cmd_plan_sc, "plan-covseed": cmd_plan_covseed,
+     "leafcfg": cmd_leafcfg, "plan-leaf": cmd_plan_leaf, "quotes": cmd_quotes, "fund": cmd_fund, "waitconf": cmd_waitconf, "oceancheck": cmd_oceancheck,
+     "books": cmd_books}[a.cmd](a)
 
 
 if __name__ == "__main__":
