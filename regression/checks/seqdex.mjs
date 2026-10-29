@@ -107,22 +107,28 @@ export async function run ({ b, report, widths, problems }) {
       await h.eval("document.querySelector('#bookTabs [data-b=book]').click(),1")
       return { ok: r.rows > 0 || /No trades/.test(r.text), detail: r }
     })
-    await R('TICKET', w, 'Ticket: Buy or Sell; Market or Limit; Price, Amount; 25%, 50%, 75%, Max; "Your wallet shows the exact amounts and fees before anything is signed."', h, async () => {
+    await R('TICKET', w, 'Ticket: Buy or Sell; Market or Limit; You pay and You receive; 25%, 50%, 75%, Max; "Your wallet shows the exact amounts and fees before anything is signed."', h, async () => {
       if (w === 'phone') { await h.click('#phBuy'); await sleep(800) }
-      const r = await h.eval("({t:document.querySelector('#orderForm').innerText, sides:!!document.querySelector('#side-buy')&&!!document.querySelector('#side-sell'), types:[...document.querySelectorAll('[id^=type-]')].map(x=>x.innerText.trim()), price:!!document.querySelector('#fPrice'), amount:!!document.querySelector('#fAmount')})")
+      const r = await h.eval("({t:document.querySelector('#orderForm').innerText, sides:!!document.querySelector('#side-buy')&&!!document.querySelector('#side-sell'), types:[...document.querySelectorAll('[id^=type-]')].map(x=>x.innerText.trim()), price:!!document.querySelector('#fPrice'), amount:!!document.querySelector('#fPay')&&!!document.querySelector('#fReceive')})")
       const pct = ['25%', '50%', '75%', 'Max'].every((x) => r.t.includes(x))
       const ok = r.sides && r.types.includes('Market') && r.types.includes('Limit') && r.amount && pct && /Your wallet shows the exact amounts and fees before anything is signed\./.test(r.t)
       return { ok, detail: { types: r.types, price: r.price, amount: r.amount, pct } }
     })
-    await R('TICKET-TOTAL', w, 'Ticket: a Total field beside Price and Amount', h, async () => {
-      const t = await h.text('#orderForm'); return { at: '#orderForm',  ok: /\bTotal\b/.test(t), detail: t.split('\n').filter((l) => /Price|Amount|Total|You pay/.test(l)).slice(0, 5) }
+    await R('TICKET-PAY-RECEIVE', w, 'Ticket: You pay and You receive, tethered: typing one fills the other', h, async () => {
+      await h.eval("(document.querySelector('#type-market')||{click(){}}).click(),1"); await sleep(500)
+      await h.type('#fPay', '100'); await sleep(1000)
+      const a = await h.eval("document.querySelector('#fReceive').value")
+      await h.type('#fReceive', '0.01'); await sleep(1000)
+      const b = await h.eval("document.querySelector('#fPay').value")
+      await h.type('#fPay', ''); await h.type('#fReceive', '')
+      return { at: '#fPay', ok: Number(a) > 0 && Number(b) > 0 && b !== '100', detail: { pay100receives: a, receive001pays: b } }
     })
-    await R('TICKET-ESTIMATE', w, 'Ticket: an amount gives the estimate (Fills now / Rests on the book / You pay) and the button "Buy <amount> GOLD"', h, async () => {
+    await R('TICKET-ESTIMATE', w, 'Ticket (Limit): an amount gives the estimate (Fills now / Rests on the book) and the button "Buy <amount> GOLD"', h, async () => {
       await h.eval("(document.querySelector('#type-limit')||{click(){}}).click(),1"); await sleep(500)
-      await h.type('#fAmount', '0.01'); await sleep(1500)
+      await h.type('#fReceive', '0.01'); await sleep(1500)
       const r = await h.eval("({est:document.querySelector('#fEstimate').innerText.replace(/\\s+/g,' '), go:document.querySelector('#fGo').innerText.trim()})")
-      await h.type('#fAmount', '')
-      return { ok: /Fills now|Rests on the book|You pay/.test(r.est) && /^(Buy|Sell) 0\.01 GOLD$/.test(r.go), detail: r }
+      await h.type('#fReceive', '')
+      return { ok: /Fills now|Rests on the book/.test(r.est) && /^(Buy|Sell) 0\.01 GOLD$/.test(r.go), detail: r }
     })
     await R('TICKET-OPTIONS', w, 'Ticket (Limit): the options the wallet offers (Post only, Nothing left resting, Smallest fill, Can take back after)', h, async () => {
       const t = await h.text('#orderForm'); const any = /Post only|Nothing left resting|Smallest fill|Can take back after/.test(t)
