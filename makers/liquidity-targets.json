@@ -62,5 +62,18 @@
         "OILX": 300000
       }
     }
+  },
+  "service_wallets": {
+    "node000": [
+      "treasury2026",
+      "recovered"
+    ],
+    "dexnode": [
+      "maker-bridged",
+      "covenant-seeder",
+      "lsp-inventory",
+      "xmm",
+      "volume-taker"
+    ]
   }
 }
