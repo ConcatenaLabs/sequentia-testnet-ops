@@ -1,14 +1,7 @@
 {
   "_": "Lines known to fail, each with what lost it (or that it was never built) and who is on it. A known line still fails the run; this only says why. Remove an entry when its line passes.",
-  "AB-TRD-PAY-SEARCH": "regression: bcbf967 vendored the web wallet's plain-select composer; follows SD1's fix once vendored again",
-  "AB-TRD-GET-SEARCH": "regression: bcbf967; follows SD1's fix once vendored again",
-  "AB-TRD-HELD-FIRST": "regression: bcbf967; follows SD1's fix once vendored again",
-  "AB-TRD-AMOUNTS": "regression: bcbf967; follows SD1's fix once vendored again",
-  "AB-TRD-MARKET": "never built: TR1 named it (copy market-view.js into the trade view)",
-  "AB-BAL-HIDE": "never built in Ambra browser: no Hide control, no hidden list (the web wallet and Ambra mobile have both)",
   "AM-TRD-SEARCH": "regression: 707b0d6 replaced showAssetSheet with a plain DropdownButton in default mode; needs its own fix",
   "AM-TRD-AMOUNTS": "regression: 707b0d6 dropped the tethered receive amount; needs its own fix",
   "AM-TRD-MARKET": "never built: TR1 named it (a Flutter chart following the contract's Market section)",
-  "AM-HIS-TRADES": "never built: default-mode trades show only under Swap > Your trades, not in History",
-  "AB-RCV-IN-PLACE": "never built: the popup asks for the code once per render (popup.js renderDefaultReceive) and keeps the address if the wallet had not joined yet"
+  "AM-HIS-TRADES": "never built: default-mode trades show only under Swap > Your trades, not in History"
 }

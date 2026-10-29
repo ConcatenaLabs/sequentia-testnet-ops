@@ -1,7 +1,7 @@
 // Ambra browser (the extension, from a fresh clone of its default branch), on the live testnet:
 // its popup opened as a page, in default mode. A fresh wallet, then the funded test wallet
 // imported from its phrase. Nothing is sent or traded; Review is asked for and not confirmed.
-import { sleep, helpers, forbiddenWords, forbiddenIn } from '../lib/suite.mjs'
+import { sleep, helpers, forbiddenWords, forbiddenIn, PICKER, SEARCH, CLOSE } from '../lib/suite.mjs'
 import { newExtensionWallet } from './seqdex.mjs'
 
 const W = 'popup'
@@ -25,11 +25,6 @@ export async function run ({ b, report, funded, problems }) {
     await h.waitFor("/\\d/.test(document.querySelector('#headline').innerText)", 60000).catch(() => {})
     const t = await h.text('#headline'), s = await h.text('#headlineSub'); return { ok: /\d/.test(t) && /Portfolio total/.test(s), detail: { t, s } }
   })
-  await R('BAL-HIDE', 'An asset can be hidden from the list and the default pickers', h, async () => {
-    const any = await h.eval("[...document.querySelectorAll('#tBalance button, #tBalance [title]')].some(x=>/hide/i.test(x.innerText+' '+(x.title||'')))")
-    return { ok: any, detail: any ? '' : 'no hide control anywhere on Balance (the web wallet and Ambra mobile have one)' }
-  })
-
   // The code shows once the wallet has joined (about 35 s). A person re-opens the tab; so does this.
   await tab(h, 'receive')
   const HAS_CODE = "/^bitcoin:tb1/.test((document.querySelector('#recvDCode')||{}).innerText||'')"
@@ -59,15 +54,21 @@ export async function run ({ b, report, funded, problems }) {
   })
 
   await tab(h, 'trade'); await sleep(4000)
-  await R('TRD-FORM', 'Trade: You pay, You get, an amount, Review', h, async () => {
-    const t = await h.text('#userComposerRoot'); return { ok: /You pay/i.test(t) && /You get/i.test(t) && await h.visible('#ucReview') }
+  await R('TRD-FORM', 'Trade: You pay, You receive, their amounts, and Review', h, async () => {
+    const t = await h.text('#userComposerRoot'); const r = await h.visible('#ucReview')
+    return { ok: /you pay/i.test(t) && /you receive/i.test(t) && r, detail: { review: r } }
   })
-  for (const [id, sel, what] of [['TRD-PAY-SEARCH', '#ucPay', 'You pay'], ['TRD-GET-SEARCH', '#ucGet', 'You get']]) {
-    await R(id, `Trade: the ${what} picker is searchable`, h, async () => {
-      const o = await options(h, sel); return { at: sel, ok: !!o && o.tag !== 'SELECT', detail: o && o.tag === 'SELECT' ? `a plain <select> (${o.rows.length} options), no search` : o }
-    })
-  }
-  await R('TRD-AMOUNTS', 'Trade: an amount in You pay shows what You get, and the other way', h, async () => {
+  await R('TRD-PAY-SEARCH', 'Trade: the You pay picker is searchable', h, async () => {
+    const p = await h.eval(PICKER('#ucPay')); await h.eval(CLOSE)
+    return { at: '#ucPay', ok: p.search, detail: p.kind === 'select' ? `a plain <select> (${p.rows.length} options), no search` : p }
+  })
+  await R('TRD-GET-SEARCH', 'Trade: the You receive picker is searchable, and finds an asset by ticker', h, async () => {
+    const p = await h.eval(PICKER('#ucGet'))
+    if (!p.search) { await h.eval(CLOSE); return { at: '#ucGet', ok: false, detail: p.kind === 'select' ? `a plain <select> (${p.rows.length} options), no search` : p } }
+    const rows = await h.eval(SEARCH('GOLD')); await h.eval(CLOSE)
+    return { at: '#ucGet', ok: !!rows && rows.includes('GOLD'), detail: { first: p.rows.slice(0, 6), search: rows } }
+  })
+  await R('TRD-AMOUNTS', 'Trade: an amount in You pay shows what You receive, and an amount in You receive shows what You pay', h, async () => {
     const f = await h.eval("[...document.querySelectorAll('#userComposerRoot input')].filter(i=>i.getClientRects().length).map(i=>i.id)")
     return { at: '#ucAmount',  ok: f.length >= 2, detail: f.length < 2 ? `one amount field (${f.join(', ')})` : f }
   })
@@ -100,7 +101,7 @@ export async function run ({ b, report, funded, problems }) {
   await R('NO-ERRORS', 'No uncaught error in the popup', null, async () => ({ ok: problems(pop).length === 0, detail: problems(pop).slice(0, 4) }))
 
   // ---------- the funded test wallet, imported ----------
-  if (!funded) { for (const id of ['BAL-BTC-FIRST', 'TRD-HELD-FIRST', 'TRD-HELD-TRADABLE']) report.skip('AB-' + id, W, 'needs the funded test wallet', 'no --funded phrase file'); return }
+  if (!funded) { for (const id of ['BAL-BTC-FIRST', 'BAL-HIDE', 'TRD-HELD-FIRST', 'TRD-HELD-TRADABLE']) report.skip('AB-' + id, W, 'needs the funded test wallet', 'no --funded phrase file'); return }
   await tab(h, 'settings')
   await h.eval("(()=>{document.querySelector('#removePw').value='regression-suite-password'; document.querySelector('#btnRemoveWallet').click(); return 1})()")
   await h.waitFor("!document.querySelector('#vWelcome').classList.contains('hide')", 30000)
@@ -112,19 +113,31 @@ export async function run ({ b, report, funded, problems }) {
   await R('BAL-BTC-FIRST', 'BTC is the first row; the funded wallet\'s assets follow, with no "native" label', h, async () => {
     const r = await rows(h); return { ok: ok && (r[0].tk || '').trim().startsWith('BTC') && !/native/i.test(await h.text('#tBalance')), detail: r.map((x) => (x.tk || '').trim().split(/\s/)[0]) }
   })
+  await R('BAL-HIDE', 'An asset can be hidden: it leaves the list for "Hidden assets (N)", the total stays the same, and Unhide brings it back', h, async () => {
+    const before = await h.text('#headline')
+    const r = await h.eval("(async()=>{const row=[...document.querySelectorAll('#assetList .asset-row')].find(x=>((x.querySelector('.tk')||{}).innerText||'').trim()==='GOLD'); if(!row) return 'no GOLD row'; row.click(); await new Promise(r=>setTimeout(r,800)); const b=[...document.querySelectorAll('#assetList button')].find(x=>x.getClientRects().length && /Hide asset/.test(x.innerText)); if(!b) return 'no hide button'; b.click(); await new Promise(r=>setTimeout(r,1500)); return 'hidden'})()")
+    const list = await rows(h), body = await h.text('#tBalance'), after = await h.text('#headline')
+    const gone = !list.some((x) => (x.tk || '').trim() === 'GOLD')
+    // Unhide, so the rest of the run sees the wallet as it was.
+    const back = await h.eval("(async()=>{const f=[...document.querySelectorAll('#assetList .hidden-fold')][0]; if(!f) return 'no fold'; f.click(); await new Promise(r=>setTimeout(r,600)); const u=[...document.querySelectorAll('#assetList button')].find(x=>x.getClientRects().length && /^Unhide$/.test(x.innerText.trim())); if(!u) return 'no Unhide'; u.click(); await new Promise(r=>setTimeout(r,1500)); return 'shown'})()")
+    const again = (await rows(h)).some((x) => (x.tk || '').trim() === 'GOLD')
+    return { ok: r === 'hidden' && gone && /Hidden assets \(1\)/.test(body) && before === after && back === 'shown' && again, detail: { r, gone, back, again, totalBefore: before, totalAfter: after } }
+  })
   await tab(h, 'trade'); await sleep(4000)
-  await R('TRD-HELD-FIRST', 'Trade: the You get picker lists BTC, then your assets, before the rest', h, async () => {
-    const o = await options(h, '#ucGet'); const mine = ['BTC', 'USDX', 'GOLD']
-    const i = o.rows.findIndex((x) => !mine.includes(x)); const late = o.rows.slice(i < 0 ? o.rows.length : i).filter((x) => mine.includes(x))
-    return { at: '#ucGet', ok: o.tag !== 'SELECT' && o.rows[0] === 'BTC' && !late.length, detail: { kind: o.tag, first: o.rows.slice(0, 6), heldAfterOthers: late } }
+  await R('TRD-HELD-FIRST', 'Trade: the You receive picker lists BTC, then your assets, before the rest', h, async () => {
+    const p = await h.eval(PICKER('#ucGet')); await h.eval(CLOSE)
+    const mine = ['BTC', 'USDX', 'GOLD']; const i = p.rows.findIndex((x) => !mine.includes(x))
+    const late = p.rows.slice(i < 0 ? p.rows.length : i).filter((x) => mine.includes(x))
+    return { at: '#ucGet', ok: p.search && p.rows[0] === 'BTC' && !late.length, detail: { kind: p.kind, first: p.rows.slice(0, 6), heldAfterOthers: late, groups: p.groups } }
   })
   await R('TRD-HELD-TRADABLE', 'Trade: every asset the balance shows can be paid from (never "You have no <T> to trade.")', h, async () => {
     const bad = {}
     for (const tk of ['USDX', 'GOLD']) {
-      const set = await h.eval(`(()=>{const s=document.querySelector('#ucPay'); const o=s&&[...s.options].find(o=>o.text.trim()==='${tk}'); if(!o) return false; s.value=o.value; s.dispatchEvent(new Event('change',{bubbles:true})); return true})()`)
+      // You pay is the shared asset chooser: search the ticker, then choose its row.
+      const set = await h.eval(`(async()=>{const b=document.querySelector('#ucPay'); if(!b) return false; b.click(); await new Promise(r=>setTimeout(r,500)); const i=document.querySelector('.swpop-search input'); if(!i) return false; i.value='${tk}'; i.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(r=>setTimeout(r,400)); const o=[...document.querySelectorAll('.swpop [role=option]')].find(o=>((o.querySelector('.swopt-tk')||{}).firstChild||{}).textContent==='${tk}'); if(!o){ i.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'})); return false } o.click(); return true})()`)
       if (!set) { bad[tk] = 'not offered in You pay'; continue }
       await sleep(800); await h.type('#ucAmount', tk === 'GOLD' ? '0.01' : '1'); await h.click('#ucReview')
-      await h.waitFor("/[A-Za-z]/.test((document.querySelector('#ucNote')||{}).innerText||'') && !/Finding/.test(document.querySelector('#ucNote').innerText) || !!document.querySelector('#ucConfirm:not(.hide)')", 60000).catch(() => {})
+      await h.waitFor("/[A-Za-z]/.test((document.querySelector('#ucNote')||{}).innerText||'') && !/Finding/.test(document.querySelector('#ucNote').innerText) || !!document.querySelector('#ucConfirm')", 60000).catch(() => {})
       const note = await h.text('#ucNote'); if (/^You have no /.test(note)) bad[tk] = note
       await h.eval("(document.querySelector('#ucCancel')||{click(){}}).click(),1"); await h.type('#ucAmount', '')
     }

@@ -40,7 +40,7 @@ How each surface is read:
 | WW-SND-WORDS | read Send without a forbidden word or a fee-rate field | Never in default mode |
 | WW-TRD-FORM | trade with You pay and You receive, their amounts, and Review | Trade |
 | WW-TRD-PAY-SEARCH | search the You pay picker | Asset pickers |
-| WW-TRD-GET-SEARCH | search the You get picker and find an asset by ticker | Asset pickers |
+| WW-TRD-GET-SEARCH | search the You receive picker and find an asset by ticker | Asset pickers |
 | WW-TRD-PASTE-ID | paste an asset id into a picker and find it | Asset pickers |
 | WW-TRD-HELD-FIRST | see BTC, then what the wallet holds, before the rest | Asset pickers |
 | WW-TRD-HIDDEN | not see a hidden asset in a picker's first rows, and find it by search | Asset pickers |
@@ -125,7 +125,7 @@ wallet connected).
 | AB-FAUCET | ask the testnet faucet | Receive |
 | AB-SND-RECIPIENT | use "Recipient" with its hint and "balance <amount>" | Send |
 | AB-SND-PICKER | choose the asset to send, BTC first | Asset pickers |
-| AB-TRD-FORM | trade with You pay, You get, an amount and Review | Trade |
+| AB-TRD-FORM | trade with You pay, You receive, their amounts and Review | Trade |
 | AB-TRD-PAY-SEARCH, AB-TRD-GET-SEARCH | search the Trade pickers | Asset pickers |
 | AB-TRD-HELD-FIRST | see BTC, then what the wallet holds, before the rest | Asset pickers |
 | AB-TRD-AMOUNTS | type what they pay or what they get, and see the other | Trade |

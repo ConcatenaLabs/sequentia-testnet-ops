@@ -109,10 +109,38 @@ export async function setWidth (b, page, w) {
 
 // The words default mode never shows, read from the deployed web wallet itself
 // (USER_MODE_FORBIDDEN_WORDS in user-trade.js), so the list here never drifts from the contract.
-export async function forbiddenWords (page) {
-  return page.eval(`import('https://sequentiatestnet.com/wallet/user-trade.js').then(m=>[...m.USER_MODE_FORBIDDEN_WORDS])`)
+// The deployed web wallet's USER_MODE_FORBIDDEN_WORDS, read here rather than in the page: a page's
+// own content policy (Ambra browser's popup allows only its own scripts) may refuse the import.
+export async function forbiddenWords () {
+  const r = await fetch('https://sequentiatestnet.com/wallet/user-trade.js', { cache: 'no-store' })
+  if (!r.ok) throw new Error('user-trade.js: HTTP ' + r.status)
+  const m = /USER_MODE_FORBIDDEN_WORDS\s*=\s*Object\.freeze\(\[([\s\S]*?)\]\)/.exec(await r.text())
+  if (!m) throw new Error('user-trade.js names no USER_MODE_FORBIDDEN_WORDS')
+  return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1])
 }
 export function forbiddenIn (text, words) {
   const t = ' ' + String(text).toLowerCase().replace(/[^a-z0-9-]+/g, ' ') + ' '
   return words.filter((w) => t.includes(' ' + w.toLowerCase() + ' ') || t.includes(' ' + w.toLowerCase() + 's '))
 }
+
+// What a picker shows after one click on the control named `sel`: the rows a person can choose
+// from (a searchable list, or a plain <select>'s options), and the search box if there is one.
+export const PICKER = (sel) => `(async()=>{
+  const c=document.querySelector(${JSON.stringify(sel)}); if(!c) throw new Error('no ${sel}');
+  const vis=(e)=>e && e.getClientRects().length>0 && getComputedStyle(e).visibility!=='hidden';
+  if(c.tagName==='SELECT') return { kind:'select', search:false, rows:[...c.options].map(o=>o.text.trim()) };
+  c.click(); await new Promise(r=>setTimeout(r,700));
+  const search=[...document.querySelectorAll('input')].find(i=>vis(i) && /search/i.test((i.placeholder||'')+' '+(i.getAttribute('aria-label')||'')));
+  const rows=[...document.querySelectorAll('[role=option]')].filter(o=>vis(o) && !o.classList.contains('swopt-other')).map(o=>{const t=o.querySelector('.swopt-tk,[data-ticker]'); return (t?t.innerText:o.innerText).trim().split(/\\s+/)[0].replace(/[^A-Za-z0-9.\\-…]/g,'')});
+  const groups=[...document.querySelectorAll('.swopt-grp')].filter(vis).map(g=>g.innerText.trim());
+  return { kind:'list', search:!!search, rows, groups };
+})()`
+// Types into the open picker's search box; -> the rows shown.
+export const SEARCH = (q) => `(async()=>{
+  const vis=(e)=>e && e.getClientRects().length>0;
+  const i=[...document.querySelectorAll('input')].find(x=>vis(x) && /search/i.test((x.placeholder||'')+' '+(x.getAttribute('aria-label')||'')));
+  if(!i) return null;
+  i.value=${JSON.stringify(q)}; i.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(r=>setTimeout(r,500));
+  return [...document.querySelectorAll('[role=option]')].filter(o=>vis(o) && !o.classList.contains('swopt-other')).map(o=>{const t=o.querySelector('.swopt-tk,[data-ticker]'); return (t?t.innerText:o.innerText).trim().split(/\\s+/)[0].replace(/[^A-Za-z0-9.\\-…]/g,'')});
+})()`
+export const CLOSE = `(()=>{document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); const i=[...document.querySelectorAll('input')].find(x=>x.getClientRects().length && /search/i.test(x.placeholder||'')); if(i) i.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); document.body.click(); return true})()`

@@ -10,6 +10,7 @@
 // sent, traded or signed; the funded test wallet (--funded, default
 // ~/.local/share/sequentia-regression/wallets/rgfunded.phrase when present) is only opened.
 import { existsSync, readFileSync, rmSync, mkdirSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -30,7 +31,10 @@ mkdirSync(cache, { recursive: true })
 const report = new Report(out, JSON.parse(readFileSync(join(here, 'known.json'), 'utf8')))
 
 const CHROME = chrome()
-const ext = clone(cache, 'sequentia-extension')
+// Ambra browser from a fresh clone of its default branch, or from a checkout named with --ext (a
+// branch's work, before it merges).
+const extDir = flag('--ext', null)
+const ext = extDir ? { dir: resolve(extDir), rev: execFileSync('git', ['-C', resolve(extDir), 'rev-parse', '--short=10', 'HEAD']).toString().trim() + ' (local checkout)' } : clone(cache, 'sequentia-extension')
 const { Browser } = await import(join(ext.dir, 'test/leaves/cdp.mjs'))
 report.note(`Live testnet, ${new Date().toISOString()}; widths ${widths.join(', ')}; funded test wallet: ${funded ? 'yes' : 'no'}`)
 report.note(`Ambra browser ${ext.rev}; browser ${CHROME}\n`)

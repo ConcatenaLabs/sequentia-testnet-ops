@@ -3,31 +3,9 @@
 // its phrase is given (--funded), restored into a fresh browser profile. Nothing is sent, traded
 // or signed: the checks open pickers, type amounts and ask for a review, and stop there.
 import { join } from 'node:path'
-import { sleep, helpers, setWidth, forbiddenWords, forbiddenIn } from '../lib/suite.mjs'
+import { sleep, helpers, setWidth, forbiddenWords, forbiddenIn, PICKER, SEARCH, CLOSE } from '../lib/suite.mjs'
 
 const BASE = 'https://sequentiatestnet.com/wallet/'
-
-// What a picker shows after one click on the control named `sel`: the rows a person can choose
-// from (a searchable list, or a plain <select>'s options), and the search box if there is one.
-const PICKER = (sel) => `(async()=>{
-  const c=document.querySelector(${JSON.stringify(sel)}); if(!c) throw new Error('no ${sel}');
-  const vis=(e)=>e && e.getClientRects().length>0 && getComputedStyle(e).visibility!=='hidden';
-  if(c.tagName==='SELECT') return { kind:'select', search:false, rows:[...c.options].map(o=>o.text.trim()) };
-  c.click(); await new Promise(r=>setTimeout(r,700));
-  const search=[...document.querySelectorAll('input')].find(i=>vis(i) && /search/i.test((i.placeholder||'')+' '+(i.getAttribute('aria-label')||'')));
-  const rows=[...document.querySelectorAll('[role=option]')].filter(o=>vis(o) && !o.classList.contains('swopt-other')).map(o=>{const t=o.querySelector('.swopt-tk,[data-ticker]'); return (t?t.innerText:o.innerText).trim().split(/\\s+/)[0].replace(/[^A-Za-z0-9.\\-…]/g,'')});
-  const groups=[...document.querySelectorAll('.swopt-grp')].filter(vis).map(g=>g.innerText.trim());
-  return { kind:'list', search:!!search, rows, groups };
-})()`
-// Types into the open picker's search box; -> the rows shown.
-const SEARCH = (q) => `(async()=>{
-  const vis=(e)=>e && e.getClientRects().length>0;
-  const i=[...document.querySelectorAll('input')].find(x=>vis(x) && /search/i.test((x.placeholder||'')+' '+(x.getAttribute('aria-label')||'')));
-  if(!i) return null;
-  i.value=${JSON.stringify(q)}; i.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(r=>setTimeout(r,500));
-  return [...document.querySelectorAll('[role=option]')].filter(o=>vis(o) && !o.classList.contains('swopt-other')).map(o=>{const t=o.querySelector('.swopt-tk,[data-ticker]'); return (t?t.innerText:o.innerText).trim().split(/\\s+/)[0].replace(/[^A-Za-z0-9.\\-…]/g,'')});
-})()`
-const CLOSE = `(()=>{document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); const i=[...document.querySelectorAll('input')].find(x=>x.getClientRects().length && /search/i.test(x.placeholder||'')); if(i) i.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); document.body.click(); return true})()`
 
 async function openWallet (b, h, { phrase } = {}) {
   await b.send('Page.navigate', { url: BASE }, h.page.sessionId)
