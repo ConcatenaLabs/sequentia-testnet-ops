@@ -23,6 +23,8 @@ About 25 minutes. It needs Node 22 and a Chromium: Playwright's under `~/.cache/
   `~/.local/share/sequentia-regression/wallets/rgfunded.phrase`). Without it, the lines that need
   held assets are SKIP.
 - `--out <dir>`: where the results go (default `~/.cache/sequentia-regression/runs/<time>`).
+- `--ext <dir>`: Ambra browser from this checkout instead of a fresh clone of its default branch,
+  to run its lines against a branch before it merges.
 
 It prints one line per capability and width, `PASS`, `FAIL` or `SKIP`, with what it saw, and
 writes each failure's screenshot beside `results.txt`. It exits 0 only when nothing failed. A
