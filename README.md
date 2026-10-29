@@ -452,6 +452,13 @@ pairs and their targets, the mix, each rail's concurrency, the sizes, the ramp,
 the takers' wallets and the crosser's command line. The takers' coins come from
 their own wallets, which the health pass refills.
 
+They run as `seqob-volume-takers.service` (`systemd/`), from this checkout, with
+their configuration in `/etc/sequentia/volume-takers.json` (mode 600: it holds
+the node RPC URL the on-chain rail spends through). Their on-chain coins are the
+dexnode wallet `volume-taker`, which the health pass keeps at its target; their
+Lightning legs go through the crosser's taker nodes (`ln-asset-b` and
+`btc-taker`).
+
 ```sh
 node makers/volume-takers.mjs --config /etc/sequentia/volume-takers.json            # trades
 node makers/volume-takers.mjs --config /etc/sequentia/volume-takers.json --dry-run  # no trade: the schedule, sizes and ramp
@@ -563,6 +570,7 @@ the faucet assets.
 | the Arca operator's pool | $20M of every asset it serves, from the moment it serves it ($18M of tSEQ) | half | `arca-operator` in the targets file |
 | the covenant seeder's wallet | $1.5M ($2.5M of tSEQ, its fundings' fee asset) | half | `covenant-seeder` |
 | the order crosser's wallet (`lsp-inventory`) | $200,000 | half | `lsp-inventory` |
+| the volume takers' wallet (`volume-taker`) | $300,000 | half | `volume-taker` |
 | each interactive fleet account | one and a half times its ten-level ladder ($390,000 a side) | half | `HEALTH_SC_USD` |
 | the in-tree leaf maker | $1M | half | `HEALTH_LEAF_MAKERS` |
 | the BTC leaf maker (its asset side) | $300,000 | half | `HEALTH_LEAF_MAKERS` |
