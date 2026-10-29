@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sequentia testnet status</title>
+<meta name="description" content="Whether the Sequentia testnet and its public services are working, checked every minute.">
+<link rel="icon" href="/explorer/img/icons/SequentiaTestnet-menu-logo.svg">
+<style>
+  :root{color-scheme:dark;--bg:#0f1216;--card:#171b21;--line:#262b33;--text:#e8eaed;--muted:#9aa0a6;--dim:#6b7280;--accent:#f5b301;--up:#2fbf71;--down:#e5484d;--late:#f5a524;--none:#2a2f37}
+  *{box-sizing:border-box}
+  body{margin:0;font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
+  .wrap{max-width:760px;margin:0 auto;padding:40px 16px 48px}
+  .brand{display:flex;align-items:center;gap:14px;margin:0 0 20px}
+  .brand img{height:44px;width:44px}
+  h1{font-size:26px;margin:0} h1 .t{color:var(--accent)}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  .verdict{border-radius:12px;padding:16px 20px;margin:0 0 24px;font-size:18px;font-weight:600;background:var(--card);border:1px solid var(--line)}
+  .verdict.up{border-color:var(--up)} .verdict.down{border-color:var(--down)}
+  .verdict .dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:10px;background:var(--dim);vertical-align:middle}
+  .verdict.up .dot{background:var(--up)} .verdict.down .dot{background:var(--down)}
+  h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:28px 0 10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:0 0 12px}
+  .chain{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+  .figure .label{color:var(--muted);font-size:13px}
+  .figure .value{font-size:20px;font-weight:600}
+  .figure .note{font-size:14px;color:var(--muted)}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .row h3{margin:0;font-size:17px}
+  .pill{font-size:13px;font-weight:600;border-radius:999px;padding:2px 10px;background:var(--none);color:var(--muted)}
+  .pill.up{background:rgba(47,191,113,.15);color:var(--up)} .pill.down{background:rgba(229,72,77,.15);color:var(--down)}
+  .ok{color:var(--up)} .bad{color:var(--down)} .warn{color:var(--late)}
+  .strip{display:flex;gap:2px;margin:12px 0 6px;height:28px}
+  .strip span{flex:1;border-radius:2px;background:var(--none)}
+  .strip span.up{background:var(--up)} .strip span.down{background:var(--down)}
+  .meta{display:flex;justify-content:space-between;color:var(--dim);font-size:13px;gap:8px;flex-wrap:wrap}
+  .problem{margin:8px 0 0;font-size:14px;color:var(--down)}
+  footer{margin-top:32px;border-top:1px solid var(--line);padding-top:16px;color:var(--dim);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <img src="/explorer/img/icons/SequentiaTestnet-menu-logo.svg" alt="Sequentia">
+    <h1>Sequentia <span class="t">testnet</span> status</h1>
+  </div>
+
+  <div id="verdict" class="verdict"><span class="dot"></span><span id="verdict-text">Checking…</span></div>
+
+  <h2>The Sequentia chain</h2>
+  <div class="card">
+    <div class="chain">
+      <div class="figure"><div class="label">Height</div><div class="value" id="height">…</div></div>
+      <div class="figure"><div class="label">Last block</div><div class="value" id="age">…</div><div class="note" id="age-note"></div></div>
+      <div class="figure"><div class="label">Bitcoin anchor</div><div class="value" id="anchor">…</div><div class="note" id="anchor-note"></div></div>
+    </div>
+    <div id="chain-history"></div>
+  </div>
+
+  <h2>Services</h2>
+  <div id="services"></div>
+
+  <footer>
+    Each service is checked every minute from this server, through its public address. A bar is one check; the newest is on the right.
+    <span id="updated"></span><br>
+    <a href="/">sequentiatestnet.com</a> · Testnet only; assets carry no value.
+  </footer>
+</div>
+<script>
+'use strict'
+// One entry per group in status/gatus.yaml, in the order the page lists them.
+const CHAIN = 'The Sequentia chain'
+const SERVICES = [
+  ['Block explorer', '/explorer/'],
+  ['Web wallet', '/wallet/'],
+  ['Faucet', '/faucet'],
+  ['Compages', '/bridge/'],
+  ['Staking pools', '/pools/'],
+  ['Emissio', '/emissio/'],
+  ['Sequentia Core download', '/download/core/'],
+]
+const STRIP = 60
+const $ = id => document.getElementById(id)
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e }
+const n = x => Number(x).toLocaleString('en-US')
+
+function ago(seconds) {
+  if (seconds < 90) return `${seconds} seconds ago`
+  const m = Math.round(seconds / 60)
+  if (m < 90) return `${m} minutes ago`
+  const h = Math.round(m / 60)
+  return h < 48 ? `${h} hours ago` : `${Math.round(h / 24)} days ago`
+}
+function percent(x) {
+  const p = x * 100
+  return p >= 99.95 ? '100%' : p.toFixed(p >= 99 ? 2 : 1) + '%'
+}
+
+async function getJson(url) {
+  const r = await fetch(url, { cache: 'no-store' })
+  if (!r.ok) throw new Error(url + ' answered ' + r.status)
+  return r.json()
+}
+
+function showChain(c) {
+  $('height').textContent = n(c.height)
+  $('age').textContent = ago(c.blocks.age_seconds)
+  const blockWords = { on_time: ['On time', 'ok'], late: ['Late: blocks are slower than usual', 'warn'], stalled: ['Stalled: no new block for a while', 'bad'] }[c.blocks.state]
+  $('age-note').textContent = blockWords[0]; $('age-note').className = 'note ' + blockWords[1]
+  const a = c.anchor
+  const anchorWords = {
+    current: ['Current', 'ok', `Bitcoin block ${n(a.height)}, ${a.behind === 0 ? 'the newest' : a.behind === 1 ? 'one behind the newest' : a.behind + ' behind the newest'}`],
+    behind: ['Behind', 'bad', `Bitcoin block ${n(a.height)}, ${a.behind} behind the newest`],
+    unchecked: ['Not confirmed', 'bad', 'The node could not check it against Bitcoin'],
+    bitcoin_unknown: ['Not confirmed', 'warn', `Bitcoin block ${n(a.height)}; the newest Bitcoin block is unknown right now`],
+  }[a.state]
+  $('anchor').textContent = anchorWords[0]; $('anchor').className = 'value ' + anchorWords[1]
+  $('anchor-note').textContent = anchorWords[2]
+}
+function chainUnknown() {
+  for (const id of ['height', 'age', 'anchor']) $(id).textContent = 'Unknown'
+  $('age-note').textContent = ''; $('anchor-note').textContent = 'The chain could not be read right now'
+}
+
+// Results of the endpoints in one group, lined up from the newest check back.
+function groupStrip(endpoints) {
+  const lists = endpoints.map(e => [...(e.results || [])].sort((x, y) => new Date(x.timestamp) - new Date(y.timestamp)))
+  const len = Math.min(STRIP, ...lists.map(l => l.length))
+  const out = []
+  for (let i = 0; i < len; i++) {
+    const at = lists.map(l => l[l.length - len + i])
+    out.push({ ok: at.every(r => r.success), when: at[0].timestamp, failed: endpoints.filter((e, k) => !at[k].success).map(e => e.name) })
+  }
+  return out
+}
+
+// The history of one group: its bars, what is failing now, and its 24-hour share.
+// Returns the nodes and whether the newest check failed.
+function history(endpoints, uptimes) {
+  const strip = groupStrip(endpoints)
+  const last = strip[strip.length - 1]
+  const nodes = []
+  if (last && !last.ok && endpoints.length > 1) nodes.push(el('p', 'problem', 'Failing: ' + last.failed.join(', ') + '.'))
+  const bars = el('div', 'strip')
+  for (let i = strip.length; i < STRIP; i++) bars.append(el('span'))
+  for (const r of strip) {
+    const b = el('span', r.ok ? 'up' : 'down')
+    b.title = new Date(r.when).toLocaleString() + (r.ok ? ': working' : ': not working (' + r.failed.join(', ') + ')')
+    bars.append(b)
+  }
+  const keys = endpoints.map(e => e.key).filter(k => k in uptimes)
+  const day = keys.length ? Math.min(...keys.map(k => uptimes[k])) : null
+  const meta = el('div', 'meta')
+  meta.append(el('span', null, 'Last hour'), el('span', null, day == null ? '' : `Working ${percent(day)} of the last 24 hours`))
+  nodes.push(bars, meta)
+  return { nodes, state: !last ? 'none' : last.ok ? 'up' : 'down' }
+}
+
+function render(statuses, uptimes) {
+  const byGroup = new Map()
+  for (const s of statuses) { if (!byGroup.has(s.group)) byGroup.set(s.group, []); byGroup.get(s.group).push(s) }
+  const down = []
+  const chain = history(byGroup.get(CHAIN) || [], uptimes)
+  $('chain-history').replaceChildren(...chain.nodes)
+  if (chain.state === 'down') down.push('the Sequentia chain')
+  const box = $('services'); box.replaceChildren()
+  for (const [group, href] of SERVICES) {
+    const h = history(byGroup.get(group) || [], uptimes)
+    const card = el('div', 'card')
+    const row = el('div', 'row')
+    const title = el('h3'); const a = el('a', null, group); a.href = href; title.append(a)
+    row.append(title, el('span', 'pill ' + h.state, h.state === 'up' ? 'Working' : h.state === 'down' ? 'Not working' : 'No checks yet'))
+    card.append(row, ...h.nodes)
+    if (h.state === 'down') down.push(group)
+    box.append(card)
+  }
+  const v = $('verdict')
+  if (!statuses.length) { v.className = 'verdict'; $('verdict-text').textContent = 'No checks yet.' }
+  else if (!down.length) { v.className = 'verdict up'; $('verdict-text').textContent = 'Everything is working.' }
+  else { v.className = 'verdict down'; $('verdict-text').textContent = 'Not working right now: ' + down.join(', ') + '.' }
+}
+
+async function refresh() {
+  getJson('/chainstatus').then(showChain, chainUnknown)
+  try {
+    const statuses = await getJson('/status/api/statuses')
+    const uptimes = {}
+    await Promise.all(statuses.map(s => getJson(`/status/api/uptime/${encodeURIComponent(s.key)}/24h`)
+      .then(u => { uptimes[s.key] = Number(u) }, () => {})))
+    render(statuses, uptimes)
+    $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString() + '.'
+  } catch {
+    $('verdict').className = 'verdict down'
+    $('verdict-text').textContent = 'The checks could not be read right now.'
+  }
+}
+refresh()
+setInterval(refresh, 30000)
+</script>
+</body>
+</html>

@@ -264,6 +264,29 @@ HTML {err.status_code}
 		}
 	}
 
+	# The status page (status/ in this repository): the static page from
+	# /srv/status and two read-only views of its checker, Gatus on
+	# 127.0.0.1:8097 (status/gatus.yaml): the newest results of every check,
+	# and one check's share of passes over a day or a week. Nothing else of
+	# the checker is published.
+	redir /status /status/ permanent
+	handle_path /status/* {
+		@statuses path /api/statuses
+		@uptime path_regexp uptime ^/api/uptime/([a-z0-9_-]+)/(24h|7d)$
+		route {
+			reverse_proxy @statuses 127.0.0.1:8097 {
+				rewrite /api/v1/endpoints/statuses?page=1&pageSize=60
+			}
+			reverse_proxy @uptime 127.0.0.1:8097 {
+				rewrite /api/v1/endpoints/{re.uptime.1}/uptimes/{re.uptime.2}
+			}
+			respond /api/* 404
+			header Cache-Control no-cache
+			root * /srv/status
+			file_server
+		}
+	}
+
 	# Staking pool board: the static page and its read-only listpools feed, both
 	# from the board service. handle_path strips the prefix, so the service sees
 	# "/" for the page and "/pools.json" for the feed.

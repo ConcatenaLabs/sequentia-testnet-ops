@@ -1,0 +1,121 @@
+# The checks behind the testnet status page at sequentiatestnet.com/status/.
+# Gatus (github.com/TwiN/gatus) runs them every minute, keeps the results in
+# SQLite and answers on 127.0.0.1 only; Caddy publishes two read-only views of
+# its API to the page (see caddy/Caddyfile, /status/). Installed at
+# /etc/gatus/config.yaml by bin/apply-status.sh.
+#
+# Every check goes through the public address, so it sees what a visitor sees:
+# DNS, TLS and the proxy included. One group per thing the page lists; a group
+# is up when all its checks pass. Names here are shown to visitors.
+
+web:
+  address: 127.0.0.1
+  port: 8097
+
+storage:
+  type: sqlite
+  path: /var/lib/gatus/data.db
+  # 24 hours of one-minute checks per endpoint.
+  maximum-number-of-results: 1440
+  maximum-number-of-events: 100
+
+endpoint-defaults: &check
+  interval: 60s
+  client:
+    timeout: 15s
+
+endpoints:
+  - name: New blocks
+    group: The Sequentia chain
+    url: https://sequentiatestnet.com/chainstatus
+    <<: *check
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].blocks.ok == true"
+
+  - name: Bitcoin anchor
+    group: The Sequentia chain
+    url: https://sequentiatestnet.com/chainstatus
+    <<: *check
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].anchor.ok == true"
+
+  - name: Explorer page
+    group: Block explorer
+    url: https://sequentiatestnet.com/explorer/
+    <<: *check
+    conditions:
+      - "[STATUS] == 200"
+      - "[CERTIFICATE_EXPIRATION] > 168h"
+
+  - name: Explorer data
+    group: Block explorer
+    url: https://sequentiatestnet.com/api/blocks/tip/height
+    <<: *check
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY] > 0"
+
+  - name: Bitcoin explorer data
+    group: Block explorer
+    url: https://sequentiatestnet.com/testnet4/api/blocks/tip/height
+    <<: *check
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY] > 0"
+
+  - name: Web wallet page
+    group: Web wallet
+    url: https://sequentiatestnet.com/wallet/
+    <<: *check
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: Instant payments
+    group: Web wallet
+    url: https://sequentiatestnet.com/arca/v1/info
+    <<: *check
+    conditions:
+      - "[STATUS] == 200"
+      - "len([BODY].operator) == 64"
+
+  - name: Faucet
+    group: Faucet
+    url: https://sequentiatestnet.com/faucet/healthz
+    <<: *check
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].ok == true"
+
+  - name: Compages
+    group: Compages
+    url: https://sequentiatestnet.com/bridge/api/health
+    <<: *check
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].status == ok"
+
+  - name: Staking pools
+    group: Staking pools
+    url: https://sequentiatestnet.com/pools/pools.json
+    <<: *check
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].height > 0"
+
+  - name: Emissio
+    group: Emissio
+    url: https://sequentiatestnet.com/emissio/
+    <<: *check
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*Emissio*)"
+
+  - name: Sequentia Core download
+    group: Sequentia Core download
+    url: https://sequentiatestnet.com/download/core/
+    <<: *check
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*sequentia-core-*-linux-x86_64.tar.gz*)"

@@ -22,9 +22,11 @@ put it in place and keep copies of it.
 | `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep; the Arca operator's daily PostgreSQL base backup; and the user timers that pull the bridge state and the Arca backups off the box. |
 | `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. `bitcoin-ark` covers the Bitcoin ark's Bitcoin Core and Lightning logs under `/var/log/bitcoin-ark`: daily or at 50 MB, seven kept. |
-| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the makers below (`seqob-pureln-fleet`, `seqob-conf-maker`, `seqob-samechain-fleet`, the `seqob-liquidity-health` timer, `seqob-mixed-gold-eurx-buyer-side`, `seqob-mixed-gold-eurx-seller-side`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), and of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key); none holds a credential, each service reads its own mode-600 config. |
+| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the makers below (`seqob-pureln-fleet`, `seqob-conf-maker`, `seqob-samechain-fleet`, the `seqob-liquidity-health` timer, `seqob-mixed-gold-eurx-buyer-side`, `seqob-mixed-gold-eurx-seller-side`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key), and of the status page's checker (`gatus`); none holds a credential, each service reads its own mode-600 config. |
 | `bitcoin-ark/` | The Bitcoin ark's configuration templates (Bitcoin Core, the Lightning gateway, Bark's server and watchman) and the one patch its Bark client carries. |
 | `makers/` | The scripts that keep SeqOB makers running on the box: `pureln-fleet.sh` (pure-Lightning makers), `supervise-conf.sh` (confidential makers), `samechain-fleet.sh` (interactive same-chain makers), `mixed-maker.sh` (the two mixed GOLD/EURX makers), `covenant_seed_all.mjs` (the on-chain covenant ladder) and `covenant_reclaim.py` (which takes back the coins of its expired orders). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the one secret the shell scripts read; the seeder reads the node's `elements.conf`. |
+| `status/gatus.yaml`, `status/site/index.html` | The testnet status page at `sequentiatestnet.com/status/`: the checks [Gatus](https://github.com/TwiN/gatus) runs every minute against the public address (the chain, the explorer, the web wallet, the faucet, Compages, the staking pools, Emissio and the Sequentia Core download), and the page that shows them. See "The status page". |
+| `bin/apply-status.sh` | Builds Gatus at the pinned version if it is not there, installs its config, its unit (`systemd/gatus.service`) and the page, restarts it and checks every check has run. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
 | `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
 
@@ -64,6 +66,32 @@ node `leaf-maker-btc-ln.service` of its own (channel peer: the service's Bitcoin
 node every wallet's hosted Bitcoin node has its channel with). User mode asks it
 for BTC trades at `/leafmaker-btc/v1/…`. Like `/leafmaker`, `apply-caddy.sh`
 does not check it.
+
+## The status page
+
+`sequentiatestnet.com/status/` says whether the testnet works: the chain's
+height, the age of its last block and whether its Bitcoin anchor is current,
+then each public service, working or not, with its last hour of checks and its
+share of passed checks over a day.
+
+Gatus does the checking. It runs every check in `status/gatus.yaml` once a
+minute through the public address, keeps a day of results in
+`/var/lib/gatus/data.db` and listens on `127.0.0.1:8097` only. The page,
+`status/site/index.html`, is static: it reads two views of Gatus's API that the
+Caddyfile publishes under `/status/api/` (the newest results, and one check's
+uptime), and the chain's figures from `/chainstatus`, which the explorer's
+server computes from its node and the testnet4 indexer. A group on the page is
+working when every check in it passed its newest run.
+
+To add or change a check, edit `status/gatus.yaml` (and `SERVICES` in the page
+for a new group), merge, then on the box:
+
+```sh
+cd /root/sequentia/sequentia-testnet-ops && git pull --ff-only
+bin/apply-status.sh
+```
+
+A new route under `/status/` also needs `bin/apply-caddy.sh`.
 
 ## Changing a route
 
