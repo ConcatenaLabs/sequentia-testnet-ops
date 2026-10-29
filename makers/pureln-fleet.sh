@@ -16,6 +16,14 @@ RELAY=http://127.0.0.1:9965
 FEED=http://127.0.0.1:8080/prices
 KEYS=/etc/sequentia/maker-keys
 LOGS=/root/seqob-test/run
+SIZE=$(dirname "$(readlink -f "$0")")/pln_size.py
+# The first level's size in the feed's reference unit (USD on the testnet): about $50,000 a side
+# within 1% of the price (the first four levels against BTC, three between assets). Each level's
+# size is capped by what the Lightning channels can carry (pln_size.py), so a rung is quoted
+# only when a taker could fill it; with the channels unreadable, the fixed sizes below stand.
+BTC_L1_USD=${PLN_BTC_L1_USD:-6200}
+AA_L1_USD=${PLN_AA_L1_USD:-10500}
+export PLN_ASOCK=$ASOCK PLN_BSOCK=$BSOCK
 
 # The feed again, for a maker being (re)launched; the last answer stands when it
 # does not answer.
@@ -90,6 +98,9 @@ PY
 }
 launch_btc() { # ticker assetid side base_atoms level name
   local T=$1 A=$2 S=$3 B0=$4 LVL=$5 NAME=$6 AMTS BASE QUOTE
+  refresh_prices
+  B0=$(PLN_QUOTE_PRICE=$(px BTC) python3 "$SIZE" $S $A "$(px $T)" BTC "$BTC_L1_USD" "$B0") || return 1
+  is_atoms "$B0" || { echo "$NAME: the channels have no room for this level; waiting"; return 1; }
   AMTS=$(price_btc $T $S $B0 $LVL) || { echo "$NAME: the feed has no price for $T or BTC; retrying"; return 1; }
   read -r BASE QUOTE <<< "$AMTS"
   is_atoms "$BASE" && is_atoms "$QUOTE" || { echo "$NAME: amounts '$BASE'/'$QUOTE' are not whole atoms"; return 1; }
@@ -122,6 +133,9 @@ PY
 }
 launch_aa() { # baseT baseId quoteT quoteId side base_atoms level name
   local BT=$1 BA=$2 QT=$3 QA=$4 S=$5 B0=$6 LVL=$7 NAME=$8 AMTS BASE QUOTE
+  refresh_prices
+  B0=$(PLN_QUOTE_PRICE=$(px $QT) python3 "$SIZE" $S $BA "$(px $BT)" $QA "$AA_L1_USD" "$B0") || return 1
+  is_atoms "$B0" || { echo "$NAME: the channels have no room for this level; waiting"; return 1; }
   AMTS=$(price_aa $BT $QT $S $B0 $LVL) || { echo "$NAME: the feed has no price for $BT or $QT; retrying"; return 1; }
   read -r BASE QUOTE <<< "$AMTS"
   is_atoms "$BASE" && is_atoms "$QUOTE" || { echo "$NAME: amounts '$BASE'/'$QUOTE' are not whole atoms"; return 1; }
@@ -149,8 +163,8 @@ for spec in "GOLD $GOLD 20000" "SEQ $TSEQ 2000000000" "USDX $USDX 50000000" "EUR
   done
 done
 
-# All 15 asset/asset combinations, both sides (base sizes in each base asset's
-# own atoms, conservative against hub channel capacity).
+# All 15 asset/asset combinations, both sides. The base sizes here, in each base asset's own
+# atoms, are what a level is quoted at when the channels cannot be read.
 for S in sell buy; do
  for LVL in 1 2 3 4 5 6 7 8; do
   run_aa SEQ  $TSEQ 1000000000 USDX  $USDX  $S $LVL

@@ -1,9 +1,9 @@
 [Unit]
-Description=SeqDEX makers' health every half hour
+Description=SeqDEX makers' health every ten minutes
 
 [Timer]
 OnBootSec=15min
-OnUnitActiveSec=30min
+OnUnitActiveSec=10min
 Unit=seqob-liquidity-health.service
 
 [Install]

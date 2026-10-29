@@ -88,8 +88,10 @@ const INTERNAL = Object.fromEntries(Object.entries(IDS).map(([k,v])=>[k,revHex(v
 // Ladder: USD notional per level, per SOLD asset (inventory-bound). USDC.e and EURC.e are
 // minted by the bridge a few units at a time, so their levels are cents.
 const SMALL = Array.from({ length: 20 }, (_, k) => +(0.2 * Math.pow(1.08, k)).toFixed(2));
-const LEVELS = {
-  "USDC.e": SMALL, "EURC.e": SMALL,
+// COVSEED_SCALE multiplies every level of the faucet assets (50: about $10,000 a side within 1%
+// of the price on this rail alone, beside the interactive and resting ladders of the same book).
+const SCALE = Number(ENV.COVSEED_SCALE || 50);
+const BASE_LEVELS = {
   SEQ:   [55,59,64,69,75,81,87,94,102,110,119,128,138,150,162,174,188,204,220,237],
   USDX:  [30,32,35,38,41,44,48,51,56,60,65,70,76,82,88,95,103,111,120,129],
   EURX:  [33,36,38,42,45,48,52,57,61,66,71,77,83,90,97,105,113,122,132,142],
@@ -97,6 +99,8 @@ const LEVELS = {
   SILVR: [50,54,58,63,68,73,79,86,93,100,108,117,126,136,147,159,171,185,200,216],
   OILX:  [44,48,51,55,60,65,70,75,81,88,95,103,111,120,129,140,151,163,176,190],
 };
+const LEVELS = { "USDC.e": SMALL, "EURC.e": SMALL,
+  ...Object.fromEntries(Object.entries(BASE_LEVELS).map(([k, v]) => [k, v.map((n) => n * SCALE)])) };
 // Distance of each level from the feed's mid: 30 bps at the touch, +25 bps a level, 5% at the
 // twentieth. It ran to 30% before: a book whose asks sat 11% over the market on average, out to
 // +60% once the price moved (21/10/2026). A covenant keeps the price it was funded at until its
