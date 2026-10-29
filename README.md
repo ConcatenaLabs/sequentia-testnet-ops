@@ -17,6 +17,7 @@ put it in place and keep copies of it.
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `bin/node-rpc-proxy.py` | The node JSON-RPC for browser wallets behind `/node-rpc`: the calls a wallet makes and no other, rate-limited, with the node's credential added on the box. Installed at `/usr/local/lib/node-rpc-proxy/`. |
 | `makers/liquidity-health.sh`, `makers/maker_funds.py`, `makers/liquidity-targets.json` | The makers' and the Arca operator's health, every ten minutes: the depth audit, treasury2026 kept at its floors (minting the faucet assets it runs short of), and every consumer refilled below its floor from `treasury2026` and `maker-bridged` only. See "The makers' health". |
+| `makers/volume-takers.mjs` | Traders that trade against the makers on every rail and pair, both ways, at a daily volume target, ramped under load, health and wallet-latency rules. See "Trading volume: the volume takers". |
 | `bin/seqdex-depth-audit.py` | How deep every SeqDEX market is on every rail, and whether its best level can be taken now: one table and a verdict per directed market. See "How deep the books are". |
 | `bin/arca-pg-restore-drill.sh` | Restores the Arca operator's database from its newest base backup and every WAL segment after it into a scratch cluster, and checks the last commit is there. |
 | `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
@@ -419,6 +420,45 @@ systemctl enable --now seqob-ln-btc-maker.service seqob-ln-btc-taker.service
 Each node reads its Bitcoin RPC credentials from the `config` file in its own
 directory, on the box only, and the Lightning binaries come from the `seqln`
 checkout there.
+
+## Trading volume: the volume takers
+
+`makers/volume-takers.mjs` trades against the makers, so the testnet carries the
+volume of a busy market: every pair of the faucet assets and every pair against
+BTC, both ways, at sizes from tens to tens of thousands of dollars, the side
+leaning with the price feed. Every trade is a real one, settled by the makers'
+own code on its rail and recorded by the relays in the one trade log the tickers
+and charts read.
+
+| Rail | How a trade is made |
+|---|---|
+| `tree` | an in-tree swap through a headless wallet running the wallets' own composer engine (sequentia-web-wallet `tooling/user-mode-wallet.mjs`, `POST /trade`), against a leaf maker of the takers' own, so a person's trade never queues behind theirs |
+| `pln` | a pure-Lightning swap: `seqob-crosser -take … -take-families pureln` |
+| `onchain` | a covenant fill or an interactive lift: `seqob-crosser -take … -take-families covenant,samechain` |
+
+Each pair's trades arrive at random at the rate that makes its daily target at
+the ramp's step. A trade picks its rail by the configured mix, waits for a free
+slot on it (a full rail is counted as `busy`, a capacity signal), and is sized
+log-uniformly between the configured bounds. The ramp holds each step (a share
+of the target) for a while and goes up only after a clean stretch. A broken rule
+holds it, and after ten minutes steps it back, saying which rule (`HOLD`): the
+box's load average over a share of its cores; a rail's success rate under 98%;
+the in-tree trade's p95 time over its bound; or the wallet probe (a person's
+trade, through the public wallet-facing maker, every five minutes) slower by more
+than a second than at the first step. The configuration names the assets, the
+pairs and their targets, the mix, each rail's concurrency, the sizes, the ramp,
+the takers' wallets and the crosser's command line. The takers' coins come from
+their own wallets, which the health pass refills.
+
+```sh
+node makers/volume-takers.mjs --config /etc/sequentia/volume-takers.json            # trades
+node makers/volume-takers.mjs --config /etc/sequentia/volume-takers.json --dry-run  # no trade: the schedule, sizes and ramp
+```
+
+It writes one line a trade to `<state>/trades.jsonl` and, every minute, a summary
+to `<state>/summary.json` and stdout: each pair's settled volume over the last
+day and hour, and each rail's trades, success rate, p50 and p95 times and busy
+count.
 
 ## How deep the books are
 
