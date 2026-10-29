@@ -522,6 +522,21 @@ exit status is 0 when every market passes and none is crossed, 1 when one
 falls short or is crossed, and 2 when a book or the price feed could not be
 read.
 
+## The DEX wallet daemon's limits
+
+`seqdex-wallet.service` (Ocean, the wallet daemon the interactive and
+confidential makers hold their coins in) runs under the limits in
+`systemd/seqdex-wallet.service.d/limits.conf`: slowed at 3 GB, restarted at
+4 GB, never in swap, at most three cores. A healthy Ocean stays well under a
+gigabyte; the limits keep a runaway from starving the nodes and the Arca
+operator that share the box. A restart costs Ocean its startup rescan and
+nothing else.
+
+```sh
+install -D -m 644 systemd/seqdex-wallet.service.d/limits.conf /etc/systemd/system/seqdex-wallet.service.d/limits.conf
+systemctl daemon-reload && systemctl restart seqdex-wallet.service
+```
+
 ## The makers' health
 
 `seqob-liquidity-health.timer` runs `makers/liquidity-health.sh` every ten
