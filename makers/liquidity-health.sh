@@ -54,6 +54,18 @@ rc=$?; mv -f "$RUN/depth-audit.txt.new" "$RUN/depth-audit.txt"
 grep -E '^verdict|passes|not liftable|problem|^crossed:|CROSSED' "$RUN/depth-audit.txt" | while read -r l; do log "audit: $l"; done
 log "audit exit $rc (0 every market passes and none is crossed, 1 some fall short or are crossed, 2 it could not run)"
 
+# 1b. a service the kernel throttles for memory: its cgroup's memory.events "high" count rose
+#     since the last pass (above MemoryHigh a process is slowed until its calls hang)
+for u in ${HEALTH_MEMORY_UNITS:-seqdex-wallet.service arcad.service leaf-maker.service leaf-maker-agents.service seqob-volume-takers.service}; do
+  ev=${HEALTH_CGROUP:-/sys/fs/cgroup/system.slice}/$u/memory.events
+  [ -r "$ev" ] || continue
+  high=$(awk '$1=="high"{print $2}' "$ev"); last=$(cat "$W/$u.memhigh" 2>/dev/null || echo "$high")
+  echo "$high" > "$W/$u.memhigh"
+  if [ "${high:-0}" -gt "${last:-0}" ]; then
+    log "MEMORY THROTTLED $u: memory.events high +$(( high - last )) since the last pass, at $(systemctl show -p MemoryCurrent --value "$u" 2>/dev/null) of MemoryHigh $(systemctl show -p MemoryHigh --value "$u" 2>/dev/null) bytes: raise its limit"
+  fi
+done
+
 # 2. the treasury's floors
 python3 -I -c 'import json,sys; [print(k, v) for k, v in json.load(open(sys.argv[1])).get("treasury_floors", {}).items()]' "$TARGETS" > "$W/floors.txt" \
   && tool floors --floors "$W/floors.txt" --assets "$STATE/assets-leaf.txt" --prices "$FEED" 2>&1 | grep -vE 'enough$' | while read -r l; do log "treasury2026: $l"; done

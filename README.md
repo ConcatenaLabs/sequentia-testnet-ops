@@ -598,6 +598,12 @@ may carry its own `floor`. The interactive fleet's accounts are listed in
 its on-chain address, where it boards what arrives; what it quotes is taken as
 what it holds, plus what waits at the address.
 
+Each pass logs `MEMORY THROTTLED <unit>` when the kernel has throttled one of
+the services the books depend on (Ocean, arcad, the leaf makers, the volume
+takers) for memory since the last pass: its cgroup's `memory.events` `high`
+count rose, which means it is over its `MemoryHigh` and slowed until its calls
+hang.
+
 Each pass first loads every service wallet the targets file lists
 (`service_wallets`, node by node) that a node restart dropped, with
 `load_on_startup`, and names any other wallet on a node's disk that is not
