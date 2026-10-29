@@ -432,7 +432,7 @@ and charts read.
 
 | Rail | How a trade is made |
 |---|---|
-| `tree` | an in-tree swap through a headless wallet running the wallets' own composer engine (sequentia-web-wallet `tooling/user-mode-wallet.mjs`, `POST /trade`), against a leaf maker of the takers' own, so a person's trade never queues behind theirs |
+| `tree` | an in-tree swap through a headless wallet running the wallets' own composer engine (sequentia-web-wallet `tooling/user-mode-wallet.mjs`, `POST /trade`, units `seqob-volume-wallet@<port>`), against the agents' leaf maker `leaf-maker-agents.service` (127.0.0.1:9977), so a person's trade never queues behind theirs. That maker signs its trade reports with the public leaf maker's relay key (a copy of its `rest-offer.key`), which the relay already lists, so its trades reach the trade log with no change to the relay; it rests no orders, so the key signs nothing else for it |
 | `pln` | a pure-Lightning swap: `seqob-crosser -take … -take-families pureln` |
 | `onchain` | a covenant fill or an interactive lift: `seqob-crosser -take … -take-families covenant,samechain` |
 
@@ -573,6 +573,7 @@ the faucet assets.
 | the volume takers' wallet (`volume-taker`) | $300,000 | half | `volume-taker` |
 | each interactive fleet account | one and a half times its ten-level ladder ($390,000 a side) | half | `HEALTH_SC_USD` |
 | the in-tree leaf maker | $1M | half | `HEALTH_LEAF_MAKERS` |
+| the agents' leaf maker (`leaf-maker-agents`, the volume takers' in-tree counterparty) | $1M | half | `HEALTH_LEAF_MAKERS` |
 | the BTC leaf maker (its asset side) | $300,000 | half | `HEALTH_LEAF_MAKERS` |
 
 A consumer of the targets file is a node wallet (`kind: wallet`), paid at an
