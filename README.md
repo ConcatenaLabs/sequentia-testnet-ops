@@ -312,7 +312,7 @@ systemctl daemon-reload && systemctl enable --now seqob-covenant-park.timer
 `COVSEED_MODE=probe COVSEED_PROBE=GOLD_USDX:ask:100` funds one deliberately
 crossing order, here GOLD sold for USDX 100 bps under the feed's price, of
 `COVSEED_PROBE_USD` ($20), and exits; pasted again while it rests, it funds
-nothing more. It checks that the book un-crosses by itself: the park passes
+nothing more, and once it has been taken, a new one. It checks that the book un-crosses by itself: the park passes
 leave a probe alone for its first ten minutes, so the order crosser has the
 first chance to take it.
 

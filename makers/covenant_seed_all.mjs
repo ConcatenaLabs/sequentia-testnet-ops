@@ -355,7 +355,13 @@ try {
 } catch {}
 const keep=[];
 // A probe pass leaves the ladder as it is: every order counts as alive, none is posted.
-if (PROBE) for (const o of state.orders){ alive.set(o.levelKey, o); keep.push(o); }
+// A probe whose coin is spent was taken: it leaves the state, and this pass funds a new one.
+if (PROBE) for (const o of state.orders){
+  if (isProbe(o) && !(await rpc("gettxout",[o.covTxid, o.covVout, true]).catch(()=>null))){
+    console.log(`PROBE ${o.levelKey} was taken (its coin ${o.covTxid.slice(0,12)}:${o.covVout} is spent)`); removed++; continue;
+  }
+  alive.set(o.levelKey, o); keep.push(o);
+}
 for (const o of (PROBE ? [] : state.orders)){
   let txo = await rpc("gettxout",[o.covTxid, o.covVout, true]).catch(()=>null);
   if (!txo){
