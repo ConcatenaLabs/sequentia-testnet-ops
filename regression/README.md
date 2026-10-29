@@ -1,0 +1,70 @@
+# The regression suite
+
+Checks, after every deploy, that each thing a person can do on the testnet's user-facing surfaces
+still works: the web wallet in default and developer mode, SeqDEX, Ambra browser, and Ambra mobile
+from its source. [`CAPABILITIES.md`](CAPABILITIES.md) lists every line and the rule it holds a
+surface to; the rules of default mode are in the web wallet's
+[`docs/DEFAULT_MODE.md`](https://github.com/ConcatenaLabs/sequentia-web-wallet/blob/main/docs/DEFAULT_MODE.md).
+
+It runs from a laptop against `https://sequentiatestnet.com`, in headless Chromium, one browser at
+a time. Nothing is sent, traded or signed: checks open pickers, type amounts, ask for a review and
+stop there.
+
+## Run it
+
+    node regression/run.mjs
+
+About 25 minutes. It needs Node 22 and a Chromium: Playwright's under `~/.cache/ms-playwright`,
+`/usr/bin/chromium`, or the one `CHROME` names. Options:
+
+- `--only web-wallet,seqdex,ambra-browser,ambra-mobile`: some surfaces only.
+- `--widths desktop,phone`: desktop is 1440 px, phone 390 px on a touch screen.
+- `--funded <file>`: the funded test wallet's phrase (default
+  `~/.local/share/sequentia-regression/wallets/rgfunded.phrase`). Without it, the lines that need
+  held assets are SKIP.
+- `--out <dir>`: where the results go (default `~/.cache/sequentia-regression/runs/<time>`).
+
+It prints one line per capability and width, `PASS`, `FAIL` or `SKIP`, with what it saw, and
+writes each failure's screenshot beside `results.txt`. It exits 0 only when nothing failed. A
+failing line listed in [`known.json`](known.json) prints what lost it, or that it was never
+built, and who is on it; it still fails the run. The summary names any failing line that is not
+in `known.json` (something new broke, or a check needs fixing) and any listed line that passes
+now (take it out).
+
+## The funded test wallet
+
+Some lines need a wallet that holds assets: BTC first and held assets before the rest in a picker,
+hiding an asset, paying from what the balance shows. That wallet is made once with the web
+wallet's own drive, which opens a new wallet on the live page and asks the faucet to pay it:
+
+    cd sequentia-web-wallet
+    node tooling/default-mode-live-drive.mjs ~/.local/share/sequentia-regression/wallets \
+      new rgfunded USDX --base https://sequentiatestnet.com/wallet/
+    node tooling/default-mode-live-drive.mjs ~/.local/share/sequentia-regression/wallets \
+      faucet rgfunded GOLD --base https://sequentiatestnet.com/wallet/
+
+Its phrase stays on the laptop, mode 600, and is never committed. The suite only opens it.
+
+## What each part does
+
+| Path | What |
+|---|---|
+| `run.mjs` | The one command: clones Ambra browser's and Ambra mobile's default branches into the cache, opens one browser per surface, prints the lines and the summary. |
+| `lib/suite.mjs` | Lines, results and screenshots; the widths; the page helpers; the words default mode never says, read from the deployed web wallet's `USER_MODE_FORBIDDEN_WORDS`. |
+| `checks/web-wallet.mjs` | The web wallet, a fresh wallet and the funded one, default and developer mode. |
+| `checks/seqdex.mjs` | SeqDEX's Markets, a pair's page, Portfolio, the wallet chooser, and Ambra browser connected once across pages. |
+| `checks/ambra-browser.mjs` | Ambra browser's popup in default mode, a fresh wallet and the funded one imported. |
+| `checks/ambra-mobile.mjs` | Ambra mobile's source: what each default-mode screen is built from. |
+| `known.json` | Lines known to fail, with their cause and owner. |
+| `CAPABILITIES.md` | Every line, the rule it holds to, and what is not checked yet. |
+
+The browser is driven through the CDP client of Ambra browser's own drives
+(`test/leaves/cdp.mjs` in sequentia-extension), from the clone the run makes.
+
+## Adding a line
+
+A capability that ships gets its line in the same sitting: a row in `CAPABILITIES.md`, and a
+check in the surface's file under `checks/`, with the same id. A check reads what a person sees
+(text, a control's state) and returns `{ ok, detail }`; `{ skip: why }` only when the line cannot
+run here. A capability removed on purpose takes its line and its row out in the pull request that
+removes it, which says so.
