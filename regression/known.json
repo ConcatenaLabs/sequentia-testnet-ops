@@ -18,7 +18,10 @@
   "AM-TRD-AMOUNTS": "regression: 707b0d6 dropped the tethered receive amount; needs its own fix",
   "AM-TRD-MARKET": "never built: TR1 named it (a Flutter chart following the contract's Market section)",
   "AM-HIS-TRADES": "never built: default-mode trades show only under Swap > Your trades, not in History",
-  "DX-TICKET-TOTAL": "never built: the contract lists Total on the ticket; SeqDEX's terminal (be628fb) has Price and Amount only; SD1 owns SeqDEX",
   "DX-PAIR-BOOK": "never built: the spread line has the percent and mid, not the amount the contract names; SD1 owns SeqDEX",
-  "AB-RCV-IN-PLACE": "never built: the popup asks for the code once per render (popup.js renderDefaultReceive) and keeps the address if the wallet had not joined yet"
+  "AB-RCV-IN-PLACE": "never built: the popup asks for the code once per render (popup.js renderDefaultReceive) and keeps the address if the wallet had not joined yet",
+  "DX-TICKET": "built: seqdex-web 2539f94 (You pay and You receive, tethered); passes once that is deployed; SD1",
+  "DX-TICKET-PAY-RECEIVE": "built: seqdex-web 2539f94 (You pay and You receive, tethered); passes once that is deployed; SD1",
+  "DX-TICKET-ESTIMATE": "built: seqdex-web 2539f94 (You pay and You receive, tethered); passes once that is deployed; SD1",
+  "WW-TRD-FORM": "built: sequentia-web-wallet 8d1df083 says You receive (the contract's word); passes once that is deployed; SD1"
 }

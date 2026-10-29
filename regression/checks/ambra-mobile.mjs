@@ -17,7 +17,7 @@ export async function run ({ report, cache }) {
     const plain = /DropdownButton<String>\(/.test(composer); const sheet = /showAssetSheet\(/.test(composer)
     return { ok: sheet && !plain, detail: plain ? 'user_composer.dart: _picker is a plain DropdownButton (ucPay, ucGet)' : { sheet } }
   })
-  await R('TRD-AMOUNTS', 'Trade (default mode): an amount in You pay shows what You get, and the other way', () => {
+  await R('TRD-AMOUNTS', 'Trade (default mode): an amount in You pay shows what You receive, and the other way', () => {
     const n = (composer.match(/TextField\(/g) || []).length; return { ok: n >= 2, detail: `${n} amount field(s) in user_composer.dart` }
   })
   await R('TRD-MARKET', 'Trade (default mode): the pair\'s market (last price, 1D 1W 1M chart, best bid and ask, recent trades)', () => {

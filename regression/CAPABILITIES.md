@@ -38,7 +38,7 @@ How each surface is read:
 | WW-SND-BALANCE | see the asset's one figure, "balance <amount>", beside it | Send |
 | WW-SND-INVOICE | pay a BTC invoice ("Paste an invoice to pay it with your BTC.") | BTC |
 | WW-SND-WORDS | read Send without a forbidden word or a fee-rate field | Never in default mode |
-| WW-TRD-FORM | trade with You pay, You get, an amount and Review | Trade |
+| WW-TRD-FORM | trade with You pay and You receive, their amounts, and Review | Trade |
 | WW-TRD-PAY-SEARCH | search the You pay picker | Asset pickers |
 | WW-TRD-GET-SEARCH | search the You get picker and find an asset by ticker | Asset pickers |
 | WW-TRD-PASTE-ID | paste an asset id into a picker and find it | Asset pickers |

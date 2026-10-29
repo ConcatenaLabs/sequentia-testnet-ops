@@ -126,15 +126,15 @@ export async function run ({ b, report, widths, funded, problems }) {
     })
 
     await tab(h, 'swap'); await sleep(4000)
-    await R('TRD-FORM', w, 'Trade: You pay, You get, an amount, and Review', h, async () => {
+    await R('TRD-FORM', w, 'Trade: You pay, You receive, their amounts, and Review', h, async () => {
       const t = await h.text('#userComposerRoot'); const r = await h.visible('#ucReview')
-      return { ok: /you pay/i.test(t) && /you get/i.test(t) && r, detail: { review: r } }
+      return { ok: /you pay/i.test(t) && /you receive/i.test(t) && r, detail: { review: r } }
     })
     await R('TRD-PAY-SEARCH', w, 'Trade: the You pay picker is searchable', h, async () => {
       const p = await h.eval(PICKER('#ucPay')); await h.eval(CLOSE)
       return { at: '#ucPay',  ok: p.search, detail: p.kind === 'select' ? `a plain <select> (${p.rows.length} options), no search` : p }
     })
-    await R('TRD-GET-SEARCH', w, 'Trade: the You get picker is searchable, and finds an asset by ticker', h, async () => {
+    await R('TRD-GET-SEARCH', w, 'Trade: the You receive picker is searchable, and finds an asset by ticker', h, async () => {
       const p = await h.eval(PICKER('#ucGet'))
       if (!p.search) { await h.eval(CLOSE); return { at: '#ucGet',  ok: false, detail: p.kind === 'select' ? `a plain <select> (${p.rows.length} options), no search` : p } }
       const rows = await h.eval(SEARCH('GOLD')); await h.eval(CLOSE)
@@ -147,9 +147,9 @@ export async function run ({ b, report, widths, funded, problems }) {
       const rows = await h.eval(SEARCH(gold)); await h.eval(CLOSE)
       return { ok: !!rows && rows.length >= 1, detail: rows }
     })
-    await R('TRD-AMOUNTS', w, 'Trade: an amount in You pay shows what You get, and an amount in You get shows what You pay', h, async () => {
+    await R('TRD-AMOUNTS', w, 'Trade: an amount in You pay shows what You receive, and an amount in You receive shows what You pay', h, async () => {
       const f = await h.eval("[...document.querySelectorAll('#userComposerRoot input')].filter(i=>i.getClientRects().length).map(i=>i.id||i.placeholder)")
-      return { at: '#ucAmount',  ok: f.length >= 2, detail: f.length < 2 ? `one amount field (${f.join(', ')}); no You get amount` : f }
+      return { at: '#ucAmount',  ok: f.length >= 2, detail: f.length < 2 ? `one amount field (${f.join(', ')}); no You receive amount` : f }
     })
     await R('TRD-REFUSE', w, 'Trade: a refusal in plain words ("You have no BTC to trade." / "Enter how much you pay.")', h, async () => {
       await h.type('#ucAmount', ''); await h.click('#ucReview'); await sleep(1500)
@@ -216,7 +216,7 @@ export async function run ({ b, report, widths, funded, problems }) {
       return { ok: (r === 'hidden' || (r === 'no GOLD row' && w !== widths[0])) && !t.includes('GOLD') && /Hidden assets \(1\)/.test(body) && before === after, detail: { r, rows: t, totalBefore: before.replace(/\s+/g, ' '), totalAfter: after.replace(/\s+/g, ' ') } }
     })
     await tab(h, 'swap'); await sleep(4000)
-    await R('TRD-HELD-FIRST', w, 'Trade: the You get picker lists BTC, then your assets, before the rest', h, async () => {
+    await R('TRD-HELD-FIRST', w, 'Trade: the You receive picker lists BTC, then your assets, before the rest', h, async () => {
       const p = await h.eval(PICKER('#ucGet')); await h.eval(CLOSE)
       const at = '#ucGet'; const mine = ['BTC', 'USDX', 'GOLD']; const i = p.rows.findIndex((x) => !mine.includes(x))
       const late = p.rows.slice(i < 0 ? p.rows.length : i).filter((x) => mine.includes(x))
