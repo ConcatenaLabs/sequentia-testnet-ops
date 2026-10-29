@@ -456,8 +456,13 @@ def audit(args):
     prices = load_prices(args.prices)
     rails = set(args.rails.split(",")) if args.rails else set(RAILS)
     entries = []
+    stale = []
     if rails & {"cov", "rest", "int", "xbtc"}:
         for (rail, o, s, mount) in read_book(args.seqob, "seqob", problems):
+            if rail == "int":
+                age = time.time() - int(o.get("created_at_unix") or time.time())
+                if age > args.stale_minutes * 60:
+                    stale.append((o.get("maker_pubkey") or "?", int(age // 60)))
             e = offer_entry(rail, o, s, mount)
             if e and rail in rails and rail != "pln" and rail != "conf":
                 entries.append(e)
@@ -553,7 +558,20 @@ def audit(args):
             rows.append(row)
     return {"at": int(time.time()), "prices": {TICK[k]: v for k, v in prices.items()},
             "rails": sorted(rails, key=RAILS.index), "required": sorted(args.required, key=RAILS.index),
-            "markets": rows, "crossed": crossed_markets(entries, prices), "problems": problems}
+            "markets": rows, "crossed": crossed_markets(entries, prices), "problems": problems,
+            "stale_interactive": stale_report(stale, args.stale_minutes)}
+
+
+def stale_report(stale, minutes):
+    """Interactive offers listed longer than the fleet ever keeps one (it re-quotes every ten
+    minutes): an earlier run's offers no one co-signs, which a taker meets as 'maker did not
+    answer'."""
+    by = {}
+    for pub, age in stale:
+        n, oldest = by.get(pub, (0, 0))
+        by[pub] = (n + 1, max(oldest, age))
+    return {"minutes": minutes, "count": len(stale),
+            "makers": [{"maker": k, "offers": n, "oldest_minutes": a} for k, (n, a) in sorted(by.items(), key=lambda x: -x[1][0])]}
 
 
 def audit_crossed(args):
@@ -625,6 +643,11 @@ def render(rep, quiet=False):
                 why[(r, c["words"])] += 1
     for (r, w), n in sorted(why.items(), key=lambda x: -x[1]):
         lines.append(f"  best level not liftable: {r}: {w} ({n} markets)")
+    st = rep.get("stale_interactive") or {}
+    lines.append("")
+    lines.append(f"dead interactive offers listed: {st.get('count', 0)} older than {st.get('minutes')} min (the fleet re-quotes every 10)")
+    for m in (st.get("makers") or [])[:10]:
+        lines.append(f"  maker {m['maker'][:16]}…: {m['offers']} offers, the oldest {m['oldest_minutes']} min")
     lines.append("")
     lines.append(render_crossed(rep.get("crossed") or []))
     for p in rep["problems"]:
@@ -647,6 +670,8 @@ def main():
     ap.add_argument("--no-probe", action="store_true", help="skip the courier probe of interactive, cross-chain and Lightning offers")
     ap.add_argument("--json", help="write the full report as JSON here")
     ap.add_argument("--quiet", action="store_true", help="print only the markets that fall short, and the verdict")
+    ap.add_argument("--stale-minutes", type=int, default=30,
+                    help="an interactive offer listed longer than this is reported as dead (the fleet re-quotes every ten minutes)")
     ap.add_argument("--crossed-only", action="store_true", help="only the crossed-market section: the on-chain book and the feed, no probes")
     args = ap.parse_args()
     b = args.base.rstrip("/")
@@ -683,7 +708,8 @@ def main():
             json.dump(rep, f, indent=1, default=str)
         os.replace(tmp, args.json)
     crossed = any(r["crossed"] for r in rep["crossed"])
-    return 1 if crossed or any(r["short"] for r in rep.get("markets", [])) else 0
+    dead = (rep.get("stale_interactive") or {}).get("count", 0)
+    return 1 if crossed or dead or any(r["short"] for r in rep.get("markets", [])) else 0
 
 
 if __name__ == "__main__":
