@@ -4,9 +4,9 @@
   "treasury_floors": { "USDX": 30000000, "EURX": 30000000, "GOLD": 30000000, "SILVR": 30000000, "OILX": 30000000 },
   "consumers": {
     "arca-operator": {
-      "comment": "The Arca operator's pool: what its rounds, refreshes and Lightning legs pay out. Its address is the one `arcad <config> address` gives (written by the owner script).",
+      "comment": "The Arca operator's pool: what its rounds, refreshes and Lightning legs pay out. `*` is the target of every asset it serves that the assets file names, from the moment it serves it. Its address is the one `arcad <config> address` gives (written by the owner script).",
       "kind": "arca", "node": "node000", "info": "https://sequentiatestnet.com/arca/v1/info", "address_file": "/root/lq1/arca-operator.address",
-      "need": { "tSEQ": 18000000, "USDX": 20000000, "EURX": 20000000, "GOLD": 20000000, "SILVR": 20000000, "OILX": 20000000 }
+      "need": { "*": 20000000, "tSEQ": 18000000 }
     },
     "covenant-seeder": {
       "comment": "The covenant seeder's node wallet: twenty levels a side of every pair at COVSEED_SCALE, and the tSEQ its fundings' fees are paid in.",

@@ -502,7 +502,7 @@ the faucet assets.
 | Consumer | Target of each asset it gives | Refilled below | Where it is set |
 |---|---|---|---|
 | treasury2026 itself | $30M of USDX, EURX, GOLD, SILVR and OILX | half, by minting | `treasury_floors` in `makers/liquidity-targets.json` |
-| the Arca operator's pool | $20M of every asset it serves ($18M of tSEQ) | half | `arca-operator` in the targets file |
+| the Arca operator's pool | $20M of every asset it serves, from the moment it serves it ($18M of tSEQ) | half | `arca-operator` in the targets file |
 | the covenant seeder's wallet | $1.5M ($2.5M of tSEQ, its fundings' fee asset) | half | `covenant-seeder` |
 | the order crosser's wallet (`lsp-inventory`) | $200,000 | half | `lsp-inventory` |
 | each interactive fleet account | one and a half times its ten-level ladder ($390,000 a side) | half | `HEALTH_SC_USD` |

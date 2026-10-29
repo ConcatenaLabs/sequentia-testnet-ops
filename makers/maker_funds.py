@@ -342,6 +342,15 @@ def cmd_fund(a):
             avail[k] = held_by(src[0], src[1], aid)
         return avail[k]
     plan = json.load(open(a.plan))
+    for dest in plan:
+        if dest["kind"] == "arca" and "*" in dest["need"]:
+            # every asset the operator serves, from the moment it serves it: the target "*"
+            # stands for each one this file knows and the plan names no target of its own
+            served = {x.get("asset") for x in http_json(dest["info"]).get("assets", [])}
+            every = dest["need"].pop("*")
+            for t, x in assets.items():
+                if x["id"] in served:
+                    dest["need"].setdefault(t, every)
     batches = {}   # (wallet, node, ticker) -> {address: atoms}
     short = []
     for dest in plan:
