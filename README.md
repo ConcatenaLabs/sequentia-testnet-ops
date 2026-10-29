@@ -535,10 +535,11 @@ read.
 
 `seqdex-wallet.service` (Ocean, the wallet daemon the interactive and
 confidential makers hold their coins in) runs under the limits in
-`systemd/seqdex-wallet.service.d/limits.conf`: slowed at 3 GB, restarted at
-4 GB, never in swap, at most three cores. A healthy Ocean stays well under a
-gigabyte; the limits keep a runaway from starving the nodes and the Arca
-operator that share the box. A restart costs Ocean its startup rescan and
+`systemd/seqdex-wallet.service.d/limits.conf`: slowed at 6 GB, restarted at
+8 GB, never in swap, at most three cores. Ocean holds about 3 GB while it scans
+its accounts after a start, and above `MemoryHigh` the kernel throttles a
+process hard enough that its calls hang, so the limits sit well above that; they
+keep a runaway from starving the nodes and the Arca operator that share the box. A restart costs Ocean its startup rescan and
 nothing else.
 
 ```sh
