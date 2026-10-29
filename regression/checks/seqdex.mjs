@@ -59,10 +59,10 @@ export async function run ({ b, report, widths, problems }) {
       await h.type('#tickers input[type=search]', ''); await sleep(500)
       return { ok: rows.length > 0 && rows.length < before && rows.every((p) => /GOLD/.test(p)), detail: { before, after: rows.slice(0, 6) } }
     })
-    await R('MKT-FILTERS', w, 'Markets: a quote filter (All, BTC, the fiat stablecoins), Favourites and You hold', h, async () => {
-      const r = await h.eval("({quotes:[...((document.querySelector('#tickers select')||{}).options||[])].map(o=>o.text.trim()), buttons:[...document.querySelectorAll('#tickers button')].map(x=>x.innerText.trim())})")
+    await R('MKT-FILTERS', w, 'Markets: "Priced in", the shared asset chooser (Any pinned, BTC, the fiat stablecoins, searchable), Favourites and You hold', h, async () => {
+      const r = await h.eval(`(async()=>{const b=document.querySelector('#tkAnchor'); if(!b) return {quotes:[], search:false, buttons:[]}; b.click(); await new Promise(r=>setTimeout(r,500)); const i=document.querySelector('.swpop-search input'); const quotes=[...document.querySelectorAll('.swpop [role=option]')].map(o=>((o.querySelector('.swopt-tk')||{}).firstChild||{}).textContent); if(i) i.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'})); return {quotes, search:!!i, buttons:[...document.querySelectorAll('#tickers button')].map(x=>x.innerText.trim())}})()`)
       const fav = r.buttons.some((x) => /Favourites/.test(x)), held = r.buttons.includes('You hold')
-      return { ok: r.quotes.length >= 3 && r.quotes.some((x) => /BTC/.test(x)) && fav && held, detail: r }
+      return { ok: r.search && r.quotes[0] === 'Any' && r.quotes.includes('BTC') && r.quotes.some((x) => /USDX|EURX/.test(x)) && fav && held, detail: { quotes: r.quotes, fav, held } }
     })
     await R('MKT-FAV', w, 'Markets: a pair starred is listed under Favourites', h, async () => {
       const r = await h.eval(`(async()=>{const row=document.querySelector('#tickers tr[data-pair="${PAIR}"]'); if(!row) return 'no ${PAIR} row'; const star=[...row.querySelectorAll('button,[aria-pressed]')].find(x=>/★|☆/.test(x.innerText)||x.hasAttribute('aria-pressed')); if(!star) return 'no star'; star.click(); await new Promise(r=>setTimeout(r,400)); const f=[...document.querySelectorAll('#tickers button')].find(x=>/Favourites/.test(x.innerText)); f.click(); await new Promise(r=>setTimeout(r,600)); const rows=[...document.querySelectorAll('#tickers tr[data-pair]')].map(r=>r.dataset.pair); f.click(); star.click(); return rows})()`)
