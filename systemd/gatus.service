@@ -1,0 +1,30 @@
+[Unit]
+Description=Gatus: the checks behind the status page at /status/ (status/gatus.yaml)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Built on the box by `go install github.com/TwiN/gatus/v5@<version>` into
+# /usr/local/bin; the version is the one bin/apply-status.sh names.
+ExecStart=/usr/local/bin/gatus
+Environment=GATUS_CONFIG_PATH=/etc/gatus/config.yaml
+# Results live in /var/lib/gatus/data.db (storage.path in the config).
+DynamicUser=yes
+StateDirectory=gatus
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=256M
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=200
+
+[Install]
+WantedBy=multi-user.target
