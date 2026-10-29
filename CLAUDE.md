@@ -4,8 +4,13 @@ The host configuration of the Sequentia testnet box: the reverse proxy's
 Caddyfile, the scripts that install it, the timer that backs it up, and the
 units, log rotation and maker fleet scripts that run on the machine. Every
 product the box runs lives in its own repository; this one holds only what
-ties them together on the machine. The README says what is here and how a
-route is changed.
+ties them together on the machine, and the regression suite (`regression/`)
+that checks, from a laptop after each deploy, what the box serves to people.
+The README says what is here and how a route is changed.
+
+A capability that ships on a user-facing surface gets its line in
+`regression/CAPABILITIES.md` and its check under `regression/checks/` in the
+same sitting; one removed on purpose takes its line out with it.
 
 ## Rules that are easy to break here
 
