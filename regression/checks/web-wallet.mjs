@@ -231,7 +231,8 @@ export async function run ({ b, report, widths, funded, problems }) {
     await R('TRD-HELD-TRADABLE', w, 'Trade: every asset the balance shows can be paid from (never "You have no <T> to trade.")', h, async () => {
       const bad = {}
       for (const tk of ['USDX', 'GOLD']) {
-        const set = await h.eval(`(()=>{const s=document.querySelector('#ucPay'); const o=s&&[...s.options].find(o=>o.text.trim()==='${tk}'); if(!o) return false; s.value=o.value; s.dispatchEvent(new Event('change',{bubbles:true})); return true})()`)
+        // You pay is the shared asset chooser: search the ticker, then choose its row.
+        const set = await h.eval(`(async()=>{const b=document.querySelector('#ucPay'); if(!b) return false; b.click(); await new Promise(r=>setTimeout(r,500)); const i=document.querySelector('.swpop-search input'); if(!i) return false; i.value='${tk}'; i.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(r=>setTimeout(r,400)); const o=[...document.querySelectorAll('.swpop [role=option]')].find(o=>((o.querySelector('.swopt-tk')||{}).firstChild||{}).textContent==='${tk}'); if(!o){ i.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'})); return false } o.click(); return true})()`)
         if (!set) { bad[tk] = 'not offered in You pay'; continue }
         await sleep(800); await h.type('#ucAmount', tk === 'GOLD' ? '0.01' : '1'); await h.click('#ucReview')
         await h.waitFor("/[A-Za-z]/.test((document.querySelector('#ucNote')||{}).innerText||'') && !/Finding/.test(document.querySelector('#ucNote').innerText) || !!document.querySelector('#ucConfirm')", 60000).catch(() => {})
