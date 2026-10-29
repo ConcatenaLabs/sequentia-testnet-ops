@@ -188,9 +188,17 @@ const payoutX = Buffer.from(schnorr.getPublicKey(h2b(KEYS.payoutPriv))).toString
 // so what its orders earn comes back to the wallet that funds the next levels. (Orders funded
 // before paid the raw payout key above, which no wallet holds.) Drawn once and kept in the keys
 // file; the raw key stays the REFUND key (makerX).
+// A legacy wallet has no taproot addresses: its orders pay the raw key as before, said once.
+let payoutFallback = null;
 async function payoutProgram(){
   if (KEYS.payoutProg) return KEYS.payoutProg;
-  const addr = await rpc("getnewaddress", ["covenant-payouts", "bech32m"], WALLET);
+  if (payoutFallback) return payoutFallback;
+  let addr;
+  try { addr = await rpc("getnewaddress", ["covenant-payouts", "bech32m"], WALLET); }
+  catch (e) {
+    console.log(`fills of new orders pay the raw payout key: wallet ${WALLET} gives no taproot address (${String(e.message||e).slice(0, 100)})`);
+    return (payoutFallback = payoutX);
+  }
   const va = await rpc("validateaddress", [addr]);
   if (!va.isvalid || va.witness_version !== 1 || String(va.witness_program).length !== 64)
     throw new Error("the wallet's bech32m address is not a v1 program of 32 bytes: " + addr);

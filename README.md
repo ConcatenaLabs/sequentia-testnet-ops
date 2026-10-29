@@ -287,7 +287,9 @@ parked (see "How the makers price"), by every pass and by the park pass that
 its own lock, writing only `run/covenant-parked.json`). A fill pays
 the seeder at a taproot address of its own wallet (drawn once, kept in its keys
 file as `payoutAddress`), so what the ladder earns funds its next levels; the
-raw payout key in that file is the REFUND key. An order
+raw payout key in that file is the REFUND key. A legacy wallet has no taproot
+addresses: its fills pay that raw key, which no wallet holds, and the seeder
+says so on each pass. An order
 is written to the seeder's state before it is listed: one the relay refuses for
 a passing reason (its rate limit, a restart) is listed again on the next pass,
 never funded twice, and one it refuses outright waits for its reclaim at expiry.
