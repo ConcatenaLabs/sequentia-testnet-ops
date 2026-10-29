@@ -236,7 +236,20 @@ def trusted(node, wallet, aid, key=None):
     return float(b.get(key or aid, b.get(aid, 0)))
 
 
-def mint_into_treasury(ticker, aid, units, wait_minutes=20):
+def minted_before(once):
+    """The record of the mint made under `once`, if one was: a mint asked again under the same key
+    is not made again."""
+    try:
+        for line in open(MINT_LOG):
+            r = json.loads(line)
+            if once and r.get("once") == once:
+                return r
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def mint_into_treasury(ticker, aid, units, wait_minutes=20, once=None):
     """Mint `units` (the node's whole units) of `ticker` with its reissuance token in `recovered`
     and deliver them to treasury2026; wait until the delivery is in a block, so the treasury can
     spend it. Returns the two txids. Refuses tSEQ and the bridged assets."""
@@ -278,6 +291,8 @@ def mint_into_treasury(ticker, aid, units, wait_minutes=20):
                                           "subtractfeefromamount": True}, MINT_WALLET)
     rec = {"t": int(time.time()), "asset": ticker, "units": units, "delivered": round(units - keep, 8), "reissue": reissue,
            "delivery": st, "fee_asset": fee_name}
+    if once:
+        rec["once"] = once
     try:
         with open(MINT_LOG, "a") as f:
             f.write(json.dumps(rec) + "\n")
@@ -286,8 +301,10 @@ def mint_into_treasury(ticker, aid, units, wait_minutes=20):
     if reissue:
         print("  minted %s %s in %s (%s, its fee in %s)" % (units, ticker, MINT_WALLET, reissue, fee_name))
     print("  delivered %s %s to %s: %s" % (rec["delivered"], ticker, TREASURY, st))
+    # The delivery is waited for in the wallet that sent it: the receiving wallet may not have
+    # registered it yet, and answers "Invalid or non-wallet transaction id" until it does.
     t0 = time.time()
-    while rpc(MINT_NODE, "gettransaction", [st], TREASURY).get("confirmations", 0) < 1:
+    while rpc(MINT_NODE, "gettransaction", [st], MINT_WALLET).get("confirmations", 0) < 1:
         if time.time() - t0 > wait_minutes * 60:
             die("the delivery of %s %s is not in a block after %d minutes: %s" % (units, ticker, wait_minutes, st))
         time.sleep(5)
@@ -302,7 +319,11 @@ def cmd_mint(a):
         die("%s is never minted here (only %s are)" % (a.asset, ", ".join(sorted(MINTABLE))))
     if not x:
         die("%s is not in %s" % (a.asset, a.assets))
-    mint_into_treasury(a.asset, x["id"], a.units, a.minutes)
+    done = minted_before(a.once)
+    if done:
+        print("  minted before under %s: %s %s, delivered in %s" % (a.once, done["units"], done["asset"], done["delivery"]))
+        return
+    mint_into_treasury(a.asset, x["id"], a.units, a.minutes, once=a.once)
 
 
 def cmd_floors(a):
@@ -824,6 +845,7 @@ def main():
     c.add_argument("--mint-over-usd", type=float, default=1000000); c.add_argument("--mint-minutes", type=int, default=20)
     c = sp.add_parser("mint"); c.add_argument("--asset", required=True); c.add_argument("--units", type=float, required=True)
     c.add_argument("--assets", required=True); c.add_argument("--minutes", type=int, default=20)
+    c.add_argument("--once", default="", help="a key: a mint already made under it is not made again")
     c = sp.add_parser("floors"); c.add_argument("--floors", required=True); c.add_argument("--assets", required=True); c.add_argument("--prices", required=True)
     c.add_argument("--below", type=float, default=0.5); c.add_argument("--over", type=float, default=0.5); c.add_argument("--minutes", type=int, default=20)
     c.add_argument("--dry-run", action="store_true")
