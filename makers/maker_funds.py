@@ -191,6 +191,126 @@ def sources_of(spec):
     return out
 
 
+# ---- minting into the treasury
+# The faucet assets whose supply the testnet's treasury may grow. tSEQ (the Sequence token) has a
+# fixed supply, and USDC.e and EURC.e are minted only by their bridge against deposits: neither is
+# ever minted here, whatever a caller asks.
+MINTABLE = {"USDX", "EURX", "GOLD", "SILVR", "OILX"}
+NEVER_MINTED = re.compile(r"^(t?SEQ|USDC.*|EURC.*)$", re.I)
+# The issuance records (the entropy `reissueasset` needs) and the reissuance tokens live in wallet
+# `recovered` on node000; what it mints is delivered to `treasury2026` on the same node, which
+# every maker is funded from. Nothing else mints and nothing else receives.
+MINT_WALLET, TREASURY = "recovered", "treasury2026"
+MINT_NODE = os.environ.get("MINT_NODE", "node000")
+MINT_LOG = os.environ.get("MINT_LOG", "/root/lq1/mints.jsonl")
+
+
+def mintable(ticker):
+    return ticker in MINTABLE and not NEVER_MINTED.match(ticker)
+
+
+def trusted(node, wallet, aid, key=None):
+    b = rpc(node, "getbalances", [], wallet)["mine"]["trusted"]
+    return float(b.get(key or aid, b.get(aid, 0)))
+
+
+def mint_into_treasury(ticker, aid, units, wait_minutes=20):
+    """Mint `units` (the node's whole units) of `ticker` with its reissuance token in `recovered`
+    and deliver them to treasury2026; wait until the delivery is in a block, so the treasury can
+    spend it. Returns the two txids. Refuses tSEQ and the bridged assets."""
+    if not mintable(ticker):
+        die("%s is never minted here (only %s are)" % (ticker, ", ".join(sorted(MINTABLE))))
+    units = float("%.8f" % units)
+    if units <= 0:
+        die("a mint of %s %s" % (units, ticker))
+    wallets = rpc(MINT_NODE, "listwallets")
+    for w in (MINT_WALLET, TREASURY):
+        if w not in wallets:
+            die("%s is not loaded on %s: nothing can be minted" % (w, MINT_NODE))
+    recs = [i for i in rpc(MINT_NODE, "listissuances", [aid], MINT_WALLET) if not i.get("isreissuance")]
+    if not recs:
+        die("%s holds no issuance record of %s" % (MINT_WALLET, ticker))
+    token = recs[0]["token"]
+    if trusted(MINT_NODE, MINT_WALLET, token) <= 0:
+        die("%s holds no confirmed reissuance token of %s (%s...): move it there once (treasury_mint.sh)" % (MINT_WALLET, ticker, token[:12]))
+    # The issuance's fee in the asset itself once the mint wallet holds some of it (each mint
+    # keeps a little back for that); an issuance creates no output its own fee could come out
+    # of, so a first mint pays it in tSEQ and says so.
+    lab = labels(MINT_NODE)
+    tseq = lab.get("bitcoin") or lab.get("tSEQ")
+    keep = min(0.05, units / 100)
+    held = trusted(MINT_NODE, MINT_WALLET, aid)
+    if held >= units:
+        # a mint whose delivery did not go out (a run stopped between the two): deliver it now
+        reissue, fee_name = None, None
+        print("  %s already holds %s %s: delivering it, nothing minted" % (MINT_WALLET, held, ticker))
+    else:
+        fee = aid if held > 0.01 else tseq
+        if not fee:
+            die("%s holds no %s to pay the issuance's fee in, and the node names no tSEQ" % (MINT_WALLET, ticker))
+        reissue = rpc(MINT_NODE, "reissueasset", [aid, units, fee], MINT_WALLET)["txid"]
+        fee_name = ticker if fee == aid else "tSEQ"
+    to = rpc(MINT_NODE, "getnewaddress", ["", "bech32"], TREASURY)
+    # The delivery's fee comes out of what is delivered, in the asset itself.
+    st = rpc(MINT_NODE, "sendtoaddress", {"address": to, "amount": float("%.8f" % (units - keep)), "assetlabel": aid,
+                                          "subtractfeefromamount": True}, MINT_WALLET)
+    rec = {"t": int(time.time()), "asset": ticker, "units": units, "delivered": round(units - keep, 8), "reissue": reissue,
+           "delivery": st, "fee_asset": fee_name}
+    try:
+        with open(MINT_LOG, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except OSError:
+        pass
+    if reissue:
+        print("  minted %s %s in %s (%s, its fee in %s)" % (units, ticker, MINT_WALLET, reissue, fee_name))
+    print("  delivered %s %s to %s: %s" % (rec["delivered"], ticker, TREASURY, st))
+    t0 = time.time()
+    while rpc(MINT_NODE, "gettransaction", [st], TREASURY).get("confirmations", 0) < 1:
+        if time.time() - t0 > wait_minutes * 60:
+            die("the delivery of %s %s is not in a block after %d minutes: %s" % (units, ticker, wait_minutes, st))
+        time.sleep(5)
+    print("  the delivery of %s is in a block" % ticker)
+    return reissue, st
+
+
+def cmd_mint(a):
+    """Mint X of asset A into treasury2026: the one mint route every script uses."""
+    x = {y["t"]: y for y in assets_of(a.assets)}.get(a.asset)
+    if not mintable(a.asset):
+        die("%s is never minted here (only %s are)" % (a.asset, ", ".join(sorted(MINTABLE))))
+    if not x:
+        die("%s is not in %s" % (a.asset, a.assets))
+    mint_into_treasury(a.asset, x["id"], a.units, a.minutes)
+
+
+def cmd_floors(a):
+    """Keep treasury2026 at its floor of each mintable asset: once it holds less than `below` of
+    the floor, mint it back up to the floor and `over` more. Floors are in the reference unit (USD
+    on the testnet), `TICKER USD` a line."""
+    assets = {x["t"]: x for x in assets_of(a.assets)}
+    feed = http_json(a.prices)
+    id2label = {v: k for k, v in labels(MINT_NODE).items()}
+    for line in open(a.floors):
+        p = line.split()
+        if len(p) < 2 or line.startswith("#"):
+            continue
+        t, usd = p[0], float(p[1])
+        x = assets.get(t)
+        if not x or not mintable(t):
+            print("  %s: never minted here, no floor kept" % t); continue
+        px = price(feed, x["feed"])
+        if not px:
+            print("  %s: no price in the feed, its floor not checked" % t); continue
+        floor_units = usd / px
+        have = trusted(MINT_NODE, TREASURY, x["id"], id2label.get(x["id"]))
+        if have >= floor_units * a.below:
+            print("  %s: the treasury holds %.8f, floor %.8f, enough" % (t, have, floor_units)); continue
+        units = floor_units * (1 + a.over) - have
+        print("  %s: the treasury holds %.8f, under %d%% of its floor %.8f: minting %.8f" % (t, have, round(a.below * 100), floor_units, units))
+        if not a.dry_run:
+            mint_into_treasury(t, x["id"], units, a.minutes)
+
+
 def labels(node):
     try:
         return rpc(node, "dumpassetlabels")
@@ -233,7 +353,22 @@ def cmd_fund(a):
             if not px:
                 print("  %s %s: no price in the feed, not funded" % (dest["name"], t)); continue
             target = int(usd / px * 10 ** x["prec"])
-            if dest["kind"] == "ocean":
+            if dest["kind"] == "arca":
+                # an Arca operator's pool: what a round can pay now (its info's `fundable`, what
+                # its wallet can spend less what it owes), and what waits at its address
+                # (coins at its address count until the operator's wallet takes them as final;
+                # an older coin there is in `fundable` already)
+                fundable = arca_fundable(dest["info"], x["id"])
+                young = onchain_at(dest["node"], dest["address"], x["id"], newer_than=dest.get("pending_blocks", 60))
+                old = onchain_at(dest["node"], dest["address"], x["id"]) - young
+                if fundable < old:
+                    # coins paid an hour ago and more are still not the operator's to spend: its
+                    # finality has stalled, and paying again would only add to what waits
+                    print("  %s %s: OPERATOR FINALITY STALLED: %s atoms at its address are an hour old or more, and it can fund %s; not paid" % (
+                        dest["name"], t, old, fundable))
+                    short.append([dest["name"], t]); continue
+                held = fundable + young
+            elif dest["kind"] == "ocean":
                 held = ocean_balance(a.octl, a.ocean, dest["name"]).get(x["id"], {}).get("total", 0)
             elif dest["kind"] == "leaf":
                 # what the maker holds in leaves (read by the script), and what waits on the chain
@@ -243,10 +378,20 @@ def cmd_fund(a):
                 b = rpc(dest["node"], "getbalances", [], dest["name"])["mine"]
                 key = id2label.get(x["id"], x["id"])
                 held = int(round((float(b["trusted"].get(key, 0)) + float(b["untrusted_pending"].get(key, 0))) * NODE_ATOMS))
-            if held >= target * a.floor:
+            if held >= target * dest.get("floor", a.floor):
                 print("  %s %s: holds %s of %s atoms, enough" % (dest["name"], t, held, target)); continue
             want = target - held
             src = next((s0 for s0 in sources if available(s0, x["id"]) >= want), None)
+            tre = next((s0 for s0 in sources if s0[0] == TREASURY), None)
+            if not src and tre and a.mint and mintable(t):
+                # The treasury is short of an asset it can mint: mint what this destination
+                # needs and `mint_over` of the reference unit more, so the next ones need none.
+                have = available(tre, x["id"])
+                units = (want - have) / NODE_ATOMS + a.mint_over_usd / px * 10 ** x["prec"] / NODE_ATOMS
+                print("  %s %s: %s holds %s atoms of the %s needed: minting" % (dest["name"], t, TREASURY, have, want))
+                mint_into_treasury(t, x["id"], units, a.mint_minutes)
+                avail[tre, x["id"]] = held_by(tre[0], tre[1], x["id"]) - sum(v for (w0, n0, t0), o in batches.items() if (w0, n0, t0) == (tre[0], tre[1], t) for v in o.values())
+                src = tre if available(tre, x["id"]) >= want else None
             if not src:
                 best = max(sources, key=lambda s0: available(s0, x["id"]))
                 have = available(best, x["id"]) - a.keep_atoms
@@ -256,6 +401,9 @@ def cmd_fund(a):
                     print("  %s %s: AWAITING SUPPLY, %s atoms needed, the sources hold %s" % (dest["name"], t, want, available(best, x["id"])))
                     short.append([dest["name"], t]); continue
             avail[src, x["id"]] -= want
+            if dest["kind"] == "wallet" and not dest.get("address"):
+                # a node wallet is paid at an address of its own, drawn once a run
+                dest["address"] = rpc(dest["node"], "getnewaddress", ["", "bech32"], dest["name"])
             addrs = (dest.get("addresses") or {}).get(t) or [dest["address"]]
             per = want // len(addrs)
             if per <= 0:
@@ -314,9 +462,45 @@ def fee_asset_for(node, wallet, exclude=None):
     return (best[1], best[1]) if best else None
 
 
-def onchain_at(node, address, aid):
+def arca_fundable(info_url, aid):
+    for x in http_json(info_url).get("assets", []):
+        if x.get("asset") == aid:
+            return int(x.get("fundable") or 0)
+    die("the operator at %s does not serve %s" % (info_url, aid))
+
+
+def cmd_plan_targets(a):
+    """Funding plans from the targets file (makers/liquidity-targets.json): one plan a consumer,
+    each asset its target in the reference unit; `floor` (a share of the target) is when it is
+    refilled, and a refill brings it back to the target."""
+    cfg = json.load(open(a.targets))
+    only = set(x for x in a.only.split(",") if x)
+    for f in os.listdir(a.out_dir):
+        if f.startswith("target-") and f.endswith(".json"):
+            os.remove(os.path.join(a.out_dir, f))
+    for name, c in cfg.get("consumers", {}).items():
+        if only and name not in only:
+            continue
+        dest = {k: v for k, v in c.items() if k not in ("comment", "need")}
+        dest.setdefault("floor", cfg.get("floor", 0.5))
+        dest["name"] = c.get("wallet", name) if c["kind"] == "wallet" else name
+        dest["need"] = c["need"]
+        addr_file = c.get("address_file")
+        if addr_file:
+            try:
+                dest["address"] = open(addr_file).read().strip()
+            except OSError:
+                print("  %s: no address at %s yet, not planned" % (name, addr_file)); continue
+        out = os.path.join(a.out_dir, "target-%s.json" % name)
+        json.dump([dest], open(out, "w"), indent=1)
+        print("  %s: %s, floor %s" % (name, " ".join("%s $%s" % kv for kv in c["need"].items()), c.get("floor", cfg.get("floor", 0.5))))
+
+
+def onchain_at(node, address, aid, newer_than=None):
     r = rpc(node, "scantxoutset", ["start", ["addr(%s)" % address]], timeout=300)
-    return sum(int(round(float(u["amount"]) * NODE_ATOMS)) for u in r.get("unspents", []) if u.get("asset") == aid)
+    tip = r.get("height", 0)
+    return sum(int(round(float(u["amount"]) * NODE_ATOMS)) for u in r.get("unspents", [])
+               if u.get("asset") == aid and (newer_than is None or tip - u.get("height", 0) < newer_than))
 
 
 def cmd_leafcfg(a):
@@ -514,15 +698,23 @@ def main():
     c.add_argument("--partial", default="USDC.e,EURC.e"); c.add_argument("--keep-atoms", type=int, default=0)
     c.add_argument("--plan"); c.add_argument("--octl"); c.add_argument("--ocean"); c.add_argument("--floor", type=float, default=0.5); c.add_argument("--coins", type=int, default=4)
     c.add_argument("--out"); c.add_argument("--dry-run", action="store_true")
-    c = sp.add_parser("plan-sc"); c.add_argument("--accounts"); c.add_argument("--assets"); c.add_argument("--usd", type=float, default=4000); c.add_argument("--coins", type=int, default=4); c.add_argument("--out")
+    c.add_argument("--mint", action="store_true", help="mint into treasury2026 what it is short of a mintable asset")
+    c.add_argument("--mint-over-usd", type=float, default=1000000); c.add_argument("--mint-minutes", type=int, default=20)
+    c = sp.add_parser("mint"); c.add_argument("--asset", required=True); c.add_argument("--units", type=float, required=True)
+    c.add_argument("--assets", required=True); c.add_argument("--minutes", type=int, default=20)
+    c = sp.add_parser("floors"); c.add_argument("--floors", required=True); c.add_argument("--assets", required=True); c.add_argument("--prices", required=True)
+    c.add_argument("--below", type=float, default=0.5); c.add_argument("--over", type=float, default=0.5); c.add_argument("--minutes", type=int, default=20)
+    c.add_argument("--dry-run", action="store_true")
+    c = sp.add_parser("plan-targets"); c.add_argument("--targets", required=True); c.add_argument("--out-dir", required=True); c.add_argument("--only", default="")
+    c = sp.add_parser("plan-sc"); c.add_argument("--accounts"); c.add_argument("--assets"); c.add_argument("--usd", type=float, default=390000); c.add_argument("--coins", type=int, default=4); c.add_argument("--out")
     c = sp.add_parser("leafcfg"); c.add_argument("--config"); c.add_argument("--assets"); c.add_argument("--prices"); c.add_argument("--feed-url")
     c.add_argument("--out"); c.add_argument("--btc", action="store_true"); c.add_argument("--small", default="USDC.e,EURC.e")
     c.add_argument("--levels", type=int, default=8); c.add_argument("--step-bps", type=int, default=25); c.add_argument("--growth", type=float, default=1.4)
-    c.add_argument("--first-usd", type=float, default=25); c.add_argument("--first-usd-small", type=float, default=0.25)
-    c.add_argument("--coin-usd", type=float, default=200); c.add_argument("--coin-usd-small", type=float, default=2)
-    c.add_argument("--spread-bps", type=int, default=30); c.add_argument("--btc-first-sats", type=int, default=10000)
+    c.add_argument("--first-usd", type=float, default=12000); c.add_argument("--first-usd-small", type=float, default=0.25)
+    c.add_argument("--coin-usd", type=float, default=25000); c.add_argument("--coin-usd-small", type=float, default=2)
+    c.add_argument("--spread-bps", type=int, default=30); c.add_argument("--btc-first-sats", type=int, default=15000000)
     c = sp.add_parser("plan-leaf"); c.add_argument("--name"); c.add_argument("--node"); c.add_argument("--address"); c.add_argument("--assets")
-    c.add_argument("--held"); c.add_argument("--usd", type=float, default=2000); c.add_argument("--usd-small", type=float, default=10)
+    c.add_argument("--held"); c.add_argument("--usd", type=float, default=1000000); c.add_argument("--usd-small", type=float, default=10)
     c.add_argument("--small", default="USDC.e,EURC.e"); c.add_argument("--skip", default=""); c.add_argument("--out")
     c = sp.add_parser("quotes"); c.add_argument("--url"); c.add_argument("--config"); c.add_argument("--assets"); c.add_argument("--min", type=int, default=8); c.add_argument("--minutes", type=int, default=20)
     c = sp.add_parser("waitconf"); c.add_argument("--sent"); c.add_argument("--minutes", type=int, default=20)
@@ -534,7 +726,7 @@ def main():
     for k in ("awaiting", "partial"):
         if hasattr(a, k):
             setattr(a, k, set(x for x in getattr(a, k).split(",") if x))
-    {"accounts": cmd_accounts, "plan-sc": cmd_plan_sc, "leafcfg": cmd_leafcfg, "plan-leaf": cmd_plan_leaf, "quotes": cmd_quotes, "fund": cmd_fund, "waitconf": cmd_waitconf, "oceancheck": cmd_oceancheck, "books": cmd_books}[a.cmd](a)
+    {"mint": cmd_mint, "floors": cmd_floors, "plan-targets": cmd_plan_targets, "accounts": cmd_accounts, "plan-sc": cmd_plan_sc, "leafcfg": cmd_leafcfg, "plan-leaf": cmd_plan_leaf, "quotes": cmd_quotes, "fund": cmd_fund, "waitconf": cmd_waitconf, "oceancheck": cmd_oceancheck, "books": cmd_books}[a.cmd](a)
 
 
 if __name__ == "__main__":

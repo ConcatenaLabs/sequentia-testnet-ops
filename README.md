@@ -16,7 +16,7 @@ put it in place and keep copies of it.
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `bin/node-rpc-proxy.py` | The node JSON-RPC for browser wallets behind `/node-rpc`: the calls a wallet makes and no other, rate-limited, with the node's credential added on the box. Installed at `/usr/local/lib/node-rpc-proxy/`. |
-| `makers/liquidity-health.sh`, `makers/maker_funds.py` | The makers' health, every half hour: the depth audit, and top-ups of every maker below half its target from `treasury2026` and `maker-bridged` only. See "The makers' health". |
+| `makers/liquidity-health.sh`, `makers/maker_funds.py`, `makers/liquidity-targets.json` | The makers' and the Arca operator's health, every ten minutes: the depth audit, treasury2026 kept at its floors (minting the faucet assets it runs short of), and every consumer refilled below its floor from `treasury2026` and `maker-bridged` only. See "The makers' health". |
 | `bin/seqdex-depth-audit.py` | How deep every SeqDEX market is on every rail, and whether its best level can be taken now: one table and a verdict per directed market. See "How deep the books are". |
 | `bin/arca-pg-restore-drill.sh` | Restores the Arca operator's database from its newest base backup and every WAL segment after it into a scratch cluster, and checks the last commit is there. |
 | `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
@@ -249,10 +249,10 @@ two, `maker-bridged`, and from nowhere else; "The makers' health" keeps them
 topped up. To see how deep every book is right now, run
 `bin/seqdex-depth-audit.py` (see "How deep the books are"), or read
 `/root/seqob-test/run/depth-audit.txt` on the box, which the health timer
-rewrites every half hour.
+rewrites every ten minutes.
 
 ```sh
-install -m 755 makers/pureln-fleet.sh makers/supervise-conf.sh makers/mixed-maker.sh makers/samechain-fleet.sh /root/seqob-test/
+install -m 755 makers/pureln-fleet.sh makers/pln_size.py makers/supervise-conf.sh makers/mixed-maker.sh makers/samechain-fleet.sh /root/seqob-test/
 install -m 644 makers/covenant_seed_all.mjs /root/seqob-test/
 install -m 755 makers/covenant_reclaim.py /root/seqob-test/
 install -m 644 systemd/seqob-pureln-fleet.service systemd/seqob-conf-maker.service systemd/seqob-samechain-fleet.service   systemd/seqob-mixed-gold-eurx-buyer-side.service systemd/seqob-mixed-gold-eurx-seller-side.service /etc/systemd/system/
@@ -277,7 +277,13 @@ Both scripts compute them each time they launch a maker: a maker retires its
 offers at expiry (an hour) and is relaunched at the price of that moment. In
 `pureln-fleet.sh` each level is priced on its own size, so the ladder moves away
 from the market by its offset only (20 bps at the touch against BTC, 40 bps
-between assets, +25 bps a level). A maker that exits within a minute is relaunched with
+between assets, +25 bps a level). Its first level is worth $6,200 against BTC and $10,500
+between assets (`PLN_BTC_L1_USD`, `PLN_AA_L1_USD`), so the first 1% holds about $50,000 a
+side, and each level is 1.5 times the one before, up to five times the first. Every launch caps
+that by the room the Lightning channels have (`makers/pln_size.py`: what the node can send of
+what the maker gives and receive of what it gets, shared by the six ladders that give the same
+asset), so the fleet quotes no level a taker could not fill; with the channels unreadable it
+falls back to the small fixed sizes in the script. A maker that exits within a minute is relaunched with
 a doubling delay, up to five minutes; one that ran longer is relaunched after
 eight seconds. To requote a whole fleet at current prices at once, restart its
 service.
@@ -285,7 +291,8 @@ service.
 `samechain-fleet.sh` gives each pair one Ocean account, `lq-sc-<BASE>-<QUOTE>`:
 the sell maker gives the base and the buy maker the quote, so the two never
 reach for the same coin, and each pays its fees in what it gives. Level 0 rests
-20 bps off the feed and holds $100 of the base, or less where an asset names a
+20 bps off the feed and holds $10,000 of the base (about $50,000 a side within 1% of the
+price), or less where an asset names a
 smaller level 0 in the script's list and a pair takes the smaller of its two
 (USDC.e and EURC.e, minted by the bridge a few units at a time, $0.20); each deeper level is 25 bps
 further and 1.2 times larger, and the maker trims the deepest levels to what
@@ -306,8 +313,9 @@ feed, 20 bps off it on the maker's side, and the maker retires it hourly.
 `covenant_seed_all.mjs` keeps the on-chain covenant ladder of every pair of
 tSEQ, USDX, EURX, GOLD, SILVR, OILX, USDC.e and EURC.e: twenty levels a side, 30
 bps from the feed at the touch and 25 bps more a level, each level a fixed sum in
-the reference unit (cents for USDC.e and EURC.e, which the bridge mints a few
-units at a time). Amounts are computed in each asset's atoms (USDC.e and EURC.e
+the reference unit, multiplied by `COVSEED_SCALE` (50: $1,500 to $13,000 a level) for the faucet
+assets, and cents for USDC.e and EURC.e, which the bridge mints a few
+units at a time. Amounts are computed in each asset's atoms (USDC.e and EURC.e
 have six decimals), and the seeder checks a level against the book in atoms too:
 it leaves out a level that would cross the book or come within 10 bps of its best
 price on the other side. A listed order the feed's price has moved through is
@@ -475,8 +483,8 @@ read.
 
 ## The makers' health
 
-`seqob-liquidity-health.timer` runs `makers/liquidity-health.sh` every half
-hour, from this checkout on the box:
+`seqob-liquidity-health.timer` runs `makers/liquidity-health.sh` every ten
+minutes, from this checkout on the box:
 
 ```sh
 install -m 644 systemd/seqob-liquidity-health.service systemd/seqob-liquidity-health.timer /etc/systemd/system/
@@ -485,26 +493,62 @@ systemctl daemon-reload && systemctl enable --now seqob-liquidity-health.timer
 
 Each run audits every book (`bin/seqdex-depth-audit.py`, kept as
 `/root/seqob-test/run/depth-audit.json` and `depth-audit.txt`; every crossed
-market goes to the log as a `CROSSED` line) and then tops up
-every maker below half its target:
+market goes to the log as a `CROSSED` line), keeps the treasury at its floors,
+and then refills every consumer that holds less than its floor of a target, back
+to the target. The targets are in the reference unit (USD on the testnet), sized
+for a busy public testnet: several million dollars a day traded in every pair of
+the faucet assets.
 
-- the interactive fleet's Ocean accounts, to one and a half times their ladders
-  (the account list is `/root/lq1/sc-accounts.json`, written when the accounts
-  are made);
-- each leaf maker, to its target of each asset it gives, at its on-chain
-  address, where it boards what arrives (what it quotes is taken as what it
-  holds, plus what waits at the address);
-- the covenant seeder's wallet, to what its ladders need and the Sequence token
-  it pays its fundings' fees in (`/root/lq1/covseed-plan.json`).
+| Consumer | Target of each asset it gives | Refilled below | Where it is set |
+|---|---|---|---|
+| treasury2026 itself | $30M of USDX, EURX, GOLD, SILVR and OILX | half, by minting | `treasury_floors` in `makers/liquidity-targets.json` |
+| the Arca operator's pool | $20M of every asset it serves ($18M of tSEQ) | half | `arca-operator` in the targets file |
+| the covenant seeder's wallet | $1.5M ($2.5M of tSEQ, its fundings' fee asset) | half | `covenant-seeder` |
+| the order crosser's wallet (`lsp-inventory`) | $200,000 | half | `lsp-inventory` |
+| each interactive fleet account | one and a half times its ten-level ladder ($390,000 a side) | half | `HEALTH_SC_USD` |
+| the in-tree leaf maker | $1M | half | `HEALTH_LEAF_MAKERS` |
+| the BTC leaf maker (its asset side) | $300,000 | half | `HEALTH_LEAF_MAKERS` |
+
+A consumer of the targets file is a node wallet (`kind: wallet`), paid at an
+address it draws itself, or an Arca operator (`kind: arca`), paid at the address
+in its `address_file` and counted as its info's `fundable` (what its rounds can
+pay now: its final coins, less what it owes) plus what reached that address in
+the last hour and is not final yet. When coins an hour old or more wait at the
+address and `fundable` is less than they hold, the operator's finality has
+stalled: the pass pays nothing more and logs `OPERATOR FINALITY STALLED`. A consumer
+may carry its own `floor`. The interactive fleet's accounts are listed in
+`/root/lq1/sc-accounts.json`, written when they are made. A leaf maker is paid at
+its on-chain address, where it boards what arrives; what it quotes is taken as
+what it holds, plus what waits at the address.
 
 Funds come from two wallets only: `treasury2026` on node000, and `maker-bridged`
 on the dexnode for USDC.e and EURC.e, which the bridge mints there as deposits
 arrive. `makers/maker_funds.py` refuses any other source by name. It sends one
 transaction an asset, the fee paid in that asset, or, where a node takes no fee
-in it, in an asset the node does take, saying which. An asset its source is
-short of is logged `AWAITING SUPPLY` and skipped. Node credentials come from each
-node's `elements.conf`. Every run's lines go to
+in it, in an asset the node does take, saying which.
+
+treasury2026 is never short of a faucet asset for long. When it holds less than
+half its floor of USDX, EURX, GOLD, SILVR or OILX, or less than a refill needs,
+`maker_funds.py` mints more: it reissues the asset with its reissuance token in
+wallet `recovered` on node000, which holds the issuance records the node needs
+for that, and delivers what it minted to treasury2026, then waits until the
+delivery is in a block. That is the one mint route, and it can be run by hand:
+
+```sh
+python3 -I makers/maker_funds.py mint --asset EURX --units 1000000 --assets /root/lq1/assets-leaf.txt
+```
+
+tSEQ, the Sequence token, has a fixed supply and is never minted; USDC.e and
+EURC.e are minted only by their bridge, against deposits, and an asset of theirs
+the sources are short of is logged `AWAITING SUPPLY` and skipped. Every mint is
+a line of `/root/lq1/mints.jsonl`. Node credentials come from each node's
+`elements.conf`. Every run's lines go to
 `/root/seqob-test/run/liquidity-health.log`, rotated with the makers' logs.
+
+BTC is the one asset no script can mint. The BTC sides of the books are what
+the BTC desk's and the pure-Lightning fleet's Lightning channels hold, and what
+the order crosser and the cross-chain makers hold on testnet4; they are sized
+from the testnet4 coins the service wallets hold.
 
 ## The SeqLN nodes' channel options
 

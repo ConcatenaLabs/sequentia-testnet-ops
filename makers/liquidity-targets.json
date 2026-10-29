@@ -1,0 +1,22 @@
+{
+  "comment": "What every consumer of the treasury holds, in the price server's reference unit (USD on the testnet), per asset it gives. The health pass (makers/liquidity-health.sh) refills a consumer once it holds less than `floor` of a target, back to the target, from treasury2026, minting into treasury2026 what it is short of a mintable asset. Sized for a busy public testnet: several million dollars a day traded in every pair of the faucet assets.",
+  "floor": 0.5,
+  "treasury_floors": { "USDX": 30000000, "EURX": 30000000, "GOLD": 30000000, "SILVR": 30000000, "OILX": 30000000 },
+  "consumers": {
+    "arca-operator": {
+      "comment": "The Arca operator's pool: what its rounds, refreshes and Lightning legs pay out. Its address is the one `arcad <config> address` gives (written by the owner script).",
+      "kind": "arca", "node": "node000", "info": "https://sequentiatestnet.com/arca/v1/info", "address_file": "/root/lq1/arca-operator.address",
+      "need": { "tSEQ": 18000000, "USDX": 20000000, "EURX": 20000000, "GOLD": 20000000, "SILVR": 20000000, "OILX": 20000000 }
+    },
+    "covenant-seeder": {
+      "comment": "The covenant seeder's node wallet: twenty levels a side of every pair at COVSEED_SCALE, and the tSEQ its fundings' fees are paid in.",
+      "kind": "wallet", "wallet": "covenant-seeder", "node": "dexnode",
+      "need": { "tSEQ": 2500000, "USDX": 1500000, "EURX": 1500000, "GOLD": 1500000, "SILVR": 1500000, "OILX": 1500000 }
+    },
+    "lsp-inventory": {
+      "comment": "The order crosser's node wallet: both legs of a cross it takes, confirmed.",
+      "kind": "wallet", "wallet": "lsp-inventory", "node": "dexnode",
+      "need": { "tSEQ": 200000, "USDX": 200000, "EURX": 200000, "GOLD": 200000, "SILVR": 200000, "OILX": 200000 }
+    }
+  }
+}

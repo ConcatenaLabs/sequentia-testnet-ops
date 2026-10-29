@@ -34,7 +34,8 @@ ENV_FILE=${SC_ENV_FILE:-/etc/sequentia/seqob-makers.env}
 LEVELS=${SC_LEVELS:-10}          # price levels a side
 LEVEL_BPS=${SC_LEVEL_BPS:-25}    # each level this much further from the touch
 GROWTH=${SC_GROWTH:-1.2}         # each level this many times larger
-USD=${SC_USD:-100}               # level 0's size, in the feed's reference unit, where an asset names none
+USD=${SC_USD:-10000}             # level 0's size, in the feed's reference unit, where an asset names none:
+                                 # with 20 bps at the touch and 25 more a level, $50,000 within 1%
 TOUCH_BPS=${SC_TOUCH_BPS:-20}    # level 0's distance from the feed's price
 QUOTE_AGE=${SC_QUOTE_AGE:-10m}   # how long a ladder rests before it is priced again
 GUARD_BPS=${SC_GUARD_BPS:-10}    # margin from the feed's price and from the book's best bid and ask
