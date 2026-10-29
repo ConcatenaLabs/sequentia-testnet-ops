@@ -364,6 +364,20 @@ def cmd_fund(a):
             avail[k] = held_by(src[0], src[1], aid)
         return avail[k]
     plan = json.load(open(a.plan))
+    # What the sources sent that is not in a block yet, by address and asset: a consumer paid at an
+    # address counts it as held, so a pass run before the last one's payment confirms pays nothing
+    # twice (a scan of the chain's unspent outputs does not see the mempool).
+    in_flight = {}
+    for w0, n0 in sources:
+        try:
+            for tx in rpc(n0, "listtransactions", ["*", 500], w0):
+                if tx.get("category") == "send" and tx.get("confirmations", 1) == 0 and tx.get("address"):
+                    k = (tx["address"], tx.get("asset"))
+                    in_flight[k] = in_flight.get(k, 0) + int(round(abs(float(tx["amount"])) * NODE_ATOMS))
+        except RuntimeError:
+            pass
+    def flying(address, aid):
+        return in_flight.get((address, aid), 0)
     for dest in plan:
         if dest["kind"] == "arca" and "*" in dest["need"]:
             # every asset the operator serves, from the moment it serves it: the target "*"
@@ -404,13 +418,13 @@ def cmd_fund(a):
                     print("  %s %s: OPERATOR FINALITY STALLED: %s atoms at its address are an hour old or more, and it can fund %s; not paid" % (
                         dest["name"], t, old, fundable))
                     short.append([dest["name"], t]); continue
-                held = fundable + young
+                held = fundable + young + flying(dest["address"], x["id"])
             elif dest["kind"] == "ocean":
                 held = ocean_balance(a.octl, a.ocean, dest["name"]).get(x["id"], {}).get("total", 0)
             elif dest["kind"] == "leaf":
                 # what the maker holds in leaves (read by the script), and what waits on the chain
                 # at its address to be boarded
-                held = int(dest.get("held", {}).get(t, 0)) + onchain_at(dest["node"], dest["address"], x["id"])
+                held = int(dest.get("held", {}).get(t, 0)) + onchain_at(dest["node"], dest["address"], x["id"]) + flying(dest["address"], x["id"])
             else:
                 b = rpc(dest["node"], "getbalances", [], dest["name"])["mine"]
                 key = id2label.get(x["id"], x["id"])
