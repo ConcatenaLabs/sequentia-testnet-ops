@@ -445,7 +445,9 @@ holds it, and after ten minutes steps it back, saying which rule (`HOLD`): the
 box's load average over a share of its cores; a rail's success rate under 98%;
 the in-tree trade's p95 time over its bound; or the wallet probe (a person's
 trade, through the public wallet-facing maker, every five minutes) slower by more
-than a second than at the first step. The configuration names the assets, the
+than a second than at the first step. While the operator's finality waits on
+the Bitcoin anchor (`chain` names its `/v1/chain`), the takers make no trade and
+the ramp holds where it is (`HOLD PAUSE`), never stepping back for it. The configuration names the assets, the
 pairs and their targets, the mix, each rail's concurrency, the sizes, the ramp,
 the takers' wallets and the crosser's command line. The takers' coins come from
 their own wallets, which the health pass refills.
@@ -571,7 +573,12 @@ in its `address_file` and counted as its info's `fundable` (what its rounds can
 pay now: its final coins, less what it owes) plus what reached that address in
 the last hour and is not final yet. When coins an hour old or more wait at the
 address and `fundable` is less than they hold, the operator's finality has
-stalled: the pass pays nothing more and logs `OPERATOR FINALITY STALLED`. A consumer
+stalled: the pass pays nothing more and logs `OPERATOR FINALITY STALLED`.
+While the operator's `/v1/chain` says its finality waits on the Bitcoin anchor
+(`waiting_on` `anchor`: Bitcoin runs competing chains above the height the
+chain anchors to, and nothing new is buried until it settles), the pass pays it
+nothing and logs `PAUSED`: a pause, not a fault, which the operator's final
+coins carry. A consumer
 may carry its own `floor`. The interactive fleet's accounts are listed in
 `/root/lq1/sc-accounts.json`, written when they are made. A leaf maker is paid at
 its on-chain address, where it boards what arrives; what it quotes is taken as
