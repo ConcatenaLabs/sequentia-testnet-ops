@@ -33,7 +33,7 @@ systemctl daemon-reload
 systemctl reload caddy
 sleep 1
 fail=0
-for u in / /wallet/ /levo/api/health /explorer/ /dex/ /seqpal/ /lending/ /emissio/ /coinjoin/ /registry/ /pools/ /faucet /download/ /status/ /seqob/v1/markets /seqob-pln/v1/markets /seqob-conf/v1/markets; do
+for u in / /wallet/ /levo/api/health /explorer/ /dex/ /seqpal/ /lending/ /emissio/ /coinjoin/ /registry/ /pools/ /faucet /download/ /status/ /docs/ /seqob/v1/markets /seqob-pln/v1/markets /seqob-conf/v1/markets; do
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "https://sequentiatestnet.com$u")
   case "$code" in 2*|3*) ;; *) echo "apply-caddy: $u answered $code" >&2; fail=1 ;; esac
 done
