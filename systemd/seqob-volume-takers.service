@@ -1,0 +1,15 @@
+[Unit]
+Description=SeqDEX volume takers: real trades against the makers on every rail, ramped (makers/volume-takers.mjs)
+After=network-online.target seqobd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /root/sequentia/sequentia-testnet-ops/makers/volume-takers.mjs --config /etc/sequentia/volume-takers.json
+Restart=always
+RestartSec=30
+Nice=5
+CPUQuota=200%
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target
