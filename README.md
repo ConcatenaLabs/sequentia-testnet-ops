@@ -577,10 +577,14 @@ the faucet assets.
 | the BTC leaf maker (its asset side) | $300,000 | half | `HEALTH_LEAF_MAKERS` |
 
 A consumer of the targets file is a node wallet (`kind: wallet`), paid at an
-address it draws itself, or an Arca operator (`kind: arca`), paid at the address
-in its `address_file` and counted as its info's `fundable` (what its rounds can
-pay now: its final coins, less what it owes) plus what reached that address in
-the last hour and is not final yet. When coins an hour old or more wait at the
+address it draws itself, or an Arca operator (`kind: arca`), paid at the
+addresses in its `address_file`, one coin each, so that no one round (which
+takes the wallet's largest coin first) holds the whole pool as change. An
+operator is counted as what its wallet holds, final or not (`holdings` in its
+`/v1/chain`), or, from an operator that does not report it, as its info's
+`fundable` (its final coins, less what it owes) plus what reached its addresses
+in the last hour and is not final yet. A payment still in the mempool counts as
+held too. When coins an hour old or more wait at the
 address and `fundable` is less than they hold, the operator's finality has
 stalled: the pass pays nothing more and logs `OPERATOR FINALITY STALLED`.
 While the operator's `/v1/chain` says its finality waits on the Bitcoin anchor
@@ -592,6 +596,14 @@ may carry its own `floor`. The interactive fleet's accounts are listed in
 `/root/lq1/sc-accounts.json`, written when they are made. A leaf maker is paid at
 its on-chain address, where it boards what arrives; what it quotes is taken as
 what it holds, plus what waits at the address.
+
+Each pass first loads every service wallet the targets file lists
+(`service_wallets`, node by node) that a node restart dropped, with
+`load_on_startup`, and names any other wallet on a node's disk that is not
+loaded, leaving it alone (a wallet must never be loaded on two nodes at once). A
+consumer whose wallet does not exist yet (made later by its own setup) is
+skipped. All the consumers of the targets file are funded in one run: one
+transaction per source and asset for all of them together.
 
 Funds come from two wallets only: `treasury2026` on node000, and `maker-bridged`
 on the dexnode for USDC.e and EURC.e, which the bridge mints there as deposits

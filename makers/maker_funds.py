@@ -399,6 +399,17 @@ def cmd_fund(a):
             pass
     def flying(address, aid):
         return in_flight.get((address, aid), 0)
+    live = []
+    for dest in plan:
+        if dest["kind"] == "wallet":
+            state = ensure_loaded(dest["node"], dest["name"])
+            if state == "absent":
+                print("  %s: no such wallet on %s yet (made by its own setup): skipped" % (dest["name"], dest["node"]))
+                continue
+            if state == "loaded now":
+                print("  %s: on %s's disk but not loaded: loaded now, and on every start" % (dest["name"], dest["node"]))
+        live.append(dest)
+    plan = live
     for dest in plan:
         if dest["kind"] == "arca" and "*" in dest["need"]:
             # every asset the operator serves, from the moment it serves it: the target "*"
@@ -431,15 +442,23 @@ def cmd_fund(a):
                     print("  %s %s: PAUSED, the operator's finality waits on %s; not paid" % (dest["name"], t, waits))
                     continue
                 fundable = arca_fundable(dest["info"], x["id"])
-                young = onchain_at(dest["node"], dest["address"], x["id"], newer_than=dest.get("pending_blocks", 60))
-                old = onchain_at(dest["node"], dest["address"], x["id"]) - young
-                if fundable < old:
-                    # coins paid an hour ago and more are still not the operator's to spend: its
-                    # finality has stalled, and paying again would only add to what waits
-                    print("  %s %s: OPERATOR FINALITY STALLED: %s atoms at its address are an hour old or more, and it can fund %s; not paid" % (
-                        dest["name"], t, old, fundable))
-                    short.append([dest["name"], t]); continue
-                held = fundable + young + flying(dest["address"], x["id"])
+                addrs_all = dest.get("address_list") or [dest["address"]]
+                young = sum(onchain_at(dest["node"], ad, x["id"], newer_than=dest.get("pending_blocks", 60)) for ad in addrs_all)
+                old = sum(onchain_at(dest["node"], ad, x["id"]) for ad in addrs_all) - young
+                holds = arca_holdings(dest["info"]).get(x["id"])
+                in_flight = sum(flying(ad, x["id"]) for ad in addrs_all)
+                if holds is not None:
+                    # what its wallet holds, final or not: a round takes its largest coin, and
+                    # its change is out of `fundable` until final, which is no reason to pay again
+                    held = max(fundable + young, holds) + in_flight
+                else:
+                    if fundable < old:
+                        # coins paid an hour ago and more are still not the operator's to spend:
+                        # its finality has stalled, and paying again would only add to what waits
+                        print("  %s %s: OPERATOR FINALITY STALLED: %s atoms at its address are an hour old or more, and it can fund %s; not paid" % (
+                            dest["name"], t, old, fundable))
+                        short.append([dest["name"], t]); continue
+                    held = fundable + young + in_flight
             elif dest["kind"] == "ocean":
                 held = ocean_balance(a.octl, a.ocean, dest["name"]).get(x["id"], {}).get("total", 0)
             elif dest["kind"] == "leaf":
@@ -479,7 +498,7 @@ def cmd_fund(a):
             if dest["kind"] == "wallet" and not dest.get("address"):
                 # a node wallet is paid at an address of its own, drawn once a run
                 dest["address"] = rpc(dest["node"], "getnewaddress", ["", "bech32"], dest["name"])
-            addrs = (dest.get("addresses") or {}).get(t) or [dest["address"]]
+            addrs = (dest.get("addresses") or {}).get(t) or dest.get("address_list") or [dest["address"]]
             per = want // len(addrs)
             if per <= 0:
                 addrs, per = addrs[:1], want
@@ -550,13 +569,60 @@ def fee_asset_for(node, wallet, exclude=None):
     return (best[1], best[1]) if best else None
 
 
+def ensure_loaded(node, wallet):
+    """"loaded", "loaded now" (it was on the node's disk; it is loaded on every start from now
+    on), or "absent"."""
+    if wallet in rpc(node, "listwallets"):
+        return "loaded"
+    if wallet not in [w["name"] for w in rpc(node, "listwalletdir").get("wallets", [])]:
+        return "absent"
+    rpc(node, "loadwallet", {"filename": wallet, "load_on_startup": True}, timeout=300)
+    return "loaded now"
+
+
+def cmd_wallets(a):
+    """Every service wallet the targets file lists (`service_wallets`, node -> names) loaded on its
+    node, and on every start; a wallet on a node's disk that is not loaded and not listed is named,
+    and left alone (a wallet loaded on two nodes at once is the one thing never to do)."""
+    cfg = json.load(open(a.targets))
+    listed = cfg.get("service_wallets", {})
+    for node, names in listed.items():
+        try:
+            for w in names:
+                st = ensure_loaded(node, w)
+                if st != "loaded":
+                    print("  %s on %s: %s" % (w, node, "loaded now, and on every start" if st == "loaded now" else "not on its disk"))
+            loaded = set(rpc(node, "listwallets"))
+            idle = [w["name"] for w in rpc(node, "listwalletdir").get("wallets", []) if w["name"] not in loaded and w["name"] not in names]
+            if idle:
+                print("  %s: on disk, not loaded, not listed (left alone): %s" % (node, ", ".join(sorted(idle))))
+        except RuntimeError as e:
+            print("  %s: %s" % (node, e))
+
+
+_CHAIN = {}
+
+
+def arca_chain(info_url):
+    """The operator's /v1/chain, read once a run; {} when it has none."""
+    if info_url not in _CHAIN:
+        try:
+            _CHAIN[info_url] = http_json(info_url.rsplit("/info", 1)[0] + "/chain")
+        except Exception:  # noqa: BLE001
+            _CHAIN[info_url] = {}
+    return _CHAIN[info_url]
+
+
+def arca_holdings(info_url):
+    """asset id -> atoms the operator's wallet holds, final or not ({} from an operator that
+    does not report them)."""
+    return {k: int(v) for k, v in (arca_chain(info_url).get("holdings") or {}).items()}
+
+
 def arca_waits(info_url):
     """What the operator's finality waits on when it is the Bitcoin anchor (its /v1/chain), in
     words; None when it waits on nothing of the kind, or the operator does not say."""
-    try:
-        c = http_json(info_url.rsplit("/info", 1)[0] + "/chain")
-    except Exception:  # noqa: BLE001
-        return None
+    c = arca_chain(info_url)
     if c.get("waiting_on") in ("anchor", "anchor_status"):
         return "the Bitcoin anchor (at Bitcoin height %s for %d min, %s rounds waiting)" % (
             c.get("anchor_height"), int(c.get("anchor_unchanged_seconds", 0)) // 60, c.get("rounds_waiting_count"))
@@ -589,16 +655,25 @@ def cmd_plan_targets(a):
         addr_file = c.get("address_file")
         if addr_file:
             try:
-                dest["address"] = open(addr_file).read().strip()
-            except OSError:
+                lines = [l.strip() for l in open(addr_file) if l.strip()]
+                # several addresses: a payment goes out in that many coins, so no one round
+                # (which takes the largest coin first) holds all of it as change
+                dest["address"], dest["address_list"] = lines[0], lines
+            except (OSError, IndexError):
                 print("  %s: no address at %s yet, not planned" % (name, addr_file)); continue
         out = os.path.join(a.out_dir, "target-%s.json" % name)
         json.dump([dest], open(out, "w"), indent=1)
         print("  %s: %s, floor %s" % (name, " ".join("%s $%s" % kv for kv in c["need"].items()), c.get("floor", cfg.get("floor", 0.5))))
 
 
+_SCANS = {}
+
+
 def onchain_at(node, address, aid, newer_than=None):
-    r = rpc(node, "scantxoutset", ["start", ["addr(%s)" % address]], timeout=300)
+    # one scan of the chain's unspent outputs per address a run: a scan reads the whole set
+    if (node, address) not in _SCANS:
+        _SCANS[(node, address)] = rpc(node, "scantxoutset", ["start", ["addr(%s)" % address]], timeout=300)
+    r = _SCANS[(node, address)]
     tip = r.get("height", 0)
     return sum(int(round(float(u["amount"]) * NODE_ATOMS)) for u in r.get("unspents", [])
                if u.get("asset") == aid and (newer_than is None or tip - u.get("height", 0) < newer_than))
@@ -850,6 +925,7 @@ def main():
     c.add_argument("--below", type=float, default=0.5); c.add_argument("--over", type=float, default=0.5); c.add_argument("--minutes", type=int, default=20)
     c.add_argument("--dry-run", action="store_true")
     c = sp.add_parser("plan-targets"); c.add_argument("--targets", required=True); c.add_argument("--out-dir", required=True); c.add_argument("--only", default="")
+    c = sp.add_parser("wallets"); c.add_argument("--targets", required=True)
     c = sp.add_parser("plan-sc"); c.add_argument("--accounts"); c.add_argument("--assets"); c.add_argument("--usd", type=float, default=390000); c.add_argument("--coins", type=int, default=4); c.add_argument("--out")
     c = sp.add_parser("leafcfg"); c.add_argument("--config"); c.add_argument("--assets"); c.add_argument("--prices"); c.add_argument("--feed-url")
     c.add_argument("--out"); c.add_argument("--btc", action="store_true"); c.add_argument("--small", default="USDC.e,EURC.e")
@@ -874,7 +950,7 @@ def main():
     for k in ("awaiting", "partial"):
         if hasattr(a, k):
             setattr(a, k, set(x for x in getattr(a, k).split(",") if x))
-    {"mint": cmd_mint, "floors": cmd_floors, "plan-targets": cmd_plan_targets, "accounts": cmd_accounts, "plan-sc": cmd_plan_sc, "plan-covseed": cmd_plan_covseed,
+    {"wallets": cmd_wallets, "mint": cmd_mint, "floors": cmd_floors, "plan-targets": cmd_plan_targets, "accounts": cmd_accounts, "plan-sc": cmd_plan_sc, "plan-covseed": cmd_plan_covseed,
      "leafcfg": cmd_leafcfg, "plan-leaf": cmd_plan_leaf, "quotes": cmd_quotes, "fund": cmd_fund, "waitconf": cmd_waitconf, "oceancheck": cmd_oceancheck,
      "books": cmd_books}[a.cmd](a)
 
