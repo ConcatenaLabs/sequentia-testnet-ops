@@ -140,6 +140,17 @@ function launch (pair) {
   ).finally(() => { inFlight[rail]-- })
 }
 
+// ---- the operator's finality (cfg.chain: its /v1/chain): while it waits on the Bitcoin anchor
+// the ramp holds where it is, a pause and not a fault, and it never steps back for it
+let chainWait = null
+async function readChain () {
+  if (!cfg.chain) return
+  try {
+    const c = await (await fetch(cfg.chain, { signal: AbortSignal.timeout(10000) })).json()
+    chainWait = ['anchor', 'anchor_status'].includes(c.waiting_on) ? `the Bitcoin anchor (at ${c.anchor_height} for ${Math.round((c.anchor_unchanged_seconds || 0) / 60)} min)` : null
+  } catch { chainWait = null }
+}
+
 // ---- the ramp's rules, over what happened lately
 function rules () {
   const broken = []
@@ -152,6 +163,7 @@ function rules () {
   const tree = trades.filter((x) => x.rail === 'tree' && x.ok && x.t > now() - 15 * 60e3).map((x) => x.ms)
   const p95 = pct(tree, 0.95)
   if (tree.length >= 20 && p95 > RAMP.max_tree_p95_ms) broken.push(`in-tree p95 ${p95} ms`)
+  if (chainWait) broken.push(`PAUSE: the operator's finality waits on ${chainWait}`)
   const lastProbes = probes.slice(-3).filter((x) => x.ok).map((x) => x.ms)
   if (probeBase != null && lastProbes.length && Math.min(...lastProbes) > probeBase + RAMP.max_probe_worse_ms) broken.push(`a wallet's trade ${Math.min(...lastProbes)} ms, ${probeBase} ms at the first step`)
   return broken
@@ -161,7 +173,8 @@ function rampTick () {
   if (broken.length) {
     if (!holdReason) log('HOLD at step', step, `(${RAMP.steps[step]}):`, broken.join('; '))
     holdReason = broken.join('; '); cleanSince = now()
-    if (step > 0 && now() - stepStarted > 10 * 60e3) { step--; stepStarted = now(); log('HOLD: back to step', step, `(${RAMP.steps[step]})`) }
+    const onlyPause = broken.every((b) => b.startsWith('PAUSE'))
+    if (!onlyPause && step > 0 && now() - stepStarted > 10 * 60e3) { step--; stepStarted = now(); log('HOLD: back to step', step, `(${RAMP.steps[step]})`) }
     return
   }
   if (holdReason) { log('clear:', holdReason); holdReason = null }
@@ -219,7 +232,9 @@ log(`volume takers: ${PAIRS.length} pairs, $${cfg.usd_per_day_per_pair.toLocaleS
   `mix ${JSON.stringify(MIX)}, ${wallets.length} in-tree wallets, step ${step} (${RAMP.steps[step]})${DRY ? ', DRY RUN' : ''}`)
 
 await readFeed()
+await readChain()
 setInterval(readFeed, 20000)
+setInterval(readChain, 60000)
 setInterval(summary, 60000)
 setInterval(rampTick, 30000)
 if (cfg.probe) { probe(); setInterval(probe, RAMP.probe_seconds * 1000) }
@@ -228,6 +243,8 @@ let stopping = false
 for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { stopping = true; summary(); log('stopping: in-flight trades finish on their own'); setTimeout(() => process.exit(0), 2000) })
 const TICK = 250
 while (!stopping) {
+  // paused while the operator's finality waits on the anchor: no new trade, the ramp held
+  if (chainWait) { await sleep(TICK); continue }
   const share = RAMP.steps[step]
   for (const pair of PAIRS) {
     const target = (pair.usd_per_day ?? cfg.usd_per_day_per_pair) * share

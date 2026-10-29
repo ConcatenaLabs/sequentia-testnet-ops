@@ -389,6 +389,12 @@ def cmd_fund(a):
                 # its wallet can spend less what it owes), and what waits at its address
                 # (coins at its address count until the operator's wallet takes them as final;
                 # an older coin there is in `fundable` already)
+                waits = arca_waits(dest["info"])
+                if waits:
+                    # finality waits on the Bitcoin anchor: a pause, not a fault; what is paid
+                    # now would only wait with the rest, and the final coins carry the rounds
+                    print("  %s %s: PAUSED, the operator's finality waits on %s; not paid" % (dest["name"], t, waits))
+                    continue
                 fundable = arca_fundable(dest["info"], x["id"])
                 young = onchain_at(dest["node"], dest["address"], x["id"], newer_than=dest.get("pending_blocks", 60))
                 old = onchain_at(dest["node"], dest["address"], x["id"]) - young
@@ -507,6 +513,19 @@ def fee_asset_for(node, wallet, exclude=None):
         if v > 0 and (best is None or v > best[0]):
             best = (v, key)
     return (best[1], best[1]) if best else None
+
+
+def arca_waits(info_url):
+    """What the operator's finality waits on when it is the Bitcoin anchor (its /v1/chain), in
+    words; None when it waits on nothing of the kind, or the operator does not say."""
+    try:
+        c = http_json(info_url.rsplit("/info", 1)[0] + "/chain")
+    except Exception:  # noqa: BLE001
+        return None
+    if c.get("waiting_on") in ("anchor", "anchor_status"):
+        return "the Bitcoin anchor (at Bitcoin height %s for %d min, %s rounds waiting)" % (
+            c.get("anchor_height"), int(c.get("anchor_unchanged_seconds", 0)) // 60, c.get("rounds_waiting_count"))
+    return None
 
 
 def arca_fundable(info_url, aid):

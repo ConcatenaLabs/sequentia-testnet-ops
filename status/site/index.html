@@ -113,6 +113,7 @@ function showChain(c) {
     behind: ['Behind', 'bad', `Bitcoin block ${n(a.height)}, ${a.behind} behind the newest`],
     unchecked: ['Not confirmed', 'bad', 'The node could not check it against Bitcoin'],
     bitcoin_unknown: ['Not confirmed', 'warn', `Bitcoin block ${n(a.height)}; the newest Bitcoin block is unknown right now`],
+    waiting: ['Waiting for Bitcoin', 'warn', `Bitcoin has competing chains from block ${n(a.contested_from)}, so blocks anchor to block ${n(a.height)}, the last they share. New blocks become final once Bitcoin settles.`],
   }[a.state]
   $('anchor').textContent = anchorWords[0]; $('anchor').className = 'value ' + anchorWords[1]
   $('anchor-note').textContent = anchorWords[2]
