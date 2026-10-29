@@ -500,6 +500,11 @@ are left out, because their issuers govern every transfer of them. The rails:
 | `leaf` | the leaf maker's quotes (`/leafmaker`) | 8 | its quote |
 | `leafbtc` | the BTC leaf maker's quotes (`/leafmaker-btc`) | 8 | its quote |
 
+The audit also lists the interactive offers older than `--stale-minutes` (30):
+the fleet re-quotes every ten minutes, so an older one is an earlier run's offer
+no one co-signs, which a taker meets as "maker did not answer". Any such offer
+makes the exit status 1.
+
 An offer is counted in whichever orientation its maker listed it, as every
 wallet and the SeqDEX site read a pair: an order selling the quote for the base
 on the reversed market is a bid. The check on an interactive, cross-chain or
@@ -535,11 +540,13 @@ read.
 
 `seqdex-wallet.service` (Ocean, the wallet daemon the interactive and
 confidential makers hold their coins in) runs under the limits in
-`systemd/seqdex-wallet.service.d/limits.conf`: slowed at 6 GB, restarted at
-8 GB, never in swap, at most three cores. Ocean holds about 3 GB while it scans
-its accounts after a start, and above `MemoryHigh` the kernel throttles a
-process hard enough that its calls hang, so the limits sit well above that; they
-keep a runaway from starving the nodes and the Arca operator that share the box. A restart costs Ocean its startup rescan and
+`systemd/seqdex-wallet.service.d/limits.conf`: slowed at 14 GB, restarted at
+18 GB, never in swap, at most six cores. Ocean's scan of its accounts after a
+start was measured above 6.5 GB, and above `MemoryHigh` the kernel throttles a
+process hard enough that its calls hang, so the limits sit well above that peak;
+they keep a runaway (29-45 GB were seen) from starving the nodes and the Arca
+operator that share the box. The health pass says when it is throttled
+(`MEMORY THROTTLED`). A restart costs Ocean its startup rescan and
 nothing else.
 
 ```sh
