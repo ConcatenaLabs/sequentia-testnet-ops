@@ -6,7 +6,8 @@
 #
 # Every check goes through the public address, so it sees what a visitor sees:
 # DNS, TLS and the proxy included. One group per thing the page lists; a group
-# is up when all its checks pass. Names here are shown to visitors.
+# is up when all its checks pass. Names, groups and the published results are
+# public: check only what the site's public wave shows, never a hidden product.
 
 web:
   address: 127.0.0.1
@@ -64,21 +65,6 @@ endpoints:
     conditions:
       - "[STATUS] == 200"
       - "[BODY] > 0"
-
-  - name: Web wallet page
-    group: Web wallet
-    url: https://sequentiatestnet.com/wallet/
-    <<: *check
-    conditions:
-      - "[STATUS] == 200"
-
-  - name: Instant payments
-    group: Web wallet
-    url: https://sequentiatestnet.com/arca/v1/info
-    <<: *check
-    conditions:
-      - "[STATUS] == 200"
-      - "len([BODY].operator) == 64"
 
   - name: Faucet
     group: Faucet
