@@ -3,7 +3,8 @@
 #
 # 1. The depth audit (bin/seqdex-depth-audit.py) of every directed market and rail: one table
 #    and a verdict, kept as run/depth-audit.json and run/depth-audit.txt, the verdict lines
-#    appended to run/liquidity-health.log.
+#    appended to run/liquidity-health.log, and every crossed market (best bid at or above best
+#    ask in the book the wallets show) with the two offers that cross.
 # 2. Top-ups, each only below half its target and only from treasury2026 (node000) or
 #    maker-bridged (dexnode, USDC.e and EURC.e), one transaction an asset, the fee in it:
 #    - the interactive fleet's Ocean accounts (the list in /root/lq1/sc-accounts.json), to 1.5
@@ -40,8 +41,8 @@ log "=== health run"
 # 1. the audit
 python3 -I "$AUDIT" --base "$BASE" ${AWAITING:+--awaiting "$AWAITING"} --json "$RUN/depth-audit.json" > "$RUN/depth-audit.txt.new" 2>&1
 rc=$?; mv -f "$RUN/depth-audit.txt.new" "$RUN/depth-audit.txt"
-grep -E '^verdict|passes|not liftable|problem' "$RUN/depth-audit.txt" | while read -r l; do log "audit: $l"; done
-log "audit exit $rc (0 every market passes, 1 some fall short, 2 it could not run)"
+grep -E '^verdict|passes|not liftable|problem|^crossed:|CROSSED' "$RUN/depth-audit.txt" | while read -r l; do log "audit: $l"; done
+log "audit exit $rc (0 every market passes and none is crossed, 1 some fall short or are crossed, 2 it could not run)"
 
 # 2a. the interactive fleet's accounts
 if [ -s "$STATE/sc-accounts.json" ] && [ -x "$OCTL" ]; then
