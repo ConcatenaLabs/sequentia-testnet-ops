@@ -61,6 +61,18 @@
         "SILVR": 300000,
         "OILX": 300000
       }
+    },
+    "emissio-btc": {
+      "comment": "Emissio's arca wallet's Bitcoin side (Bark): the BTC it pays the web-wallet BTC and invoice tasks with. Refilled on-chain from the testnet4 service wallet and boarded into the Bitcoin ark.",
+      "kind": "bitcoin-ark",
+      "arca": "/opt/arca/target/release/arca",
+      "datadir": "/var/lib/emissio/arca",
+      "bark": "/opt/bitcoin-ark/bin/bark",
+      "target_sats": 5000000,
+      "max_sats": 5000000,
+      "btc_wallet": "seqdex-mm-btc",
+      "btc_cli": "/root/bitcoin-28.1/bin/bitcoin-cli -datadir=/root/.bitcoin -testnet4",
+      "need": {}
     }
   },
   "service_wallets": {

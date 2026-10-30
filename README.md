@@ -582,6 +582,7 @@ the faucet assets.
 | the covenant seeder's wallet | $1.5M ($2.5M of tSEQ, its fundings' fee asset) | half | `covenant-seeder` |
 | the order crosser's wallet (`lsp-inventory`) | $200,000 | half | `lsp-inventory` |
 | the volume takers' wallet (`volume-taker`) | $300,000 | half | `volume-taker` |
+| Emissio's Bitcoin side (its `arca` wallet's Bitcoin ark wallet) | 5,000,000 sats | half | `emissio-btc` |
 | each interactive fleet account | one and a half times its ten-level ladder ($390,000 a side) | half | `HEALTH_SC_USD` |
 | the in-tree leaf maker | $1M | half | `HEALTH_LEAF_MAKERS` |
 | the agents' leaf maker (`leaf-maker-agents`, the volume takers' in-tree counterparty) | $1M | half | `HEALTH_LEAF_MAKERS` |
@@ -660,6 +661,12 @@ every pair quotes from the same balance. Each pass logs its room against its
 ladder (`makers/btc_desk_room.py`), `BTC desk SHORT` when either way falls short;
 the room comes from a channel opened by the owner script, funded from the
 testnet4 service wallet.
+
+A consumer of `kind: bitcoin-ark` is an `arca` wallet's Bitcoin side (Bark's
+wallet for the Bitcoin ark): each pass boards the coins confirmed in its
+on-chain wallet into the ark, and when it holds less than half its target, ark
+and on-chain together, pays its on-chain address from the testnet4 service
+wallet it names, at most `max_sats` a pass (`maker_funds.py bark-refill`).
 
 BTC is the one asset no script can mint. The BTC sides of the books are what
 the BTC desk's and the pure-Lightning fleet's Lightning channels hold, and what
