@@ -125,7 +125,10 @@ credential itself. Nothing links to the path.
   sends: `getblockchaininfo`, `getblockhash`, `getblockheader`, `getblock`
   (the raw block only), `getrawtransaction`, `gettxout`, `getrawmempool`
   (txids only), `getmempoolentry`, `getmempoolinfo`, `scantxoutset` (`start`
-  with single `raw()` or `addr()` scripts), `decodescript`, `getanchorstatus`,
+  with single `raw()` or `addr()` scripts), `decodescript`, `validateaddress`
+  (one address, which the wallet reads before it pays it, offboards or claims
+  to it), `getsupervisedassets`, `isassetfrozen` (an asset and one script),
+  `getanchorstatus`,
   `getfeeexchangerates`, `dumpassetlabels` (the node's rates are keyed by
   label) and `sendrawtransaction`, the one call that writes.
   Every other method, a wallet's path and named arguments are refused with

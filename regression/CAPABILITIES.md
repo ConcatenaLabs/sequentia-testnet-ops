@@ -23,6 +23,7 @@ How each surface is read:
 
 | Id | A person can | Contract |
 |---|---|---|
+| WW-NODE-READS | pay an address from leaves, offboard or claim to it, and hold a supervised asset as one: the page's node route answers `validateaddress`, `getsupervisedassets` and `isassetfrozen` | Send |
 | WW-BAL-FRESH | see a fresh wallet as one row, BTC at 0 | Names |
 | WW-BAL-TOTAL | read one total in the reference currency | Balance |
 | WW-BAL-REF | change the reference currency (Show values in) | Balance |
