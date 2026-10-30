@@ -50,7 +50,12 @@ report.note(`Ambra browser ${ext.rev}; browser ${CHROME}\n`)
 async function withBrowser (label, fn) {
   const profile = join(cache, 'profile-' + label)
   rmSync(profile, { recursive: true, force: true })
-  const b = new Browser({ chrome: CHROME, profile, ext: ext.dir, consoleLog: join(out, `console-${label}.log`), headless: true, extraArgs: ['--window-size=1440,1000'] })
+  // Chromium will not run as root with its sandbox: on the box, where the suite runs as root to be
+  // near the services it checks, a headless browser that opens only this testnet's own pages runs
+  // without it. Anywhere else nothing changes.
+  const root = typeof process.getuid === 'function' && process.getuid() === 0
+  const b = new Browser({ chrome: CHROME, profile, ext: ext.dir, consoleLog: join(out, `console-${label}.log`), headless: true,
+    extraArgs: ['--window-size=1440,1000', ...(root ? ['--no-sandbox'] : [])] })
   await b.launch(label)
   const seen = new Map()
   b.on((m) => {
