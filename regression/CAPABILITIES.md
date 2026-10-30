@@ -147,9 +147,9 @@ funded one).
 | Id | Built | Contract |
 |---|---|---|
 | AM-TRD-SEARCH | the Trade pickers are the searchable asset sheet | Asset pickers |
-| AM-TRD-AMOUNTS | Trade takes an amount on either side | Trade |
+| AM-TRD-AMOUNTS | You pay and You receive are tethered: either amount typed, the other follows | Trade |
 | AM-TRD-MARKET | Trade shows the pair's market | Market |
-| AM-SND-PICKER | Send's picker is the searchable sheet: BTC and held first, hidden out, a pasted id found | Asset pickers |
+| AM-SND-PICKER | Send's picker is the searchable sheet: BTC and held first, hidden out, every asset found by searching | Asset pickers |
 | AM-BAL-HIDE | Balance hides an asset into "Hidden assets (n)"; BTC cannot be hidden | Balance |
 | AM-RCV-CODE | Receive shows one receive code with Copy receive code and New code | Receive |
 | AM-WORDS-TEST | default mode's sentences are tested against the forbidden words | Never in default mode |
