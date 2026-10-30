@@ -138,8 +138,8 @@ wallet connected).
 | AB-DEV-MODE | switch to developer mode (the address and every rail) and back | The principle |
 | AB-NO-ERRORS | use the popup without an uncaught error | (all) |
 
-Not checked yet: the approval window's Trade? and Place an order? (they need an order, which
-moves coins); Stake; reveal and remove the phrase (the suite removes a wallet only to import the
+Not checked yet: Ambra browser's approval window's Trade? and Place an order? (the trades
+surface trades through the web wallet); Stake; reveal and remove the phrase (the suite removes a wallet only to import the
 funded one).
 
 ## Ambra mobile (source)
@@ -157,6 +157,20 @@ funded one).
 
 Not checked here: everything at run time (pairing with SeqDEX, Send and Receive on a device, Stake,
 the site approvals). They need a phone or an emulator.
+
+## Trading, live
+
+From the trader wallet (`checks/trades.mjs`): a small market purchase, then the sale of what it
+bought, each done within 60 seconds of the confirmation or failed with what the page says.
+
+| Id | Can | Contract |
+|---|---|---|
+| WW-TRADE-USDX-GOLD-BUY, WW-TRADE-USDX-GOLD-SELL | buy GOLD with USDX and sell it back in the Trade tab | Trade |
+| WW-TRADE-TSEQ-USDX-BUY, WW-TRADE-TSEQ-USDX-SELL | buy tSEQ with USDX and sell it back in the Trade tab | Trade |
+| WW-TRADE-BTC-USDX-BUY, WW-TRADE-BTC-USDX-SELL | buy BTC with USDX and sell it back in the Trade tab | Trade |
+| DX-TRADE-USDX-GOLD-BUY, DX-TRADE-USDX-GOLD-SELL | buy and sell GOLD on SeqDEX's market page through the web wallet | SeqDEX |
+| DX-TRADE-TSEQ-USDX-BUY, DX-TRADE-TSEQ-USDX-SELL | buy and sell tSEQ on SeqDEX through the web wallet | SeqDEX |
+| DX-TRADE-BTC-USDX-BUY, DX-TRADE-BTC-USDX-SELL | buy and sell BTC against USDX on SeqDEX through the web wallet | SeqDEX |
 
 ## Capabilities lost, and where
 
