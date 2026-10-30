@@ -20,7 +20,7 @@ About 25 minutes. It needs Node 22 and a Chromium: Playwright's under `~/.cache/
 checks, which takes a slow or far link out of the timings), the browser runs without Chromium's
 sandbox, which refuses root. Options:
 
-- `--only web-wallet,seqdex,ambra-browser,ambra-mobile,trades`: some surfaces only.
+- `--only web-wallet,seqdex,ambra-browser,ambra-mobile,trades,levo`: some surfaces only.
 - `--widths desktop,phone`: desktop is 1440 px, phone 390 px on a touch screen.
 - `--funded <file>`: the funded test wallet's phrase (default
   `~/.local/share/sequentia-regression/wallets/rgfunded.phrase`). Without it, the lines that need
@@ -77,6 +77,7 @@ under the name `rgtrader`, and top it up with USDX from its Receive tab's faucet
 | `lib/suite.mjs` | Lines, results and screenshots; the widths; the page helpers; the words default mode never says, read from the deployed web wallet's `USER_MODE_FORBIDDEN_WORDS`. |
 | `checks/web-wallet.mjs` | The web wallet, a fresh wallet and the funded one, default and developer mode. |
 | `checks/seqdex.mjs` | SeqDEX's Markets, a pair's page, Portfolio, the wallet chooser, and Ambra browser connected once across pages. |
+| `checks/levo.mjs` | Levo's board and a sale's page: amounts in BTC, the switch to dollars, a sale paid over Lightning. Nothing is bought. `LEVO_URL` points it at another Levo, such as a local demo. |
 | `checks/ambra-browser.mjs` | Ambra browser's popup in default mode, a fresh wallet and the funded one imported. |
 | `checks/trades.mjs` | Live market purchases and sales from the trader wallet, in the Trade tab and on SeqDEX through the web wallet. |
 | `checks/ambra-mobile.mjs` | Ambra mobile's source: what each default-mode screen is built from. |
