@@ -662,6 +662,54 @@ def arca_flow_words(f):
     return words
 
 
+def cmd_bark_refill(a):
+    """A wallet's Bitcoin ark side (an `arca` wallet's `bitcoin`, run by Bark) kept at its target:
+    coins confirmed in its on-chain wallet are boarded into the ark; below `floor` of its target
+    (ark and on-chain together) it is paid on-chain from the testnet4 service wallet, at most
+    `max_sats` a pass. BTC cannot be minted: this moves only what the service wallet holds."""
+    if re.search(r"reserve|sbtc|bridge|treasury", a.btc_wallet, re.I):
+        die("%s backs something else: name a service liquidity wallet" % a.btc_wallet)
+    env = dict(os.environ, ARCA_BARK_EXEC=a.bark)
+    def arca(*args):
+        r = subprocess.run([a.arca, "--datadir", a.datadir, "bitcoin"] + list(args), capture_output=True, text=True, timeout=600, env=env)
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or r.stdout).strip()[-300:])
+        out = r.stdout.strip()
+        try:
+            return json.loads(out)
+        except ValueError:
+            return out
+    try:
+        b = arca("--quiet", "balance")
+    except RuntimeError as e:
+        print("  %s: no Bitcoin side to read (%s)" % (a.name, e)); return
+    if not isinstance(b, dict) or not b.get("wallet"):
+        print("  %s: no Bitcoin ark wallet yet (made by its owner script)" % a.name); return
+    ark = sum(v for k, v in (b.get("ark") or {}).items() if k.endswith("_sat") and isinstance(v, int))
+    oc = b.get("onchain") or {}
+    total = ark + int(oc.get("total_sat") or 0)
+    confirmed = int(oc.get("confirmed_sat", oc.get("trusted_spendable_sat", 0)) or 0)
+    if confirmed >= a.min_board_sats:
+        n = confirmed - a.fee_reserve_sats
+        try:
+            arca("board", "%d sats" % n)
+            print("  %s: boarded %d sats into the Bitcoin ark" % (a.name, n))
+        except RuntimeError as e:
+            print("  %s: board of %d sats refused: %s" % (a.name, n, e))
+        return
+    if total >= a.target_sats * a.floor:
+        print("  %s: holds %d of %d sats, enough" % (a.name, total, a.target_sats)); return
+    want = min(a.target_sats - total, a.max_sats)
+    addr = arca("onchain", "address")
+    addr = addr.get("address") if isinstance(addr, dict) else str(addr).strip().strip('"')
+    r = subprocess.run(a.btc_cli.split() + ["-rpcwallet=" + a.btc_wallet, "-named", "sendtoaddress", "address=" + addr,
+                       "amount=%.8f" % (want / 1e8), "fee_rate=%s" % a.feerate], capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        print("  %s: %s could not pay %d sats: %s" % (a.name, a.btc_wallet, want, (r.stderr or r.stdout).strip()[-200:])); return
+    print("  %s: holds %d of %d sats: %d sats from %s to its on-chain address %s (boarded once confirmed): %s" % (
+        a.name, total, a.target_sats, want, a.btc_wallet, addr, r.stdout.strip()))
+
+
 def arca_waits(info_url):
     """What the operator's finality waits on when it is the Bitcoin anchor (its /v1/chain), in
     words; None when it waits on nothing of the kind, or the operator does not say."""
@@ -970,6 +1018,10 @@ def main():
     c.add_argument("--dry-run", action="store_true")
     c = sp.add_parser("plan-targets"); c.add_argument("--targets", required=True); c.add_argument("--out-dir", required=True); c.add_argument("--only", default="")
     c = sp.add_parser("wallets"); c.add_argument("--targets", required=True)
+    c = sp.add_parser("bark-refill"); c.add_argument("--name", default="bitcoin side"); c.add_argument("--arca", required=True); c.add_argument("--datadir", required=True)
+    c.add_argument("--bark", required=True); c.add_argument("--target-sats", type=int, required=True); c.add_argument("--floor", type=float, default=0.5)
+    c.add_argument("--max-sats", type=int, default=10000000); c.add_argument("--min-board-sats", type=int, default=100000); c.add_argument("--fee-reserve-sats", type=int, default=3000)
+    c.add_argument("--btc-wallet", required=True); c.add_argument("--btc-cli", required=True); c.add_argument("--feerate", default="2")
     c = sp.add_parser("plan-sc"); c.add_argument("--accounts"); c.add_argument("--assets"); c.add_argument("--usd", type=float, default=390000); c.add_argument("--coins", type=int, default=4); c.add_argument("--out")
     c = sp.add_parser("leafcfg"); c.add_argument("--config"); c.add_argument("--assets"); c.add_argument("--prices"); c.add_argument("--feed-url")
     c.add_argument("--out"); c.add_argument("--btc", action="store_true"); c.add_argument("--small", default="USDC.e,EURC.e")
@@ -994,7 +1046,7 @@ def main():
     for k in ("awaiting", "partial"):
         if hasattr(a, k):
             setattr(a, k, set(x for x in getattr(a, k).split(",") if x))
-    {"wallets": cmd_wallets, "mint": cmd_mint, "floors": cmd_floors, "plan-targets": cmd_plan_targets, "accounts": cmd_accounts, "plan-sc": cmd_plan_sc, "plan-covseed": cmd_plan_covseed,
+    {"bark-refill": cmd_bark_refill, "wallets": cmd_wallets, "mint": cmd_mint, "floors": cmd_floors, "plan-targets": cmd_plan_targets, "accounts": cmd_accounts, "plan-sc": cmd_plan_sc, "plan-covseed": cmd_plan_covseed,
      "leafcfg": cmd_leafcfg, "plan-leaf": cmd_plan_leaf, "quotes": cmd_quotes, "fund": cmd_fund, "waitconf": cmd_waitconf, "oceancheck": cmd_oceancheck,
      "books": cmd_books}[a.cmd](a)
 

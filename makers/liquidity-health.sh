@@ -78,9 +78,18 @@ python3 -I -c 'import json,sys; [print(k, v) for k, v in json.load(open(sys.argv
 #     (one transaction per source and asset for all of them together)
 tool wallets --targets "$TARGETS" 2>&1 | while read -r l; do log "wallets: $l"; done
 tool plan-targets --targets "$TARGETS" --out-dir "$W" 2>&1 | grep -E 'not planned' | while read -r l; do log "targets: $l"; done
-python3 -I -c 'import glob,json,sys; json.dump([d for p in sorted(glob.glob(sys.argv[1] + "/target-*.json")) for d in json.load(open(p))], open(sys.argv[1] + "/targets-plan.json", "w"))' "$W"
+python3 -I -c 'import glob,json,sys; json.dump([d for p in sorted(glob.glob(sys.argv[1] + "/target-*.json")) for d in json.load(open(p)) if d.get("kind") != "bitcoin-ark"], open(sys.argv[1] + "/targets-plan.json", "w"))' "$W"
 tool fund --sources "$SOURCES" --assets "$STATE/assets-leaf.txt" --prices "$FEED" --plan "$W/targets-plan.json" $MINT --out "$W/targets-sent.json" 2>&1 \
   | grep -vE 'enough$' | while read -r l; do log "targets: $l"; done
+
+# 3a'. the Bitcoin ark sides of the targets file (BTC from the testnet4 service wallet)
+python3 -I -c 'import glob,json,shlex,sys
+for p in sorted(glob.glob(sys.argv[1] + "/target-*.json")):
+    for d in json.load(open(p)):
+        if d.get("kind") == "bitcoin-ark":
+            print(" ".join(shlex.quote(x) for x in ["--name", d["name"], "--arca", d["arca"], "--datadir", d["datadir"], "--bark", d["bark"],
+                "--target-sats", str(d["target_sats"]), "--max-sats", str(d.get("max_sats", 10000000)), "--btc-wallet", d["btc_wallet"], "--btc-cli", d["btc_cli"]]))' "$W" \
+  | while read -r line; do eval "tool bark-refill $line" 2>&1 | while read -r l; do log "bitcoin ark: $l"; done; done
 
 # 3b. the interactive fleet's accounts
 if [ -s "$STATE/sc-accounts.json" ] && [ -x "$OCTL" ]; then
