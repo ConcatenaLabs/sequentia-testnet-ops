@@ -1,0 +1,22 @@
+[Unit]
+Description=The Bitcoin ark's node RPC with fee estimates from the live mempool (for captaind, watchmand and Bark wallets)
+After=network-online.target bitcoin-ark-bitcoind.service
+Wants=bitcoin-ark-bitcoind.service
+Before=bitcoin-ark-captaind.service bitcoin-ark-watchmand.service
+
+[Service]
+Type=simple
+User=bark
+Group=bark
+# Loopback only; it passes each caller's own credentials (the node's cookie)
+# through and reads the node with the cookie itself.
+ExecStart=/usr/bin/python3 -I /opt/bitcoin-ark/bin/fee-proxy.py --listen 127.0.0.1:18352 --upstream 127.0.0.1:18342 --cookie /var/lib/bitcoin-ark/bitcoind/testnet4/.cookie --floor 30 --cap 500
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
