@@ -40,6 +40,33 @@ export async function run ({ report, cache }) {
     const ok = /Receive code/.test(words) && /Copy receive code/.test(words) && /New code/.test(words) && /PayCode\(/.test(shell)
     return { ok }
   })
+  const code = src('data/pay_code.dart'), scan = src('screens/scan_screen.dart'), wcache = src('data/wallet_cache.dart')
+  await R('RCV-SHORT', 'Receive: the code scans at a glance: upper case, the request short (SQR1…), a QR code in alphanumeric segments at level M; old codes still read', () => {
+    const ok = /String\? compactRequest\(/.test(code) && /requestHrp = 'sqr'/.test(code) && /QrCode payCodeQr\(/.test(code) && /addAlphaNumeric/.test(code) &&
+      /QrImageView\.withQr\(/.test(shell) && /payCodeQr\(_code!\)/.test(shell) && /libraryRequest\(s\)/.test(code)
+    return { ok, detail: ok ? 'pay_code.dart, shell.dart' : 'no short code or segmented QR (pay_code.dart payCodeQr, shell.dart QrImageView.withQr)' }
+  })
+  await R('SCN-CODE', 'Scan: a scanned receive code is kept whole (its instant ways to pay), 720p, tap to focus, decoded off the UI thread', () => {
+    const keep = /PayCode\.read\(raw\)/.test(send) && /_addr\.text = raw\.trim\(\)/.test(send)
+    const cam = /ResolutionPreset\.high/.test(scan) && /setFocusPoint/.test(scan) && /Isolate\.run/.test(scan)
+    return { ok: keep && cam, detail: keep && cam ? '' : `keeps the code ${keep}, camera ${cam} (send_screen.dart _scan, scan_screen.dart)` }
+  })
+  await R('SND-INSTANT', 'Send: a receive code is paid instant first (request, ark, invoice) and at its address only when none fits, saying so', () => {
+    const ok = /LeafService\.instance\.payable\(seq\)/.test(send) && /code\.lightning/.test(send) && /DefaultWords\.byAddress\(/.test(send) && /static String byAddress\(/.test(words)
+    return { ok }
+  })
+  await R('RCV-KEPT', 'Receive: the last code shows at once, syncing or not, until paid or lapsing; a new one replaces it only when ready', () => {
+    const ok = /WalletCache\.loadReceiveCode\(\)/.test(shell) && /saveReceiveCode\(/.test(shell) && /saveReceiveCode\(/.test(wcache)
+    return { ok }
+  })
+  await R('HIS-PENDING', 'History: a payment shows the moment it leaves, pending until its block; BTC arriving shows as soon as the network has it', () => {
+    const ok = /WalletCache\.addPayment\(/.test(send) && /List<Map<String, dynamic>> incomingBtc\(/.test(history) && /settlePayment\(/.test(history)
+    return { ok }
+  })
+  await R('ARK-MIGRATE', 'A wallet from before: its Lightning BTC moves to the ark by itself, and a board that never reached the network holds nothing back', () => {
+    const ok = /class LightningToArk/.test(src('data/lightning_to_ark.dart')) && /boardsLost\(/.test(src('data/ark_btc_service.dart')) && /static String moving\(/.test(words)
+    return { ok }
+  })
   await R('WORDS-TEST', 'Default mode\'s sentences are tested against the words default mode never says', () => {
     const t = join(dir, 'app/test/default_words_test.dart'); const ok = existsSync(t) && /forbidden/.test(readFileSync(t, 'utf8'))
     return { ok, detail: ok ? 'app/test/default_words_test.dart' : 'no test' }

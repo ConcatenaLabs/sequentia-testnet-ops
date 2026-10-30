@@ -26,13 +26,17 @@ export async function run ({ b, report, funded, problems }) {
   })
   // The code shows once the wallet has joined (about 35 s). A person re-opens the tab; so does this.
   await tab(h, 'receive')
-  const HAS_CODE = "/^bitcoin:tb1/.test((document.querySelector('#recvDCode')||{}).innerText||'')"
+  const HAS_CODE = "/^bitcoin:tb1/i.test((document.querySelector('#recvDCode')||{}).innerText||'')"
   const inPlace = await h.waitFor(HAS_CODE, 90000).then(() => true, () => false)
   let code = inPlace
   for (let i = 0; i < 8 && !code; i++) { await tab(h, 'balance'); await tab(h, 'receive'); code = await h.waitFor(HAS_CODE, 10000).then(() => true, () => false) }
   await R('RCV-CODE', 'Receive: "Receive code", bitcoin:<address>?ark=…&sequentia=…', h, async () => {
     const l = await h.text('#recvDLbl'), c = await h.text('#recvDCode')
-    return { ok: code && /^receive code$/i.test(l) && /^bitcoin:tb1\w+\?.*ark=.*sequentia=/.test(c), detail: { label: l, code: c.slice(0, 50) + '…', shownWithoutReopening: inPlace } }
+    return { ok: code && /^receive code$/i.test(l) && /^bitcoin:tb1\w+\?.*ark=.*sequentia=/i.test(c), detail: { label: l, code: c.slice(0, 50) + '…', shownWithoutReopening: inPlace } }
+  })
+  await R('RCV-SHORT', 'Receive: the code scans at a glance: upper case, the request short (SQR1…), under 450 characters', h, async () => {
+    const c = (await h.text('#recvDCode')).trim()
+    return { ok: /^BITCOIN:TB1[0-9A-Z]+\?/.test(c) && /&sequentia=SQR1[0-9A-Z]+(&|$)/.test(c) && c.length < 450, detail: { chars: c.length } }
   })
   await R('RCV-IN-PLACE', 'Receive: once the wallet has joined, the code takes the address\'s place without leaving the screen', h, async () => ({ at: '#recvDCode', ok: inPlace, detail: inPlace ? '' : 'the open Receive tab kept the address; the code showed only after re-opening the tab' }))
   await R('RCV-WORDS', 'Receive: the tip, "Copy receive code", "New code", "Amount in BTC (optional)"', h, async () => {

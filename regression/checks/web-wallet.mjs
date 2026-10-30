@@ -29,7 +29,7 @@ async function mode (h, m) {
   await sleep(3000)
 }
 // The default mode's receive code, once the wallet has joined (about 30 s after it opens).
-const waitCode = (h) => h.waitFor("/^bitcoin:/.test((document.querySelector('#addr')||{}).textContent||'')", 180000).then(() => true, () => false)
+const waitCode = (h) => h.waitFor("/^bitcoin:/i.test((document.querySelector('#addr')||{}).textContent||'')", 180000).then(() => true, () => false)
 const balanceTickers = (h) => h.eval("[...document.querySelectorAll('section[data-panel=balance] .bt-tk .tk')].filter(e=>e.getClientRects().length).map(e=>e.innerText.trim())")
 const totalText = (h) => h.text('#balTotal')
 
@@ -78,7 +78,12 @@ export async function run ({ b, report, widths, funded, problems }) {
     await tab(h, 'receive')
     await R('RCV-CODE', w, 'Receive shows a "Receive code": bitcoin:<address>?ark=…&sequentia=…', h, async () => {
       const lbl = await h.text('#recvLbl'), code = await h.text('#addr')
-      return { ok: joined && /receive code/i.test(lbl) && /^bitcoin:tb1[a-z0-9]+\?.*ark=.*sequentia=/.test(code), detail: { label: lbl, code: code.slice(0, 60) + '…' } }
+      return { ok: joined && /receive code/i.test(lbl) && /^bitcoin:tb1[a-z0-9]+\?.*ark=.*sequentia=/i.test(code), detail: { label: lbl, code: code.slice(0, 60) + '…' } }
+    })
+    await R('RCV-SHORT', w, 'The code scans at a glance: upper case, the request short (SQR1…), under 450 characters', h, async () => {
+      const code = (await h.text('#addr')).trim()
+      const ok = /^BITCOIN:TB1[0-9A-Z]+\?/.test(code) && /&sequentia=SQR1[0-9A-Z]+(&|$)/.test(code) && code.length < 450
+      return { ok, detail: { chars: code.length, code: code.slice(0, 60) + '…' } }
     })
     await R('RCV-TIP', w, 'Under it: "Any asset, any amount. …"', h, async () => {
       const t = await h.text('#recvTip'); return { ok: /^Any asset, any amount\./.test(t), detail: t }
