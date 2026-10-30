@@ -667,6 +667,16 @@ wallet for the Bitcoin ark): each pass boards the coins confirmed in its
 on-chain wallet into the ark, and when it holds less than half its target, ark
 and on-chain together, pays its on-chain address from the testnet4 service
 wallet it names, at most `max_sats` a pass (`maker_funds.py bark-refill`).
+It pays the going rate of the live testnet4 mempool, never less than 30 sat/vB:
+the most of the node's own estimate, the rate that makes the next block of the
+node's mempool, and the public mempool's going rate (mempool.space: its fastest
+rate, or the median rate of its next projected block when higher), capped at
+500. testnet4 often mines empty blocks while its public mempool queues at tens
+of sat/vB, so a payment at the node's estimate alone can wait for hours. The
+payment spends confirmed coins only, so it can always be bumped, and its address
+is labelled in the service wallet (`bark-refill <name>`); while a payment to a
+labelled address is unconfirmed, a pass pays nothing more and bumps it (RBF) to
+the going rate when that rate has risen past it.
 
 BTC is the one asset no script can mint. The BTC sides of the books are what
 the BTC desk's and the pure-Lightning fleet's Lightning channels hold, and what
