@@ -144,7 +144,7 @@ function launch (pair) {
   const t0 = now()
   trade(pair, rail, side, usd).then(
     (r) => record({ t: t0, pair: pair.key, rail, side, usd: Math.round(usd * 100) / 100, ok: true, ms: now() - t0, family: r.family }),
-    (e) => record({ t: t0, pair: pair.key, rail, side, usd: Math.round(usd * 100) / 100, ok: false, ms: now() - t0, err: String(e.message).slice(0, 200) }),
+    (e) => record({ t: t0, pair: pair.key, rail, side, usd: Math.round(usd * 100) / 100, ok: false, ms: now() - t0, err: String(e.message).slice(0, 600) }),
   ).finally(() => { inFlight[rail]-- })
 }
 
@@ -247,9 +247,16 @@ function summary () {
   log(`step ${step} (${RAMP.steps[step]})${holdReason ? ' HOLD ' + holdReason : ''} | last hour $${tot.toLocaleString('en-US')} (pace $${(tot * 24).toLocaleString('en-US')}/day) | ` +
     Object.entries(rails).map(([k, v]) => `${k} ${v.trades1h} ok ${v.success ?? '-'} p95 ${v.p95_ms ?? '-'} busy ${v.busy_skipped}`).join(' | ') + ` | load ${s.load[0]}`)
 }
+// The commonest errors: alike ones counted together (long hex ids, which differ trade to trade,
+// folded to <id>), each with its count and one message whole, as the trade recorded it.
 function topErrors (r) {
-  const c = {}; for (const x of r) if (!x.ok) { const k = (x.err || '').slice(0, 80); c[k] = (c[k] || 0) + 1 }
-  return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 3)
+  const c = {}
+  for (const x of r) {
+    if (x.ok) continue
+    const raw = x.err || '?', k = raw.replace(/[0-9a-f]{16,}/gi, '<id>').slice(0, 300)
+    c[k] = c[k] ? [c[k][0] + 1, c[k][1]] : [1, raw.slice(0, 300)]
+  }
+  return Object.entries(c).sort((a, b) => b[1][0] - a[1][0]).slice(0, 3).map(([k, [n, ex]]) => ({ error: k, count: n, example: ex }))
 }
 
 // ---- resume: what the last run reached, and the trades of the last day
