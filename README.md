@@ -578,7 +578,7 @@ the faucet assets.
 | Consumer | Target of each asset it gives | Refilled below | Where it is set |
 |---|---|---|---|
 | treasury2026 itself | $30M of USDX, EURX, GOLD, SILVR and OILX | half, by minting | `treasury_floors` in `makers/liquidity-targets.json` |
-| the Arca operator's pool | $20M of every asset it serves, from the moment it serves it ($18M of tSEQ) | half | `arca-operator` in the targets file |
+| the Arca operator's pool | $20M of every asset it serves, from the moment it serves it ($18M of tSEQ, at most its tSEQ budget) | half | `arca-operator` in the targets file |
 | the covenant seeder's wallet | $1.5M ($2.5M of tSEQ, its fundings' fee asset) | half | `covenant-seeder` |
 | the order crosser's wallet (`lsp-inventory`) | $200,000 | half | `lsp-inventory` |
 | the volume takers' wallet (`volume-taker`) | $300,000 | half | `volume-taker` |
@@ -650,7 +650,24 @@ python3 -I makers/maker_funds.py mint --asset EURX --units 1000000 --assets /roo
 
 tSEQ, the Sequence token, has a fixed supply and is never minted; USDC.e and
 EURC.e are minted only by their bridge, against deposits, and an asset of theirs
-the sources are short of is logged `AWAITING SUPPLY` and skipped. Every mint is
+the sources are short of is logged `AWAITING SUPPLY` and skipped.
+
+tSEQ is paid within a budget (`budgets` in the targets file), in whole tokens
+rather than dollars: a dollar target grows in tokens as the price falls, and a
+pre-mined treasury cannot follow it. The consumers together may hold at most a
+quarter of the supply of 400,000,000, including the 10,000,000 treasury2026
+keeps for itself (the faucet's refills, delegations to stake, Emissio's
+rewards); it pays only what it holds above that. Each consumer's tSEQ target is
+at most its allocation: the Arca operator 40,000,000; the interactive fleet's
+accounts 15,000,000 together, shared by what each asks for; the tSEQ Lightning
+channel `lq3_3_channels.sh` opens 10,000,000 of capacity; the covenant seeder
+6,500,000; each leaf maker and service wallet its own line. A consumer with no
+allocation is paid no tSEQ, and a budget whose allocations and reserve pass its
+share stops every tSEQ payment and is logged `OVER BUDGET`. The table:
+
+```sh
+python3 -I makers/maker_funds.py budget --targets makers/liquidity-targets.json
+``` Every mint is
 a line of `/root/lq1/mints.jsonl`. Node credentials come from each node's
 `elements.conf`. Every run's lines go to
 `/root/seqob-test/run/liquidity-health.log`, rotated with the makers' logs.

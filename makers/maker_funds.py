@@ -364,6 +364,39 @@ def labels(node):
         return {}
 
 
+def load_budgets(path):
+    """The budgets of the assets no one can mint (the targets file's `budgets`): per asset, the
+    supply, the share of it the treasury's consumers may hold together, what treasury2026 keeps
+    for itself, and each consumer's allocation, in whole units. {} without the file."""
+    if not path:
+        return {}
+    return {t: b for t, b in json.load(open(path)).get("budgets", {}).items() if isinstance(b, dict) and "allocations" in b}
+
+
+def budget_check(t, b):
+    """The budget of `t` against its supply, in words, and whether it holds: the allocations and
+    the treasury's reserve together are at most `share` of the supply."""
+    total = sum(b["allocations"].values()) + b.get("treasury_reserve", 0)
+    cap = b["supply"] * b["share"]
+    return total <= cap, "%s: %s allocated and %s kept by %s, %s of the %s the consumers may hold (%g%% of the supply of %s)" % (
+        t, "{:,.0f}".format(sum(b["allocations"].values())), "{:,.0f}".format(b.get("treasury_reserve", 0)), TREASURY,
+        "{:,.0f}".format(total), "{:,.0f}".format(cap), 100 * b["share"], "{:,.0f}".format(b["supply"]))
+
+
+def cmd_budget(a):
+    """Prints each budget and refuses (exit 1) one whose allocations and reserve pass its share of
+    the supply."""
+    ok = True
+    for t, b in load_budgets(a.targets).items():
+        good, words = budget_check(t, b)
+        ok &= good
+        print("  %s%s" % ("" if good else "OVER BUDGET: ", words))
+        for k, v in sorted(b["allocations"].items(), key=lambda kv: -kv[1]):
+            print("    %-22s %s" % (k, "{:,.0f}".format(v)))
+    if not ok:
+        sys.exit(1)
+
+
 def cmd_fund(a):
     """Top each destination up to its target in each asset it needs, from the first allowed
     source wallet that holds enough, the fee paid in the asset sent. A destination names its
@@ -381,11 +414,18 @@ def cmd_fund(a):
         b = rpc(node, "getbalances", [], wallet)["mine"]
         key = id2label.get(aid, aid)
         return int(round(float(b["trusted"].get(key, b["trusted"].get(aid, 0))) * NODE_ATOMS))
+    budgets = load_budgets(a.budget)
+    for t, b in budgets.items():
+        good, words = budget_check(t, b)
+        if not good:
+            die("OVER BUDGET: " + words + ": nothing of it is paid until the targets file's budget is mended")
+    reserve_of = {assets[t]["id"]: int(b.get("treasury_reserve", 0) * 10 ** assets[t]["prec"]) for t, b in budgets.items() if t in assets}
     avail = {}
     def available(src, aid):
         k = (src, aid)
         if k not in avail:
-            avail[k] = held_by(src[0], src[1], aid)
+            # treasury2026 keeps its reserve of a budgeted asset: only what is above it is paid out
+            avail[k] = held_by(src[0], src[1], aid) - (reserve_of.get(aid, 0) if src[0] == TREASURY else 0)
         return avail[k]
     plan = json.load(open(a.plan))
     # What the sources sent that is not in a block yet, by address and asset: a consumer paid at an
@@ -424,6 +464,24 @@ def cmd_fund(a):
                     dest["need"].setdefault(t, every)
     batches = {}   # (wallet, node, ticker) -> {address: atoms}
     short = []
+    # A budgeted asset: each destination's target is at most its allocation, named for it, or a
+    # share of the group's (`--budget-group`) by the reference value it asks for; a destination
+    # with neither is paid none of it.
+    group_usd = {}
+    for dest in plan:
+        for t, usd in dest["need"].items():
+            if t in budgets and dest["name"] not in budgets[t]["allocations"]:
+                group_usd[t] = group_usd.get(t, 0) + usd
+    def budget_cap(dest, t, usd):
+        b = budgets.get(t)
+        if not b:
+            return None
+        al = b["allocations"]
+        if dest["name"] in al:
+            return al[dest["name"]]
+        if a.budget_group and a.budget_group in al and group_usd.get(t):
+            return al[a.budget_group] * usd / group_usd[t]
+        return 0
     for dest in plan:
         for t, usd in dest["need"].items():
             x = assets.get(t)
@@ -433,6 +491,11 @@ def cmd_fund(a):
             if not px:
                 print("  %s %s: no price in the feed, not funded" % (dest["name"], t)); continue
             target = int(usd / px * 10 ** x["prec"])
+            cap = budget_cap(dest, t, usd)
+            if cap is not None and target > int(cap * 10 ** x["prec"]):
+                if not cap:
+                    print("  %s %s: no allocation in the %s budget: none paid" % (dest["name"], t, t)); continue
+                target = int(cap * 10 ** x["prec"])
             if dest["kind"] == "arca":
                 # an Arca operator's pool: what a round can pay now (its info's `fundable`, what
                 # its wallet can spend less what it owes), and what waits at its address
@@ -485,9 +548,13 @@ def cmd_fund(a):
                           "%d hours of which the target covers" % (net, cover) if net > 0 else "it holds its level"))
                     held += back
                     if net * cover > target:
-                        print("  %s %s: the target is raised from %s to %s atoms, %d hours of what it drains" % (
-                            dest["name"], t, target, net * cover, cover))
-                        target = net * cover
+                        raised = net * cover
+                        if cap is not None:
+                            raised = min(raised, int(cap * 10 ** x["prec"]))
+                        if raised > target:
+                            print("  %s %s: the target is raised from %s to %s atoms, %d hours of what it drains%s" % (
+                                dest["name"], t, target, raised, cover, " (its budget's allocation)" if raised < net * cover else ""))
+                            target = raised
             if held >= target * dest.get("floor", a.floor):
                 print("  %s %s: holds %s of %s atoms, enough" % (dest["name"], t, held, target)); continue
             want = target - held
@@ -511,7 +578,9 @@ def cmd_fund(a):
                 if t in a.partial and have > 0:
                     src, want = best, min(want, have)
                 else:
-                    print("  %s %s: AWAITING SUPPLY, %s atoms needed, the sources hold %s" % (dest["name"], t, want, available(best, x["id"])))
+                    rsv = reserve_of.get(x["id"], 0)
+                    print("  %s %s: AWAITING SUPPLY, %s atoms needed, the sources hold %s%s" % (dest["name"], t, want, max(0, available(best, x["id"])),
+                          " above %s's reserve of %s" % (TREASURY, rsv) if rsv else ""))
                     short.append([dest["name"], t]); continue
             avail[src, x["id"]] -= want
             if dest["kind"] == "wallet" and not dest.get("address"):
@@ -1097,6 +1166,9 @@ def main():
     c.add_argument("--out"); c.add_argument("--dry-run", action="store_true")
     c.add_argument("--mint", action="store_true", help="mint into treasury2026 what it is short of a mintable asset")
     c.add_argument("--mint-over-usd", type=float, default=1000000); c.add_argument("--mint-minutes", type=int, default=20)
+    c.add_argument("--budget", default="", help="the targets file whose `budgets` cap what is paid of an asset no one can mint")
+    c.add_argument("--budget-group", default="", help="the allocation shared by the destinations that have none of their own")
+    c = sp.add_parser("budget"); c.add_argument("--targets", required=True)
     c = sp.add_parser("mint"); c.add_argument("--asset", required=True); c.add_argument("--units", type=float, required=True)
     c.add_argument("--assets", required=True); c.add_argument("--minutes", type=int, default=20)
     c.add_argument("--once", default="", help="a key: a mint already made under it is not made again")
@@ -1133,7 +1205,7 @@ def main():
     for k in ("awaiting", "partial"):
         if hasattr(a, k):
             setattr(a, k, set(x for x in getattr(a, k).split(",") if x))
-    {"bark-refill": cmd_bark_refill, "wallets": cmd_wallets, "mint": cmd_mint, "floors": cmd_floors, "plan-targets": cmd_plan_targets, "accounts": cmd_accounts, "plan-sc": cmd_plan_sc, "plan-covseed": cmd_plan_covseed,
+    {"budget": cmd_budget, "bark-refill": cmd_bark_refill, "wallets": cmd_wallets, "mint": cmd_mint, "floors": cmd_floors, "plan-targets": cmd_plan_targets, "accounts": cmd_accounts, "plan-sc": cmd_plan_sc, "plan-covseed": cmd_plan_covseed,
      "leafcfg": cmd_leafcfg, "plan-leaf": cmd_plan_leaf, "quotes": cmd_quotes, "fund": cmd_fund, "waitconf": cmd_waitconf, "oceancheck": cmd_oceancheck,
      "books": cmd_books}[a.cmd](a)
 
