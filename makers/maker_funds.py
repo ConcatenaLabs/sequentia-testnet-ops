@@ -662,6 +662,69 @@ def arca_flow_words(f):
     return words
 
 
+TESTNET4_FEE_API = "https://mempool.space/testnet4/api/v1/fees"
+
+
+def btc_going_rate(cli, floor=30.0, cap=500.0, api=TESTNET4_FEE_API):
+    """The sat/vB a testnet4 payment pays now, and why: the most of a floor, the node's own
+    estimate, the rate that makes the next block of the node's mempool, and the public mempool's
+    going rate (its fastest rate, or the median rate of its next projected
+    block when higher); capped. testnet4 often mines empty blocks while its public mempool queues at
+    tens of sat/vB, so an estimate alone leaves a payment waiting for hours."""
+    def run(*args):
+        r = subprocess.run(cli.split() + list(args), capture_output=True, text=True, timeout=120)
+        return json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else {}
+    est = (run("estimatesmartfee", "2", "CONSERVATIVE").get("feerate") or 0) * 1e5
+    nb, cum = 0.0, 0
+    txs = []
+    for e in run("getrawmempool", "true").values():
+        f = e.get("fees") or {}
+        own = f.get("base", 0) * 1e8 / max(1, e.get("vsize", 1))
+        anc = f.get("ancestor", 0) * 1e8 / max(1, e.get("ancestorsize", 1)) if e.get("ancestorsize") else own
+        txs.append((min(own, anc), e.get("vsize", 0)))
+    for rate, size in sorted(txs, reverse=True):
+        cum += size
+        if cum >= 950000:
+            nb = rate + 1; break
+    pub = 0.0
+    if api:
+        try:
+            g = lambda p: json.loads(urllib.request.urlopen(api + p, timeout=10).read())
+            blocks = g("/mempool-blocks")   # the median rate of the next projected block: what the queue in front pays
+            fr = (blocks[0].get("feeRange") or [0]) if blocks else [0]
+            pub = max(float(g("/recommended").get("fastestFee") or 0), float(blocks[0].get("medianFee") or 0) if blocks else 0, float(fr[len(fr) // 2]))
+        except Exception:
+            pass
+    r = max(floor, est, nb, pub)
+    return round(min(r, cap), 1), "the floor %g, the node estimates %.1f, its mempool next block %.1f, the public mempool %g%s" % (
+        floor, est, nb, pub, "; capped at %g" % cap if r > cap else "")
+
+
+def btc_inflight(cli, wallet, label, min_conf=3):
+    """The live payments from `wallet` to addresses labelled `label` (a bump keeps the address)
+    with fewer than `min_conf` confirmations: a replaced one is skipped, its replacement counted;
+    a just-confirmed one counts until its receiver has surely read the block.
+    [(txid, sats, sat/vB or 0 when not in the mempool, confirmations)]"""
+    r = subprocess.run(cli.split() + ["-rpcwallet=" + wallet, "-named", "listtransactions", "count=1000"],
+                       capture_output=True, text=True, timeout=120, check=True)
+    out = {}
+    for t in json.loads(r.stdout):
+        if (t.get("category") != "send" or t.get("label") != label or not 0 <= t.get("confirmations", 0) < min_conf
+                or t.get("abandoned") or t.get("replaced_by_txid")):
+            continue
+        sats, conf = out.get(t["txid"], (0, 0))
+        out[t["txid"]] = (sats + round(-t["amount"] * 1e8), t.get("confirmations", 0))
+    res = []
+    for txid, (sats, conf) in out.items():
+        rate = 0.0
+        if conf == 0:
+            m = subprocess.run(cli.split() + ["getmempoolentry", txid], capture_output=True, text=True, timeout=60)
+            if m.returncode == 0:
+                e = json.loads(m.stdout); rate = e["fees"]["base"] * 1e8 / e["vsize"]
+        res.append((txid, sats, round(rate, 1), conf))
+    return res
+
+
 def cmd_bark_refill(a):
     """A wallet's Bitcoin ark side (an `arca` wallet's `bitcoin`, run by Bark) kept at its target:
     coins confirmed in its on-chain wallet are boarded into the ark; below `floor` of its target
@@ -697,17 +760,41 @@ def cmd_bark_refill(a):
         except RuntimeError as e:
             print("  %s: board of %d sats refused: %s" % (a.name, n, e))
         return
+    tag = "bark-refill " + a.name
+    w = btc_inflight(a.btc_cli, a.btc_wallet, tag)
+    if w:
+        going, why = btc_going_rate(a.btc_cli, floor=a.fee_floor)
+        for txid, sats, rate, conf in w:
+            if conf:
+                print("  %s: %d sats from %s confirmed %d block(s) ago (%s…): nothing more paid until its wallet has read them" % (a.name, sats, a.btc_wallet, conf, txid[:16]))
+            elif 0 < rate < going - 0.5:
+                r = subprocess.run(a.btc_cli.split() + ["-rpcwallet=" + a.btc_wallet, "-named", "bumpfee", "txid=" + txid,
+                                   "fee_rate=%s" % going], capture_output=True, text=True, timeout=120)
+                if r.returncode == 0:
+                    print("  %s: its payment %s… bumped from %s to %s sat/vB (%s): now %s" % (a.name, txid[:16], rate, going, why, json.loads(r.stdout)["txid"]))
+                else:
+                    print("  %s: its payment %s… at %s sat/vB could not be bumped: %s" % (a.name, txid[:16], rate, (r.stderr or r.stdout).strip()[-200:]))
+            else:
+                print("  %s: %d sats on their way from %s (%s…, %s sat/vB; the going rate %s): nothing more paid" % (a.name, sats, a.btc_wallet, txid[:16], rate, going))
+        return
     if total >= a.target_sats * a.floor:
         print("  %s: holds %d of %d sats, enough" % (a.name, total, a.target_sats)); return
     want = min(a.target_sats - total, a.max_sats)
     addr = arca("onchain", "address")
     addr = addr.get("address") if isinstance(addr, dict) else str(addr).strip().strip('"')
-    r = subprocess.run(a.btc_cli.split() + ["-rpcwallet=" + a.btc_wallet, "-named", "sendtoaddress", "address=" + addr,
-                       "amount=%.8f" % (want / 1e8), "fee_rate=%s" % a.feerate], capture_output=True, text=True, timeout=120)
+    going, why = btc_going_rate(a.btc_cli, floor=a.fee_floor)
+    # labelled, so a later pass knows it (a bump keeps the address); confirmed coins only, so it
+    # never spends another payment's unconfirmed change and can always be bumped
+    subprocess.run(a.btc_cli.split() + ["-rpcwallet=" + a.btc_wallet, "setlabel", addr, tag], capture_output=True, text=True, timeout=60)
+    r = subprocess.run(a.btc_cli.split() + ["-rpcwallet=" + a.btc_wallet, "-named", "send", "outputs=" + json.dumps({addr: float("%.8f" % (want / 1e8))}),
+                       "options=" + json.dumps({"fee_rate": going, "replaceable": True, "minconf": 1})],
+                       capture_output=True, text=True, timeout=120)
+    if r.returncode == 0:
+        r.stdout = json.loads(r.stdout)["txid"]
     if r.returncode != 0:
         print("  %s: %s could not pay %d sats: %s" % (a.name, a.btc_wallet, want, (r.stderr or r.stdout).strip()[-200:])); return
-    print("  %s: holds %d of %d sats: %d sats from %s to its on-chain address %s (boarded once confirmed): %s" % (
-        a.name, total, a.target_sats, want, a.btc_wallet, addr, r.stdout.strip()))
+    print("  %s: holds %d of %d sats: %d sats from %s to its on-chain address %s at %s sat/vB (%s; boarded once confirmed): %s" % (
+        a.name, total, a.target_sats, want, a.btc_wallet, addr, going, why, r.stdout))
 
 
 def arca_waits(info_url):
@@ -1021,7 +1108,7 @@ def main():
     c = sp.add_parser("bark-refill"); c.add_argument("--name", default="bitcoin side"); c.add_argument("--arca", required=True); c.add_argument("--datadir", required=True)
     c.add_argument("--bark", required=True); c.add_argument("--target-sats", type=int, required=True); c.add_argument("--floor", type=float, default=0.5)
     c.add_argument("--max-sats", type=int, default=10000000); c.add_argument("--min-board-sats", type=int, default=100000); c.add_argument("--fee-reserve-sats", type=int, default=3000)
-    c.add_argument("--btc-wallet", required=True); c.add_argument("--btc-cli", required=True); c.add_argument("--feerate", default="2")
+    c.add_argument("--btc-wallet", required=True); c.add_argument("--btc-cli", required=True); c.add_argument("--fee-floor", type=float, default=30)
     c = sp.add_parser("plan-sc"); c.add_argument("--accounts"); c.add_argument("--assets"); c.add_argument("--usd", type=float, default=390000); c.add_argument("--coins", type=int, default=4); c.add_argument("--out")
     c = sp.add_parser("leafcfg"); c.add_argument("--config"); c.add_argument("--assets"); c.add_argument("--prices"); c.add_argument("--feed-url")
     c.add_argument("--out"); c.add_argument("--btc", action="store_true"); c.add_argument("--small", default="USDC.e,EURC.e")
