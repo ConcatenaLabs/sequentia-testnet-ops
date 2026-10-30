@@ -68,6 +68,23 @@ for u in ${HEALTH_MEMORY_UNITS:-seqdex-wallet.service arcad.service leaf-maker.s
   fi
 done
 
+# 1b'. a service near its file-descriptor limit or past a memory size it should never reach: a
+#      leak (the DEX wallet daemon once held a socket for every node call that timed out, until
+#      it ran out of descriptors and stopped answering) shows here hours before it stops anything
+for spec in ${HEALTH_LEAK_UNITS:-seqdex-wallet.service:8192}; do
+  u=${spec%%:*}; rss_mb=${spec#*:}
+  pid=$(systemctl show -p MainPID --value "$u" 2>/dev/null); [ -n "$pid" ] && [ "$pid" != 0 ] && [ -d "/proc/$pid" ] || continue
+  fds=$(ls "/proc/$pid/fd" 2>/dev/null | wc -l)
+  lim=$(awk '/^Max open files/ {print $4}' "/proc/$pid/limits" 2>/dev/null)
+  rss=$(awk '/^VmRSS/ {print int($2 / 1024)}' "/proc/$pid/status" 2>/dev/null)
+  if [ -n "$lim" ] && [ "$lim" != unlimited ] && [ "$fds" -gt $(( lim / 2 )) ]; then
+    log "FILE DESCRIPTORS HIGH $u: $fds open of its limit $lim (over half): a leak; it stops answering at the limit (restart it, and find the leak)"
+  fi
+  if [ "${rss:-0}" -gt "$rss_mb" ]; then
+    log "MEMORY HIGH $u: $rss MB resident, over $rss_mb MB: a leak (restart it, and find the leak)"
+  fi
+done
+
 # 1c. the BTC desk's Lightning room against its ladder (BTC cannot be minted: lq3_5_btc_desk.sh
 #     opens what it is short of)
 python3 -I "$OPS/makers/btc_desk_room.py" 2>&1 | while read -r l; do log "$l"; done
