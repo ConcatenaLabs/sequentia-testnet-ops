@@ -21,6 +21,8 @@
 #      times their ladders;
 #    - the leaf makers (what they quote is what they hold), to their targets, at their addresses.
 #    An asset short at its source that cannot be minted is logged AWAITING SUPPLY and skipped.
+#    tSEQ, which no one can mint, is paid within its budget (`budgets` in the targets file): each
+#    consumer at most its allocation, treasury2026 never below its reserve.
 # Node credentials come from each node's elements.conf; nothing here prints a key or password.
 set -uo pipefail
 export LC_ALL=C
@@ -74,12 +76,16 @@ python3 -I "$OPS/makers/btc_desk_room.py" 2>&1 | while read -r l; do log "$l"; d
 python3 -I -c 'import json,sys; [print(k, v) for k, v in json.load(open(sys.argv[1])).get("treasury_floors", {}).items()]' "$TARGETS" > "$W/floors.txt" \
   && tool floors --floors "$W/floors.txt" --assets "$STATE/assets-leaf.txt" --prices "$FEED" 2>&1 | grep -vE 'enough$' | while read -r l; do log "treasury2026: $l"; done
 
+# 3. the budgets of what no one can mint (tSEQ): every funding run below pays at most each
+# consumer's allocation, and none while the budget passes its share of the supply
+tool budget --targets "$TARGETS" > "$W/budget.txt" 2>&1 || log "OVER BUDGET: $(head -n 1 "$W/budget.txt")"
+
 # 3a. the service wallets loaded, then the consumers of the targets file, in one funding run
 #     (one transaction per source and asset for all of them together)
 tool wallets --targets "$TARGETS" 2>&1 | while read -r l; do log "wallets: $l"; done
 tool plan-targets --targets "$TARGETS" --out-dir "$W" 2>&1 | grep -E 'not planned' | while read -r l; do log "targets: $l"; done
 python3 -I -c 'import glob,json,sys; json.dump([d for p in sorted(glob.glob(sys.argv[1] + "/target-*.json")) for d in json.load(open(p)) if d.get("kind") != "bitcoin-ark"], open(sys.argv[1] + "/targets-plan.json", "w"))' "$W"
-tool fund --sources "$SOURCES" --assets "$STATE/assets-leaf.txt" --prices "$FEED" --plan "$W/targets-plan.json" $MINT --out "$W/targets-sent.json" 2>&1 \
+tool fund --sources "$SOURCES" --assets "$STATE/assets-leaf.txt" --prices "$FEED" --plan "$W/targets-plan.json" $MINT --budget "$TARGETS" --out "$W/targets-sent.json" 2>&1 \
   | grep -vE 'enough$' | while read -r l; do log "targets: $l"; done
 
 # 3a'. the Bitcoin ark sides of the targets file (BTC from the testnet4 service wallet)
@@ -95,6 +101,7 @@ for p in sorted(glob.glob(sys.argv[1] + "/target-*.json")):
 if [ -s "$STATE/sc-accounts.json" ] && [ -x "$OCTL" ]; then
   tool plan-sc --accounts "$STATE/sc-accounts.json" --assets "$STATE/assets-sc.txt" --usd "$SC_USD" --out "$W/sc-plan.json" >/dev/null 2>&1 \
     && tool fund --sources "$SOURCES" --assets "$STATE/assets-sc.txt" --prices "$FEED" --plan "$W/sc-plan.json" $MINT --octl "$OCTL" --ocean "$OCEAN" \
+         --budget "$TARGETS" --budget-group interactive-fleet \
          --out "$W/sc-sent.json" 2>&1 | grep -vE 'enough$' | while read -r l; do log "interactive: $l"; done
 else log "interactive: no account list at $STATE/sc-accounts.json (written when the fleet's accounts are made)"; fi
 
@@ -116,6 +123,6 @@ for x in q:
 json.dump(held, open(sys.argv[3], "w"))' "$q" "$STATE/assets-leaf.txt" "$W/$name-held.json" || continue
   tool plan-leaf --name "$name" --node dexnode --address "$addr" --assets "$STATE/assets-leaf.txt" --held "$W/$name-held.json" --usd "$usd" \
       $( [ "$name" = leaf-maker-btc ] && echo "--skip USDC.e,EURC.e" ) --out "$W/$name-plan.json" >/dev/null 2>&1 \
-    && tool fund --sources "$SOURCES" --assets "$STATE/assets-leaf.txt" --prices "$FEED" --plan "$W/$name-plan.json" $MINT --out "$W/$name-sent.json" 2>&1 \
+    && tool fund --sources "$SOURCES" --assets "$STATE/assets-leaf.txt" --prices "$FEED" --plan "$W/$name-plan.json" $MINT --budget "$TARGETS" --out "$W/$name-sent.json" 2>&1 \
        | grep -vE 'enough$' | while read -r l; do log "$name: $l"; done
 done

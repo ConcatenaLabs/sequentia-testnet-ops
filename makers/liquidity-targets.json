@@ -87,5 +87,24 @@
       "xmm",
       "volume-taker"
     ]
+  },
+  "budgets": {
+    "comment": "What the treasury's consumers may hold together of an asset no one can mint, in whole units: tSEQ (the Sequence token) is pre-mined, so a target in the reference unit grows in tokens as its price falls and would drain the treasury. Each consumer's tSEQ target is at most its allocation: named for it, or a share of its group's (the interactive fleet's accounts), by the reference value each asks for. treasury2026 keeps treasury_reserve for itself (the faucet's refills, delegations to stake, Emissio's rewards) and pays only what it holds above it. The allocations and the reserve together are at most `share` of the supply; the health pass pays none of an asset whose budget passes it, and `maker_funds.py budget` prints the table. ln-channels is the tSEQ channel's whole capacity that lq3_3_channels.sh opens; the owner script reads it here.",
+    "tSEQ": {
+      "supply": 400000000,
+      "share": 0.25,
+      "treasury_reserve": 10000000,
+      "allocations": {
+        "arca-operator": 40000000,
+        "interactive-fleet": 15000000,
+        "ln-channels": 10000000,
+        "covenant-seeder": 6500000,
+        "leaf-maker": 2700000,
+        "leaf-maker-agents": 2700000,
+        "leaf-maker-btc": 800000,
+        "volume-taker": 800000,
+        "lsp-inventory": 550000
+      }
+    }
   }
 }
