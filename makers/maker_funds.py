@@ -448,8 +448,8 @@ def cmd_fund(a):
                 holds = arca_holdings(dest["info"]).get(x["id"])
                 in_flight = sum(flying(ad, x["id"]) for ad in addrs_all)
                 if holds is not None:
-                    # what its wallet holds, final or not: a round takes its largest coin, and
-                    # its change is out of `fundable` until final, which is no reason to pay again
+                    # what its wallet holds, final or not: a round's change is out of `fundable`
+                    # until final, which is no reason to pay again
                     held = max(fundable + young, holds) + in_flight
                 else:
                     if fundable < old:
@@ -469,6 +469,22 @@ def cmd_fund(a):
                 b = rpc(dest["node"], "getbalances", [], dest["name"])["mine"]
                 key = id2label.get(x["id"], x["id"])
                 held = int(round((float(b["trusted"].get(key, 0)) + float(b["untrusted_pending"].get(key, 0))) * NODE_ATOMS))
+            if dest["kind"] == "arca":
+                # the operator's pool flow (its /v1/chain `pool`): what its batches will hand back
+                # by reclaim within the hour counts as held, and the target covers what the pool
+                # loses an hour, net of what comes back, for `cover_hours`
+                flow = arca_pool(dest["info"]).get(x["id"])
+                if flow:
+                    back = int(flow.get("reclaimable", 0))
+                    net = int(flow.get("net_drawn_last_hour", 0))
+                    cover = dest.get("cover_hours", COVER_HOURS)
+                    print("  %s %s: %s; %s" % (dest["name"], t, arca_flow_words(flow), "it drains %s atoms an hour net, "
+                          "%d hours of which the target covers" % (net, cover) if net > 0 else "it holds its level"))
+                    held += back
+                    if net * cover > target:
+                        print("  %s %s: the target is raised from %s to %s atoms, %d hours of what it drains" % (
+                            dest["name"], t, target, net * cover, cover))
+                        target = net * cover
             if held >= target * dest.get("floor", a.floor):
                 print("  %s %s: holds %s of %s atoms, enough" % (dest["name"], t, held, target)); continue
             want = target - held
@@ -619,6 +635,30 @@ def arca_holdings(info_url):
     return {k: int(v) for k, v in (arca_chain(info_url).get("holdings") or {}).items()}
 
 
+# How many hours of an Arca operator's net drain its target covers at least.
+COVER_HOURS = 6
+
+
+def arca_pool(info_url):
+    """asset id -> the operator's pool flow (its /v1/chain `pool`: atoms as strings) ({} from an
+    operator that does not report it)."""
+    return arca_chain(info_url).get("pool") or {}
+
+
+def arca_flow_words(f):
+    """An operator's pool flow for one asset, in words."""
+    n = lambda k: int(f.get(k, 0))
+    words = "%s atoms in batches until a reclaim or their expiry" % n("locked")
+    if n("released"):
+        words += " (%s released by their holders, %s of it in batches whole released, which come back within the hour)" % (
+            n("released"), n("reclaimable"))
+    if n("transferred"):
+        words += ", %s in leaves paid on out of round, back only at their batches' expiry" % n("transferred")
+    words += "; the last hour drew %s and brought back %s by reclaims and %s by sweeps" % (
+        n("drawn_last_hour"), n("reclaimed_last_hour"), n("swept_last_hour"))
+    return words
+
+
 def arca_waits(info_url):
     """What the operator's finality waits on when it is the Bitcoin anchor (its /v1/chain), in
     words; None when it waits on nothing of the kind, or the operator does not say."""
@@ -656,8 +696,9 @@ def cmd_plan_targets(a):
         if addr_file:
             try:
                 lines = [l.strip() for l in open(addr_file) if l.strip()]
-                # several addresses: a payment goes out in that many coins, so no one round
-                # (which takes the largest coin first) holds all of it as change
+                # several addresses: a payment goes out in that many coins, so the first round
+                # after it need not spend it all (the operator splits its change into shares of
+                # the pool as well)
                 dest["address"], dest["address_list"] = lines[0], lines
             except (OSError, IndexError):
                 print("  %s: no address at %s yet, not planned" % (name, addr_file)); continue

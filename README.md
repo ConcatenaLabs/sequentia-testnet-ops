@@ -579,13 +579,21 @@ the faucet assets.
 
 A consumer of the targets file is a node wallet (`kind: wallet`), paid at an
 address it draws itself, or an Arca operator (`kind: arca`), paid at the
-addresses in its `address_file`, one coin each, so that no one round (which
-takes the wallet's largest coin first) holds the whole pool as change. An
-operator is counted as what its wallet holds, final or not (`holdings` in its
-`/v1/chain`), or, from an operator that does not report it, as its info's
-`fundable` (its final coins, less what it owes) plus what reached its addresses
-in the last hour and is not final yet. A payment still in the mempool counts as
-held too. When coins an hour old or more wait at the
+addresses in its `address_file`, one coin each, so that the first round after
+a payment need not spend all of it (the operator splits its change into shares
+of its pool as well). An operator is counted as what its wallet holds, final or
+not (`holdings` in its `/v1/chain`), or, from an operator that does not report
+it, as its info's `fundable` (its final coins, less what it owes) plus what
+reached its addresses in the last hour and is not final yet. A payment still in
+the mempool counts as held too, and so does what the operator's batches hand
+back within the hour: the batches every leaf of which its holder released,
+which the operator reclaims (`reclaimable` in its `/v1/chain` `pool`). Its
+target covers at least `cover_hours` (6 by default) of what its pool drains an
+hour net of what reclaims and sweeps bring back (`net_drawn_last_hour`): an
+operator whose rounds draw faster than its batches come back is refilled to
+that many hours of it. Each run prints, per asset, what the operator's batches
+hold until a reclaim or their expiry, what of it is released and comes back
+within the hour, and what the last hour drew and brought back. When coins an hour old or more wait at the
 address and `fundable` is less than they hold, the operator's finality has
 stalled: the pass pays nothing more and logs `OPERATOR FINALITY STALLED`.
 While the operator's `/v1/chain` says its finality waits on the Bitcoin anchor
