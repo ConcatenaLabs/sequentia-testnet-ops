@@ -14,7 +14,7 @@ export async function run ({ report, cache }) {
   const picker = src('data/asset_picker.dart'), words = src('data/default_words.dart'), history = src('screens/history_screen.dart')
   const engine = src('data/user_trade.dart'), market = src('data/market_view.dart') + src('widgets/market_view.dart')
 
-  await R('TRD-SEARCH', 'Trade (default mode): the pickers are searchable, take a pasted id and leave hidden assets out (showAssetSheet)', () => {
+  await R('TRD-SEARCH', 'Trade (default mode): the pickers are the searchable chooser, your assets first, hidden ones left out until searched for (showAssetSheet)', () => {
     const plain = /DropdownButton<String>\(/.test(composer); const sheet = /showAssetSheet\(/.test(composer)
     return { ok: sheet && !plain, detail: plain ? 'user_composer.dart: _picker is a plain DropdownButton (ucPay, ucGet)' : { sheet } }
   })
@@ -28,7 +28,7 @@ export async function run ({ report, cache }) {
     const ok = /MarketView\(/.test(composer) && /'1D'/.test(market) && /Best bid/.test(market) && /Recent trades/.test(market) && /CustomPainter/.test(market)
     return { ok, detail: ok ? '' : 'no market view in user_composer.dart (data/market_view.dart, widgets/market_view.dart)' }
   })
-  await R('SND-PICKER', 'Send: a searchable asset sheet, BTC first, held first, hidden left out, a pasted id found', () => {
+  await R('SND-PICKER', 'Send: a searchable asset sheet, BTC first, held first, hidden left out, every asset found by searching', () => {
     const ok = /showAssetSheet\(/.test(send) && /registrySearch:\s*true/.test(send) && /isHidden\(/.test(send) && /BTC/.test(picker) && /hidden/.test(picker)
     return { ok }
   })
