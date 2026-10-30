@@ -97,6 +97,20 @@ function crosserTake (pair, side, baseAtoms, families) {
   })
 }
 
+// A failed take's error as it is kept: the crosser reports a failed command as
+// "<command>: exit status N (tail: line | line | ...)" with up to 20 of its lines, and the cause
+// is the last of them, so the tail is cut to its last three lines; anything still over 600
+// characters keeps its start and its end.
+function errText (msg) {
+  let m = String(msg ?? '?')
+  const at = m.indexOf(' (tail: ')
+  if (at >= 0) {
+    const lines = m.slice(at + 8).replace(/\)\s*$/, '').split(' | ').map((l) => l.trim()).filter(Boolean)
+    m = m.slice(0, at) + ' ... ' + lines.slice(-3).join(' | ')
+  }
+  return m.length > 600 ? m.slice(0, 200) + ' ... ' + m.slice(-395) : m
+}
+
 // One trade: `side` buy = the taker gets the base; usd its size.
 async function trade (pair, rail, side, usd) {
   const b = ASSETS[pair.base], q = ASSETS[pair.quote]
@@ -144,7 +158,7 @@ function launch (pair) {
   const t0 = now()
   trade(pair, rail, side, usd).then(
     (r) => record({ t: t0, pair: pair.key, rail, side, usd: Math.round(usd * 100) / 100, ok: true, ms: now() - t0, family: r.family }),
-    (e) => record({ t: t0, pair: pair.key, rail, side, usd: Math.round(usd * 100) / 100, ok: false, ms: now() - t0, err: String(e.message).slice(0, 600) }),
+    (e) => record({ t: t0, pair: pair.key, rail, side, usd: Math.round(usd * 100) / 100, ok: false, ms: now() - t0, err: errText(e.message) }),
   ).finally(() => { inFlight[rail]-- })
 }
 
