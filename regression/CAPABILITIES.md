@@ -162,7 +162,9 @@ the site approvals). They need a phone or an emulator.
 ## Trading, live
 
 From the trader wallet (`checks/trades.mjs`): a small market purchase, then the sale of what it
-bought, each done within 60 seconds of the confirmation or failed with what the page says.
+bought, each priced within 10 seconds (Review to the ticket; on SeqDEX, the button to the wallet's
+dialog) and done within 60 seconds of the confirmation, or failed with the time or what the page
+says.
 
 | Id | Can | Contract |
 |---|---|---|
