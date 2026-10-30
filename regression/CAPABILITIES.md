@@ -190,3 +190,19 @@ Found by reading each repository's history for what a screen used to do:
   pay side, where the composer had You pay and You receive tethered both ways.
 - **Ambra mobile's user-mode Receive address.** `0291b64` removed "Show address" from default mode
   on purpose (the code carries the address), as the contract says.
+
+## Levo
+
+`sequentiatestnet.com/levo/` in headless Chromium, desktop and phone, signed out. Levo is not
+linked from the public surface; these lines hold it to its own contract (every amount in BTC).
+
+| Id | A person can |
+|---|---|
+| LV-RATES | have every amount shown from the node's rates: a price for bitcoin and for each asset a sale settles in |
+| LV-BOARD-BTC | read every sale's price on the board in BTC |
+| LV-UNIT-USD | switch the figures to US dollars, and find the choice kept after a reload |
+| LV-SALE-BTC | read a sale's price and amount raised in BTC, and the asset it settles in |
+| LV-LN-SALE | find a sale priced in BTC over Lightning, with its receiver key and BTC price (SKIP until one is listed) |
+| LV-BUY-LN | buy a lot in BTC: reserve, pay the invoice over Lightning, receive the tokens (not written: needs a staked buyer wallet; proven on regtest by levo's `test_lightning_e2e.py`) |
+| LV-BUY-ASSET | buy in the asset the sale settles in, in one transaction (not written, as above) |
+| LV-RE-REST | see an unpaid lot go back to the sale after its timeout (not written, as above) |
