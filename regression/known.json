@@ -1,4 +1,3 @@
 {
-  "_": "Lines known to fail, each with what lost it (or that it was never built) and who is on it. A known line still fails the run; this only says why. Remove an entry when its line passes.",
-  "WW-RCV-SHORT": "not deployed yet: sequentia-web-wallet #371 is merged; the owner's script am3_webwallet.sh puts it on the box (AM3)"
+  "_": "Lines known to fail, each with what lost it (or that it was never built) and who is on it. A known line still fails the run; this only says why. Remove an entry when its line passes."
 }
