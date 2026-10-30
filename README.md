@@ -830,7 +830,7 @@ asset, and `arcad` names the asset on every hold and payment.
 
 | What | Where |
 |---|---|
-| The node | `arca-ln.service`, as the `arca` user; `/var/lib/arca-ln`, its JSON-RPC socket `/var/lib/arca-ln/sequentia-testnet/lightning-rpc`, peers on `127.0.0.1:19850` |
+| The node | `arca-ln.service`, as the `arca` user; `/var/lib/arca-ln`, its JSON-RPC socket `/var/lib/arca-ln/sequentia-testnet/lightning-rpc`, peers on `0.0.0.0:19850`, reached at `sequentiatestnet.com:19850`: other operators' SeqLN gateways open their channels to it |
 | Its binaries | `/opt/arca-ln/<commit>`, copied from the box's SeqLN checkout with SeqLN's hold-invoice plugin (`contrib/holdinvoice-seq`), which receiving needs; `/opt/arca-ln/current` names the one in use |
 | Its configuration | `/var/lib/arca-ln/config`, mode 600: it holds the dexnode's RPC password, as `/etc/arca/arcad.toml` does, and its channel option (see "The SeqLN nodes' channel options") |
 | `arcad`'s side | each `[[assets]]` entry's `[assets.lightning] rpc` names the socket; `[lightning]` sets the send timeout (four days, the window a swap of BTC for an asset needs) and the receive cap |
@@ -967,7 +967,7 @@ back. No page links to it.
 | Unit | What | Where |
 |---|---|---|
 | `bitcoin-ark-bitcoind` | Bitcoin Core 31.1 on testnet4, with a transaction index, no wallet, outbound peers only (the box's own testnet4 node first) | `/opt/bitcoin-ark/core`, data `/var/lib/bitcoin-ark/bitcoind`, RPC `127.0.0.1:18342` by cookie |
-| `bitcoin-ark-cln` | The Lightning gateway: Core Lightning 26.06.6 with Boltz's hold-invoice plugin v0.3.3 and its own gRPC interface | `/opt/bitcoin-ark/cln`, data `/var/lib/bitcoin-ark/cln`, peers on `127.0.0.1:19746`, gRPC `19747`, hold gRPC `19748` |
+| `bitcoin-ark-cln` | The Lightning gateway: Core Lightning 26.06.6 with Boltz's hold-invoice plugin v0.3.3 and its own gRPC interface | `/opt/bitcoin-ark/cln`, data `/var/lib/bitcoin-ark/cln`, peers on `0.0.0.0:19746`, reached at `sequentiatestnet.com:19746` by other operators' Bitcoin gateways, gRPC `19747` and hold gRPC `19748` on loopback |
 | `bitcoin-ark-captaind` | Bark's server: rounds, in-ark payments, Lightning through the gateway | `/opt/bitcoin-ark/bin/captaind`, data `/var/lib/bitcoin-ark/captaind`, public gRPC `127.0.0.1:3545`, admin `3546`, integrations `3547` (loopback only) |
 | `bitcoin-ark-watchmand` | Bark's watchman: answers exits, sweeps expired rounds back to the server's wallet | `/opt/bitcoin-ark/bin/watchmand`, data `/var/lib/bitcoin-ark/watchmand` |
 | `bitcoin-ark-feeproxy` | The node's RPC with fee estimates from the live mempool, for `captaind`, `watchmand` and Bark wallets (`bitcoin-ark/fee-proxy.py`) | `/opt/bitcoin-ark/bin/fee-proxy.py`, `127.0.0.1:18352` |
