@@ -840,7 +840,7 @@ asset, and `arcad` names the asset on every hold and payment.
 | The node | `arca-ln.service`, as the `arca` user; `/var/lib/arca-ln`, its JSON-RPC socket `/var/lib/arca-ln/sequentia-testnet/lightning-rpc`, peers on `0.0.0.0:19850`, reached at `sequentiatestnet.com:19850`: other operators' SeqLN gateways open their channels to it |
 | Its binaries | `/opt/arca-ln/<commit>`, copied from the box's SeqLN checkout with SeqLN's hold-invoice plugin (`contrib/holdinvoice-seq`), which receiving needs; `/opt/arca-ln/current` names the one in use |
 | Its configuration | `/var/lib/arca-ln/config`, mode 600: it holds the dexnode's RPC password, as `/etc/arca/arcad.toml` does, and its channel option (see "The SeqLN nodes' channel options") |
-| `arcad`'s side | each `[[assets]]` entry's `[assets.lightning] rpc` names the socket; `[lightning]` sets the send timeout (four days, the window a swap of BTC for an asset needs) and the receive cap |
+| `arcad`'s side | each `[[assets]]` entry's `[assets.lightning] rpc` names the socket; `[lightning]` sets the send timeout (nine days: another operator's invoice into its tree locks a payment about 5,790 blocks; a swap of BTC for an asset needs four) and the receive cap |
 
 The Bitcoin side is the Bitcoin ark's own gateway (`bitcoin-ark-cln`, below):
 `[lightning.bitcoin]` names its socket and the ark, and `arcad` only reads
