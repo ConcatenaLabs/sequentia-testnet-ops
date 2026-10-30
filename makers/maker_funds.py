@@ -811,14 +811,26 @@ def cmd_bark_refill(a):
             return json.loads(out)
         except ValueError:
             return out
+    # `arca bitcoin …` is Bark as given: `balance` prints the ark side flat ({"spendable_sat",
+    # "pending_board_sat", …}) and `onchain balance` the on-chain side ({"total_sat",
+    # "confirmed_sat", …}). (`arca balance` nests both under "bitcoin" as {"wallet", "ark",
+    # "onchain"}; that shape is read too.) No Bitcoin side yet: Bark finds no wallet and fails.
     try:
         b = arca("--quiet", "balance")
     except RuntimeError as e:
-        print("  %s: no Bitcoin side to read (%s)" % (a.name, e)); return
-    if not isinstance(b, dict) or not b.get("wallet"):
-        print("  %s: no Bitcoin ark wallet yet (made by its owner script)" % a.name); return
-    ark = sum(v for k, v in (b.get("ark") or {}).items() if k.endswith("_sat") and isinstance(v, int))
-    oc = b.get("onchain") or {}
+        print("  %s: no Bitcoin ark wallet yet (made by its owner script): %s" % (a.name, e)); return
+    if not isinstance(b, dict):
+        print("  %s: Bark's balance is not JSON: %s" % (a.name, str(b)[:120])); return
+    if "ark" in b or "onchain" in b:
+        ark_b, oc = b.get("ark") or {}, b.get("onchain") or {}
+    else:
+        ark_b = b
+        try:
+            oc = arca("--quiet", "onchain", "balance")
+        except RuntimeError as e:
+            print("  %s: Bark's on-chain balance does not read: %s" % (a.name, e)); return
+        oc = oc if isinstance(oc, dict) else {}
+    ark = sum(v for k, v in ark_b.items() if k.endswith("_sat") and isinstance(v, int))
     total = ark + int(oc.get("total_sat") or 0)
     confirmed = int(oc.get("confirmed_sat", oc.get("trusted_spendable_sat", 0)) or 0)
     if confirmed >= a.min_board_sats:
