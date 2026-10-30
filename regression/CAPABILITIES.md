@@ -31,6 +31,7 @@ How each surface is read:
 | WW-BAL-HIDE | hide an asset: it moves to "Hidden assets (n)", the total is unchanged | Balance |
 | WW-BAL-FAUCET | ask the testnet faucet for an asset | Receive |
 | WW-RCV-CODE | get one receive code, `bitcoin:<address>?ark=…&sequentia=…` | Receive |
+| WW-RCV-SHORT | get a code that scans at a glance: upper case, the request short (`SQR1…`), under 450 characters | Receive |
 | WW-RCV-TIP | read what the code takes ("Any asset, any amount. …") | Receive |
 | WW-RCV-BUTTONS | copy the code, make a new one; no address-only controls | Receive |
 | WW-RCV-AMOUNT | ask for an amount of BTC: the code names it and carries an invoice | Receive |
@@ -121,6 +122,7 @@ wallet connected).
 | AB-BAL-BTC-FIRST | see BTC first, then the assets held, no "native" label | Names |
 | AB-BAL-HIDE | hide an asset from the list and the pickers | Balance |
 | AB-RCV-CODE | get the receive code (re-opening the tab once the wallet has joined) | Receive |
+| AB-RCV-SHORT | get a code that scans at a glance: upper case, the request short (`SQR1…`), under 450 characters | Receive |
 | AB-RCV-IN-PLACE | see the code replace the address on the open screen once the wallet has joined | Receive |
 | AB-RCV-WORDS | read the tip, Copy receive code, New code, Amount in BTC (optional) | Receive |
 | AB-FAUCET | ask the testnet faucet | Receive |
@@ -153,6 +155,12 @@ funded one).
 | AM-SND-PICKER | Send's picker is the searchable sheet: BTC and held first, hidden out, every asset found by searching | Asset pickers |
 | AM-BAL-HIDE | Balance hides an asset into "Hidden assets (n)"; BTC cannot be hidden | Balance |
 | AM-RCV-CODE | Receive shows one receive code with Copy receive code and New code | Receive |
+| AM-RCV-SHORT | the code is upper case with the request short, drawn in alphanumeric segments at level M; old codes still read | Receive |
+| AM-RCV-KEPT | the last code shows at once, syncing or not, and is replaced only by a new one ready | Receive |
+| AM-SCN-CODE | the scanner keeps a receive code whole, at 720p with tap to focus, decoding off the UI thread | Send |
+| AM-SND-INSTANT | a code is paid instant first, at its address only when nothing held fits, saying so | Send |
+| AM-HIS-PENDING | a payment shows in History as it leaves, pending until its block; arriving BTC as soon as seen | History |
+| AM-ARK-MIGRATE | a wallet from before moves its Lightning BTC to the ark; a lost board holds nothing back | BTC |
 | AM-WORDS-TEST | default mode's sentences are tested against the forbidden words | Never in default mode |
 | AM-HIS-TRADES | History lists a default-mode trade as one row | History |
 
