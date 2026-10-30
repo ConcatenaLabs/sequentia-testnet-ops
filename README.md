@@ -979,7 +979,7 @@ back. No page links to it.
 
 | Unit | What | Where |
 |---|---|---|
-| `bitcoin-ark-bitcoind` | Bitcoin Core 31.1 on testnet4, with a transaction index, no wallet, outbound peers only (the box's own testnet4 node first) | `/opt/bitcoin-ark/core`, data `/var/lib/bitcoin-ark/bitcoind`, RPC `127.0.0.1:18342` by cookie |
+| `bitcoin-ark-bitcoind` | Bitcoin Core 31.1 on testnet4, with a transaction index, no wallet, outbound peers only (the box's own testnet4 node first) | `/opt/bitcoin-ark/core`, data `/var/lib/bitcoin-ark/bitcoind`, RPC `127.0.0.1:18342` by cookie, and as `ark` for captaind and watchmand |
 | `bitcoin-ark-cln` | The Lightning gateway: Core Lightning 26.06.6 with Boltz's hold-invoice plugin v0.3.3 and its own gRPC interface | `/opt/bitcoin-ark/cln`, data `/var/lib/bitcoin-ark/cln`, peers on `0.0.0.0:19746`, reached at `sequentiatestnet.com:19746` by other operators' Bitcoin gateways, gRPC `19747` and hold gRPC `19748` on loopback |
 | `bitcoin-ark-captaind` | Bark's server: rounds, in-ark payments, Lightning through the gateway | `/opt/bitcoin-ark/bin/captaind`, data `/var/lib/bitcoin-ark/captaind`, public gRPC `127.0.0.1:3545`, admin `3546`, integrations `3547` (loopback only) |
 | `bitcoin-ark-watchmand` | Bark's watchman: answers exits, sweeps expired rounds back to the server's wallet | `/opt/bitcoin-ark/bin/watchmand`, data `/var/lib/bitcoin-ark/watchmand` |
@@ -988,9 +988,13 @@ back. No page links to it.
 All five run as the `bark` system user. The configuration files are the ones
 in `bitcoin-ark/`, with the box's paths and ports filled in:
 `/etc/bitcoin-ark/bitcoin.conf`, `/var/lib/bitcoin-ark/cln/config`,
-`/etc/bitcoin-ark/captaind.toml`, `/etc/bitcoin-ark/watchmand.toml`. None
-holds a secret: Bitcoin Core is reached by its cookie and PostgreSQL over its
-Unix socket as `bark`. The server's key is the mnemonic in
+`/etc/bitcoin-ark/captaind.toml`, `/etc/bitcoin-ark/watchmand.toml`. The
+Lightning node and the fee proxy reach Bitcoin Core by its cookie; captaind and
+watchmand log in as `ark`, whose password is drawn on the box into
+`/etc/bitcoin-ark/rpc.password` (mode 600) and written into their two
+configurations (mode 640, the `bark` group), since they read their credentials
+once and the cookie changes whenever the node starts. PostgreSQL is reached over
+its Unix socket as `bark`. The server's key is the mnemonic in
 `/var/lib/bitcoin-ark/captaind/mnemonic` (mode 600; the watchman holds a
 copy); keep a copy of it off the box.
 

@@ -47,4 +47,9 @@ max_connections = 5
 # says a sat or two while its public mempool queues at tens.
 [bitcoind]
 url = "http://127.0.0.1:@FEE_RPC_PORT@"
-cookie = "@LIB@/bitcoind/@NETWORK@/.cookie"
+# By a fixed login, not the node's cookie: the node draws a new cookie each
+# time it starts, and this server reads its credentials once, so a node
+# restart would leave it unable to read the chain. The password is drawn on
+# the box into @ETC@/rpc.password (mode 600); the node keeps its salted hash.
+rpc_user = "ark"
+rpc_pass = "@RPC_PASS@"
