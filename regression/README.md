@@ -16,7 +16,9 @@ kept for it (below), each bounded in time.
     node regression/run.mjs
 
 About 25 minutes. It needs Node 22 and a Chromium: Playwright's under `~/.cache/ms-playwright`,
-`/usr/bin/chromium`, or the one `CHROME` names. Options:
+`/usr/bin/chromium`, or the one `CHROME` names. Run as root (on the box, near the services it
+checks, which takes a slow or far link out of the timings), the browser runs without Chromium's
+sandbox, which refuses root. Options:
 
 - `--only web-wallet,seqdex,ambra-browser,ambra-mobile,trades`: some surfaces only.
 - `--widths desktop,phone`: desktop is 1440 px, phone 390 px on a touch screen.
