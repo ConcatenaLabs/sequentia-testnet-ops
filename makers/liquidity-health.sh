@@ -66,6 +66,10 @@ for u in ${HEALTH_MEMORY_UNITS:-seqdex-wallet.service arcad.service leaf-maker.s
   fi
 done
 
+# 1c. the BTC desk's Lightning room against its ladder (BTC cannot be minted: lq3_5_btc_desk.sh
+#     opens what it is short of)
+python3 -I "$OPS/makers/btc_desk_room.py" 2>&1 | while read -r l; do log "$l"; done
+
 # 2. the treasury's floors
 python3 -I -c 'import json,sys; [print(k, v) for k, v in json.load(open(sys.argv[1])).get("treasury_floors", {}).items()]' "$TARGETS" > "$W/floors.txt" \
   && tool floors --floors "$W/floors.txt" --assets "$STATE/assets-leaf.txt" --prices "$FEED" 2>&1 | grep -vE 'enough$' | while read -r l; do log "treasury2026: $l"; done

@@ -654,6 +654,13 @@ a line of `/root/lq1/mints.jsonl`. Node credentials come from each node's
 `elements.conf`. Every run's lines go to
 `/root/seqob-test/run/liquidity-health.log`, rotated with the makers' logs.
 
+The BTC desk (`leaf-maker-btc.service`) gives BTC from what its own testnet4
+Lightning node can send and buys BTC up to 90% of what that node can be paid;
+every pair quotes from the same balance. Each pass logs its room against its
+ladder (`makers/btc_desk_room.py`), `BTC desk SHORT` when either way falls short;
+the room comes from a channel opened by the owner script, funded from the
+testnet4 service wallet.
+
 BTC is the one asset no script can mint. The BTC sides of the books are what
 the BTC desk's and the pure-Lightning fleet's Lightning channels hold, and what
 the order crosser and the cross-chain makers hold on testnet4; they are sized
