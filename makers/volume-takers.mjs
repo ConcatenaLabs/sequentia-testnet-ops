@@ -18,8 +18,9 @@
 //
 // The ramp: steps (a share of the target each), each held for `step_minutes`, and it goes up only
 // when the step's last `clean_minutes` broke no rule. Any rule broken holds the ramp at the step
-// below and says which (`HOLD` in the log): the box's load average over `max_load_share` of its
-// cores, a rail's success rate under `min_success` (over its last 50 trades), the in-tree trade's
+// below and says which (`HOLD` in the log): the box's CPU pressure over `max_cpu_pressure` (the
+// share of the last minute its tasks waited for a CPU; the load average over `max_load_share` of
+// its cores where the kernel keeps none), a rail's success rate under `min_success` (over its last 50 trades), the in-tree trade's
 // p95 time over `max_tree_p95_ms` (the operator's co-signing is most of it), or the wallet probe
 // (a person's trade, through the public wallet-facing maker, every `probe_seconds`) slower by more
 // than `max_probe_worse_ms` than at the first step. While the operator's finality waits on the
@@ -49,7 +50,7 @@ const PAIRS = cfg.pairs.map((p) => ({ ...p, key: `${p.base}/${p.quote}`, rails: 
 const MIX = cfg.rail_mix || { tree: 0.5, pln: 0.4, onchain: 0.1 }
 const LIMIT = cfg.rail_concurrency || { tree: 4, pln: 8, onchain: 2 }
 const SIZE = cfg.size_usd || { min: 50, max: 25000 }
-const RAMP = { steps: [0.1, 0.5, 1], step_minutes: 120, clean_minutes: 30, max_load_share: 0.75, min_success: 0.98, max_tree_p95_ms: 30000,
+const RAMP = { steps: [0.1, 0.5, 1], step_minutes: 120, clean_minutes: 30, max_cpu_pressure: 25, max_load_share: 0.75, min_success: 0.98, max_tree_p95_ms: 30000,
   max_probe_worse_ms: 1000, probe_seconds: 300, ...(cfg.ramp || {}) }
 const meanSize = (SIZE.max - SIZE.min) / Math.log(SIZE.max / SIZE.min)   // log-uniform mean
 
@@ -159,11 +160,28 @@ async function readChain () {
   } catch { chainWait = null }
 }
 
+// the kernel's CPU pressure: the share (%) of the last minute some task waited for a CPU, or null
+function cpuPressure () {
+  try {
+    const m = /some avg10=[\d.]+ avg60=([\d.]+)/.exec(fs.readFileSync('/proc/pressure/cpu', 'utf8'))
+    return m ? Number(m[1]) : null
+  } catch { return null }
+}
+
 // ---- the ramp's rules, over what happened lately
 function rules () {
   const broken = []
-  const load = os.loadavg()[0], cores = os.cpus().length
-  if (load > RAMP.max_load_share * cores) broken.push(`load ${load.toFixed(1)} over ${Math.round(RAMP.max_load_share * 100)}% of ${cores} cores`)
+  // The box is too busy when its tasks wait for a CPU: the kernel's CPU pressure, the share of the
+  // last minute some task was ready and waiting. The load average counts every runnable task, a
+  // build at nice 19 in a slice of two cores as much as a maker, so it holds the ramp for work
+  // that yields to everything else; it is the rule only where the kernel keeps no pressure.
+  const psi = cpuPressure()
+  if (psi != null) {
+    if (psi > RAMP.max_cpu_pressure) broken.push(`CPU pressure ${psi.toFixed(1)}% over ${RAMP.max_cpu_pressure}% (tasks waiting for a CPU, over the last minute)`)
+  } else {
+    const load = os.loadavg()[0], cores = os.cpus().length
+    if (load > RAMP.max_load_share * cores) broken.push(`load ${load.toFixed(1)} over ${Math.round(RAMP.max_load_share * 100)}% of ${cores} cores`)
+  }
   for (const rail of ['tree', 'pln', 'onchain']) {
     const last = trades.filter((x) => x.rail === rail).slice(-50)
     if (last.length >= 20) { const s = last.filter((x) => x.ok).length / last.length; if (s < RAMP.min_success) broken.push(`${rail} success ${(s * 100).toFixed(1)}%`) }
@@ -220,7 +238,7 @@ function summary () {
     rails[rail] = { trades1h: r.length, success: r.length ? +(ok.length / r.length).toFixed(4) : null, p50_ms: pct(ok.map((x) => x.ms), 0.5), p95_ms: pct(ok.map((x) => x.ms), 0.95),
       busy_skipped: busySkipped[rail], in_flight: inFlight[rail], top_errors: topErrors(r) }
   }
-  const s = { at: new Date().toISOString(), step, share: RAMP.steps[step], hold: holdReason, load: os.loadavg().map((x) => +x.toFixed(2)), cores: os.cpus().length,
+  const s = { at: new Date().toISOString(), step, share: RAMP.steps[step], hold: holdReason, cpu_pressure: cpuPressure(), load: os.loadavg().map((x) => +x.toFixed(2)), cores: os.cpus().length,
     probe_ms: probes.slice(-3).map((x) => (x.ok ? x.ms : 'failed')), probe_base_ms: probeBase, pairs: per, rails,
     paused: chainWait, tree_skipped_paused: pausedSkipped, dry_run: DRY }
   fs.writeFileSync(path.join(STATE, 'summary.json'), JSON.stringify(s, null, 1))

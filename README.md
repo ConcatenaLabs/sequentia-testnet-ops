@@ -445,7 +445,10 @@ slot on it (a full rail is counted as `busy`, a capacity signal), and is sized
 log-uniformly between the configured bounds. The ramp holds each step (a share
 of the target) for a while and goes up only after a clean stretch. A broken rule
 holds it, and after ten minutes steps it back, saying which rule (`HOLD`): the
-box's load average over a share of its cores; a rail's success rate under 98%;
+box's CPU pressure over 25% (the share of the last minute its tasks waited for a
+CPU, which a build at low priority in a slice of its own barely moves, where the
+load average counts it in full; the load average over 75% of the cores where the
+kernel keeps no pressure); a rail's success rate under 98%;
 the in-tree trade's p95 time over its bound; or the wallet probe (a person's
 trade, through the public wallet-facing maker, every five minutes) slower by more
 than a second than at the first step. While the operator's finality waits on
