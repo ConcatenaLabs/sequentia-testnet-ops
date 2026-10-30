@@ -117,12 +117,14 @@ vtxo_lifetime = 432
 vtxo_pre_expiry = 144
 max_vtxo_exit_depth = 3
 
+# The estimates come from the fee proxy above. These fallbacks are for an
+# answer with no estimate in it, and are the proxy's floor.
 [fee_estimator]
 update_interval = "1m"
 history_duration = "60m"
-fallback_fee_rate_fast = "5sat/vb"
-fallback_fee_rate_regular = "3sat/vb"
-fallback_fee_rate_slow = "2sat/vb"
+fallback_fee_rate_fast = "30sat/vb"
+fallback_fee_rate_regular = "30sat/vb"
+fallback_fee_rate_slow = "30sat/vb"
 max_fee_rate = "100sat/vb"
 
 [rpc]
@@ -141,6 +143,11 @@ name = "@PG_DB@"
 user = "@PG_USER@"
 max_connections = 10
 
+# The node through its fee proxy (bitcoin-ark/fee-proxy.py,
+# bitcoin-ark-feeproxy.service): every call passes through unchanged, except
+# that estimatesmartfee is raised to the live mempool's going rate, never
+# under 30 sat/vB. testnet4's own estimate, read from its often empty blocks,
+# says a sat or two while its public mempool queues at tens.
 [bitcoind]
-url = "http://127.0.0.1:@BTC_RPC_PORT@"
+url = "http://127.0.0.1:@FEE_RPC_PORT@"
 cookie = "@LIB@/bitcoind/@NETWORK@/.cookie"

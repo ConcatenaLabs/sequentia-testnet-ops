@@ -970,8 +970,9 @@ back. No page links to it.
 | `bitcoin-ark-cln` | The Lightning gateway: Core Lightning 26.06.6 with Boltz's hold-invoice plugin v0.3.3 and its own gRPC interface | `/opt/bitcoin-ark/cln`, data `/var/lib/bitcoin-ark/cln`, peers on `127.0.0.1:19746`, gRPC `19747`, hold gRPC `19748` |
 | `bitcoin-ark-captaind` | Bark's server: rounds, in-ark payments, Lightning through the gateway | `/opt/bitcoin-ark/bin/captaind`, data `/var/lib/bitcoin-ark/captaind`, public gRPC `127.0.0.1:3545`, admin `3546`, integrations `3547` (loopback only) |
 | `bitcoin-ark-watchmand` | Bark's watchman: answers exits, sweeps expired rounds back to the server's wallet | `/opt/bitcoin-ark/bin/watchmand`, data `/var/lib/bitcoin-ark/watchmand` |
+| `bitcoin-ark-feeproxy` | The node's RPC with fee estimates from the live mempool, for `captaind`, `watchmand` and Bark wallets (`bitcoin-ark/fee-proxy.py`) | `/opt/bitcoin-ark/bin/fee-proxy.py`, `127.0.0.1:18352` |
 
-All four run as the `bark` system user. The configuration files are the ones
+All five run as the `bark` system user. The configuration files are the ones
 in `bitcoin-ark/`, with the box's paths and ports filled in:
 `/etc/bitcoin-ark/bitcoin.conf`, `/var/lib/bitcoin-ark/cln/config`,
 `/etc/bitcoin-ark/captaind.toml`, `/etc/bitcoin-ark/watchmand.toml`. None
@@ -1030,11 +1031,27 @@ and integration interfaces are never routed.
   gRPC plugin; but the box's SeqLN nodes are built without it and carry the
   makers' channels, and a gateway of its own keeps the ark out of every SeqLN
   cutover.
-- **Fixed fee rates for the gateway.** testnet4 often mines empty blocks, so
-  the ark's own node can go hours with no fee estimate, and Core Lightning
-  then refuses to open or close a channel ("Cannot estimate fees (yet)").
-  `bitcoin-ark/cln.config` sets `force-feerates=500` (2 sat/vB), an option
-  that exists on test networks only.
+- **Fees from the live mempool.** testnet4 often mines empty blocks while its
+  public mempool queues at tens of sat/vB. Bitcoin Core's `estimatesmartfee`,
+  read from those blocks, then says a sat or two, or nothing, and Bark prices
+  every round, offboard, board and exit child from it as given, taking its
+  configured fallback only when there is no estimate at all: a round paid
+  that way waits for hours. So `captaind`, `watchmand` and Bark wallets reach
+  the node through `bitcoin-ark-feeproxy`, which passes every call through
+  unchanged, each with its caller's cookie, except that an `estimatesmartfee`
+  answer is raised to the going rate: the most of 30 sat/vB, Core's own
+  estimate, the rate that makes the next block of the node's mempool, and the
+  public mempool's rate (mempool.space: its fastest, or the median of its next
+  projected block), capped at 500 (Bark caps at its own `max_fee_rate`, 100).
+  It reads the going rate every 30 seconds and logs each change to the
+  journal. Bark's fallbacks are 30 sat/vB too.
+- **Fixed fee rates for the gateway.** The ark's own node can go hours with no
+  fee estimate, and Core Lightning then refuses to open or close a channel
+  ("Cannot estimate fees (yet)"). `bitcoin-ark/cln.config` sets
+  `force-feerates`, an option that exists on test networks only and is read
+  at start: 30 sat/vB for the gateway's own on-chain transactions (opens,
+  mutual closes, sweeps), and 2 sat/vB for the commitment transaction, whose
+  rate the channel's peer signs too and whose anchor lifts it when needed.
 - **A Lightning receive needs its wallet online.** Bark's server holds an
   incoming payment for three minutes (`receive_htlc_forward_timeout`) while
   the wallet claims it (`bark lightning claim`); unclaimed, the payment fails
