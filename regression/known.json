@@ -3,5 +3,13 @@
   "AM-TRD-SEARCH": "regression: 707b0d6 replaced showAssetSheet with a plain DropdownButton in default mode; needs its own fix",
   "AM-TRD-AMOUNTS": "regression: 707b0d6 dropped the tethered receive amount; needs its own fix",
   "AM-TRD-MARKET": "never built: TR1 named it (a Flutter chart following the contract's Market section)",
-  "AM-HIS-TRADES": "never built: default-mode trades show only under Swap > Your trades, not in History"
+  "AM-HIS-TRADES": "never built: default-mode trades show only under Swap > Your trades, not in History",
+  "WW-TRADE-USDX-GOLD-BUY": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
+  "WW-TRADE-USDX-GOLD-SELL": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
+  "WW-TRADE-TSEQ-USDX-BUY": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
+  "WW-TRADE-BTC-USDX-BUY": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
+  "DX-TRADE-USDX-GOLD-BUY": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
+  "DX-TRADE-USDX-GOLD-SELL": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
+  "DX-TRADE-TSEQ-USDX-BUY": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
+  "DX-TRADE-BTC-USDX-BUY": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it"
 }
