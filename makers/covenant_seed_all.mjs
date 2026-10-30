@@ -297,7 +297,9 @@ async function sendRetry(args, wallet){
 // ---------- main ----------
 const usd = {}; {
   const feed = await (await fetch(FEED)).json();
-  for (const s of ORDER){ const v = feed[FEEDKEY[s]]; usd[s] = Number(v && typeof v === "object" ? v.price : v) || 0; }
+  // A price the feed dates (as_of) more than ten minutes ago is its source's last answer: no price.
+  const old = v => v && typeof v === "object" && !v.static && Number(v.as_of) > 0 && Date.now() / 1000 - Number(v.as_of) > 600;
+  for (const s of ORDER){ const v = feed[FEEDKEY[s]]; usd[s] = old(v) ? 0 : Number(v && typeof v === "object" ? v.price : v) || 0; }
 }
 function usdPrice(sym){ return usd[sym]; }
 // An order sells sellSym for recvSym at its covenant's rate: recv atoms per sold atom.

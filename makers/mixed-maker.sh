@@ -27,12 +27,14 @@ case $ROLE in
 esac
 
 # EURX atoms for BASE GOLD atoms at the feed's price, 20 bps above it when the
-# maker sells and below when it buys; nothing when the feed has no price.
+# maker sells and below when it buys; nothing when the feed has no price, or dates
+# either one (as_of) more than ten minutes ago.
 quote() {
   curl -sf -m 10 "$FEED" | python3 -c "
-import json, sys
+import json, sys, time
 d = json.load(sys.stdin)
-g, e = float(d['GOLD']['price']), float(d['EURX']['price'])
+old = lambda v: not v.get('static') and v.get('as_of') and time.time() - float(v['as_of']) > 600
+g, e = (0.0 if old(d[k]) else float(d[k]['price']) for k in ('GOLD', 'EURX'))
 assert g > 0 and e > 0
 print(int($BASE * g / e * (1.002 if '$ROLE' == 'sell' else 0.998)))" 2>/dev/null
 }
