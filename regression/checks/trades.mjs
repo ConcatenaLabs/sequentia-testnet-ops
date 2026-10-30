@@ -18,6 +18,10 @@ const WALLET = 'https://sequentiatestnet.com/wallet/'
 const DEX = 'https://sequentiatestnet.com/dex/'
 export const BOUND_MS = 60000
 const REVIEW_MS = 60000
+// A person waits this long at most for a price: from Review to the ticket in the Trade tab, from
+// the button to the wallet's dialog on SeqDEX (#363: about 3 s is typical, 10 s the most). A trade
+// that takes longer is still made, so the lines after it run, and its line fails with the time.
+export const TICKET_MS = 10000
 // A purchase paid with BTC from the Bitcoin ark reads "Received" within BOUND_MS and "Settled" once
 // the trade's Bitcoin side is final: the next Bitcoin blocks (about 10 minutes each on testnet4).
 export const SETTLE_MS = 60 * 60000
@@ -89,7 +93,7 @@ async function tabTrade (h, pay, get, amount) {
   const t0 = Date.now()
   await h.click('#userComposerRoot #ucReview')
   const tk = await waitValue(h, "(()=>{ const r=document.getElementById('userComposerRoot'); if(r.querySelector('#ucConfirm')) return 'OK '+r.querySelector('#ucTicket').innerText; const n=r.querySelector('#ucNote'); return n && n.classList.contains('err') && n.textContent && !r.querySelector('#ucReview').disabled ? 'ERR '+n.textContent : false })()", REVIEW_MS).catch(() => null)
-  if (!tk) return { ok: false, detail: `no ticket ${REVIEW_MS / 1000} s after Review; the page says "${await h.text('#userComposerRoot #ucNote')}"`, at: '#userComposerRoot #ucNote' }
+  if (!tk) return { ok: false, detail: `no ticket ${REVIEW_MS / 1000} s after Review; the button reads "${await h.text('#userComposerRoot #ucReview')}", the page says "${await h.text('#userComposerRoot #ucNote')}"`, at: '#userComposerRoot #ucNote' }
   if (tk.startsWith('ERR ')) return { ok: false, detail: `${amount} ${pay} → ${get}: ${tk.slice(4)}`, at: '#userComposerRoot #ucNote' }
   const rows0 = await h.eval("document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade').length")
   const tC = Date.now()
@@ -99,7 +103,11 @@ async function tabTrade (h, pay, get, amount) {
   const note = await h.text('#userComposerRoot #ucNote')
   const secs = ((Date.now() - tC) / 1000).toFixed(1)
   const trade = await h.eval("((document.querySelector('#userComposerRoot #ucTrades .uc-trade')||{}).dataset||{}).trade||null")
-  if (done && !/^Returned/.test(done)) return { ok: true, trade, detail: `${amount} ${pay} → ${get}: ${done} after ${secs} s (ticket in ${((tC - t0) / 1000).toFixed(1)} s)` }
+  const ticketS = ((tC - t0) / 1000).toFixed(1)
+  if (done && !/^Returned/.test(done)) {
+    const slow = tC - t0 > TICKET_MS
+    return { ok: !slow, trade, detail: `${amount} ${pay} → ${get}: ${done} after ${secs} s (ticket in ${ticketS} s${slow ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''})` }
+  }
   return { ok: false, detail: `${amount} ${pay} → ${get}: after ${secs} s the trade reads "${row || 'no row'}"${note ? '; ' + note : ''}`, at: '#userComposerRoot #ucTrades' }
 }
 
@@ -117,6 +125,7 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
     if ((await site.eval(`(document.querySelector('${field}')||{}).value`)) === amount) break
   }
   await site.eval("(document.querySelector('#fStatus').className='status', document.querySelector('#fStatus').textContent='', true)")
+  const tGo = Date.now()
   await site.click('#fGo')
   // The wallet's dialog, or the site's word that the wallet refused before showing one.
   const first = await Promise.race([
@@ -125,17 +134,19 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
   ])
   if (first !== 'dialog') return { ok: false, detail: `${side} ${amount} of ${pair}: ${first === 'refused' ? await site.text('#fStatus') : `no dialog in the wallet ${REVIEW_MS / 1000} s after the button`}`, at: '#fStatus' }
   const tC = Date.now()
+  const dialogS = ((tC - tGo) / 1000).toFixed(1)
+  const slowDialog = tC - tGo > TICKET_MS
   await wallet.click('#pageApiApprove')
   // The site draws its form again after a trade, so #fStatus can be missing for a moment.
   const st = await waitValue(site, "(()=>{const s=document.querySelector('#fStatus'); return s && (s.classList.contains('ok')||s.classList.contains('err')) ? (s.classList.contains('ok')?'ok ':'err ')+s.textContent : false})()", BOUND_MS).catch(() => null)
   const secs = ((Date.now() - tC) / 1000).toFixed(1)
-  if (st && st.startsWith('ok ') && /Traded with/.test(st)) return { ok: true, detail: `${side} ${amount} of ${pair}: ${st.slice(3)} after ${secs} s` }
+  if (st && st.startsWith('ok ') && /Traded with/.test(st)) return { ok: !slowDialog, detail: `${side} ${amount} of ${pair}: ${st.slice(3)} after ${secs} s (dialog in ${dialogS} s${slowDialog ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''})` }
   return { ok: false, detail: `${side} ${amount} of ${pair}: after ${secs} s the site says "${st ? st.slice(st.indexOf(' ') + 1) : await site.text('#fStatus') || 'nothing'}"`, at: '#fStatus' }
 }
 
 export async function run ({ b, report, trader }) {
-  const lines = [...TAB_TRADES.map((t) => ['WW-TRADE-' + t[0], `The Trade tab trades ${t[3]} ${t[1]} for ${t[2]} within ${BOUND_MS / 1000} s`]),
-    ...DEX_TRADES.map((t) => ['DX-TRADE-' + t[0], `SeqDEX through the web wallet: a market ${t[2]} of ${t[3]} on ${t[1]} within ${BOUND_MS / 1000} s`])]
+  const lines = [...TAB_TRADES.map((t) => ['WW-TRADE-' + t[0], `The Trade tab prices ${t[3]} ${t[1]} for ${t[2]} within ${TICKET_MS / 1000} s and trades it within ${BOUND_MS / 1000} s`]),
+    ...DEX_TRADES.map((t) => ['DX-TRADE-' + t[0], `SeqDEX through the web wallet: a market ${t[2]} of ${t[3]} on ${t[1]}, priced within ${TICKET_MS / 1000} s and traded within ${BOUND_MS / 1000} s`])]
   if (!trader) { for (const [id, line] of lines) report.skip(id, 'desktop', line, 'no trader wallet (--trader)'); return }
   const wp = await b.page('about:blank')
   const w = helpers(wp)
@@ -151,7 +162,7 @@ export async function run ({ b, report, trader }) {
   }
   let arkPurchase = null   // the purchase paid with BTC from the Bitcoin ark: { trade, t }
   for (const [id, pay, get, amount] of TAB_TRADES) {
-    const line = `The Trade tab trades ${amount} ${pay} for ${get} within ${BOUND_MS / 1000} s`
+    const line = `The Trade tab prices ${amount} ${pay} for ${get} within ${TICKET_MS / 1000} s and trades it within ${BOUND_MS / 1000} s`
     const ok = await report.line('WW-TRADE-' + id, 'desktop', line, wp, unlessUnbought('WW-' + pairOf(id), () => tabTrade(w, pay, get, amount)
       .then((r) => { if (r.ok && pay === 'BTC' && r.trade) arkPurchase = { trade: r.trade, t: Date.now() }; return r })
       .catch((e) => ({ ok: false, detail: String(e && e.message || e) }))))
@@ -173,7 +184,7 @@ export async function run ({ b, report, trader }) {
     connected = true
   } catch (e) { connected = String(e && e.message || e) }
   for (const [id, pair, side, amount] of DEX_TRADES) {
-    const line = `SeqDEX through the web wallet: a market ${side} of ${amount} on ${pair} within ${BOUND_MS / 1000} s`
+    const line = `SeqDEX through the web wallet: a market ${side} of ${amount} on ${pair}, priced within ${TICKET_MS / 1000} s and traded within ${BOUND_MS / 1000} s`
     if (connected !== true) { await report.line('DX-TRADE-' + id, 'desktop', line, sp, async () => ({ ok: false, detail: 'SeqDEX did not connect to the web wallet: ' + connected })); continue }
     const ok = await report.line('DX-TRADE-' + id, 'desktop', line, sp, unlessUnbought('DX-' + pairOf(id), () => dexTrade(b, s, w, pair, side, amount).catch((e) => ({ ok: false, detail: String(e && e.message || e) }))))
     if (id.endsWith('-BUY')) bought.set('DX-' + pairOf(id), !!ok)

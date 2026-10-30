@@ -1,11 +1,3 @@
 {
-  "_": "Lines known to fail, each with what lost it (or that it was never built) and who is on it. A known line still fails the run; this only says why. Remove an entry when its line passes.",
-  "WW-TRADE-USDX-GOLD-BUY": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
-  "WW-TRADE-USDX-GOLD-SELL": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
-  "WW-TRADE-TSEQ-USDX-BUY": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
-  "WW-TRADE-BTC-USDX-BUY": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
-  "DX-TRADE-USDX-GOLD-BUY": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
-  "DX-TRADE-USDX-GOLD-SELL": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
-  "DX-TRADE-TSEQ-USDX-BUY": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it",
-  "DX-TRADE-BTC-USDX-BUY": "the web wallet's trade engine refuses held coins as 'not ready to trade yet' long after they arrived, and its two-way estimate misprices GOLD → USDX; AL1 is on it"
+  "_": "Lines known to fail, each with what lost it (or that it was never built) and who is on it. A known line still fails the run; this only says why. Remove an entry when its line passes."
 }
