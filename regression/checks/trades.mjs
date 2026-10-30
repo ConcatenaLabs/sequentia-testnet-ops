@@ -25,7 +25,8 @@ const TAB_TRADES = [
   ['USDX-GOLD-SELL', 'GOLD', 'USDX', '0.001'],
   ['TSEQ-USDX-BUY', 'USDX', 'tSEQ', '5'],
   ['TSEQ-USDX-SELL', 'tSEQ', 'USDX', '20'],
-  ['BTC-USDX-BUY', 'USDX', 'BTC', '5'],
+  // The BTC desk sells no less than 10,000 sats (about 8 USDX).
+  ['BTC-USDX-BUY', 'USDX', 'BTC', '10'],
   ['BTC-USDX-SELL', 'BTC', 'USDX', '0.00004'],
 ]
 // SeqDEX's market page: the pair as shown, the side, the amount of its base (You receive for a
@@ -35,9 +36,20 @@ const DEX_TRADES = [
   ['USDX-GOLD-SELL', 'GOLD-USDX', 'sell', '0.001'],
   ['TSEQ-USDX-BUY', 'tSEQ-USDX', 'buy', '20'],
   ['TSEQ-USDX-SELL', 'tSEQ-USDX', 'sell', '20'],
-  ['BTC-USDX-BUY', 'USDX-BTC', 'sell', '5'],
-  ['BTC-USDX-SELL', 'USDX-BTC', 'buy', '5'],
+  ['BTC-USDX-BUY', 'USDX-BTC', 'sell', '10'],
+  ['BTC-USDX-SELL', 'USDX-BTC', 'buy', '10'],
 ]
+
+// Waits for `expression` to be true on the page and answers its value. The page helpers' waitFor
+// answers nothing, only that it came; these lines need what the page said.
+async function waitValue (p, expression, ms) {
+  const t0 = Date.now()
+  for (;;) {
+    try { const v = await p.eval(expression); if (v) return v } catch {}
+    if (Date.now() - t0 > ms) throw new Error('timed out waiting for ' + expression)
+    await sleep(250)
+  }
+}
 
 // Chooses `ticker` in the asset chooser that the button `#id` opens.
 const pick = (id, ticker) => `(async()=>{
@@ -64,19 +76,22 @@ async function openTrader (b, h, phrase) {
 // One trade in the Trade tab. -> { ok, detail }
 async function tabTrade (h, pay, get, amount) {
   await h.click('[data-tab=swap]'); await sleep(1000)
+  // A ticket left open by the line before (one that came after its bound) is cancelled, as a
+  // person would, so each line starts from the composer and fails only for its own trade.
+  await h.eval("(()=>{ const c=document.querySelector('#userComposerRoot #ucCancel'); if(c) c.click(); return true })()"); await sleep(500)
   await h.waitFor("!!document.querySelector('#userComposerRoot #ucPay') && !!document.querySelector('#userComposerRoot #ucReview')", 120000)
   await h.eval(pick('ucPay', pay)); await sleep(400)
   await h.eval(pick('ucGet', get)); await sleep(400)
   await h.type('#userComposerRoot #ucAmount', amount); await sleep(1500)
   const t0 = Date.now()
   await h.click('#userComposerRoot #ucReview')
-  const tk = await h.waitFor("(()=>{ const r=document.getElementById('userComposerRoot'); if(r.querySelector('#ucConfirm')) return 'OK '+r.querySelector('#ucTicket').innerText; const n=r.querySelector('#ucNote'); return n && n.classList.contains('err') && n.textContent && !r.querySelector('#ucReview').disabled ? 'ERR '+n.textContent : false })()", REVIEW_MS).catch(() => null)
+  const tk = await waitValue(h, "(()=>{ const r=document.getElementById('userComposerRoot'); if(r.querySelector('#ucConfirm')) return 'OK '+r.querySelector('#ucTicket').innerText; const n=r.querySelector('#ucNote'); return n && n.classList.contains('err') && n.textContent && !r.querySelector('#ucReview').disabled ? 'ERR '+n.textContent : false })()", REVIEW_MS).catch(() => null)
   if (!tk) return { ok: false, detail: `no ticket ${REVIEW_MS / 1000} s after Review; the page says "${await h.text('#userComposerRoot #ucNote')}"`, at: '#userComposerRoot #ucNote' }
   if (tk.startsWith('ERR ')) return { ok: false, detail: `${amount} ${pay} → ${get}: ${tk.slice(4)}`, at: '#userComposerRoot #ucNote' }
   const rows0 = await h.eval("document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade').length")
   const tC = Date.now()
   await h.click('#userComposerRoot #ucConfirm')
-  const done = await h.waitFor(`(()=>{ const r=document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade'); if(r.length<=${rows0}) return false; const s=(r[0].querySelector('.uc-state')||{}).textContent||''; return /^(Received|Settled|Returned)/.test(s) ? s : false })()`, BOUND_MS).catch(() => null)
+  const done = await waitValue(h, `(()=>{ const r=document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade'); if(r.length<=${rows0}) return false; const s=(r[0].querySelector('.uc-state')||{}).textContent||''; return /^(Received|Settled|Returned)/.test(s) ? s : false })()`, BOUND_MS).catch(() => null)
   const row = await h.eval("((document.querySelector('#userComposerRoot #ucTrades .uc-trade')||{}).innerText||'').replace(/\\s+/g,' ')")
   const note = await h.text('#userComposerRoot #ucNote')
   const secs = ((Date.now() - tC) / 1000).toFixed(1)
@@ -102,12 +117,13 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
   // The wallet's dialog, or the site's word that the wallet refused before showing one.
   const first = await Promise.race([
     wallet.waitFor("(()=>{const m=document.querySelector('#pageApiApproval'); return m && m.innerText ? true : false})()", REVIEW_MS).then(() => 'dialog', () => null),
-    site.waitFor("document.querySelector('#fStatus').classList.contains('err')", REVIEW_MS).then(() => 'refused', () => null),
+    site.waitFor("(()=>{const s=document.querySelector('#fStatus'); return !!s && s.classList.contains('err')})()", REVIEW_MS).then(() => 'refused', () => null),
   ])
   if (first !== 'dialog') return { ok: false, detail: `${side} ${amount} of ${pair}: ${first === 'refused' ? await site.text('#fStatus') : `no dialog in the wallet ${REVIEW_MS / 1000} s after the button`}`, at: '#fStatus' }
   const tC = Date.now()
   await wallet.click('#pageApiApprove')
-  const st = await site.waitFor("(()=>{const s=document.querySelector('#fStatus'); return s.classList.contains('ok')||s.classList.contains('err') ? (s.classList.contains('ok')?'ok ':'err ')+s.textContent : false})()", BOUND_MS).catch(() => null)
+  // The site draws its form again after a trade, so #fStatus can be missing for a moment.
+  const st = await waitValue(site, "(()=>{const s=document.querySelector('#fStatus'); return s && (s.classList.contains('ok')||s.classList.contains('err')) ? (s.classList.contains('ok')?'ok ':'err ')+s.textContent : false})()", BOUND_MS).catch(() => null)
   const secs = ((Date.now() - tC) / 1000).toFixed(1)
   if (st && st.startsWith('ok ') && /Traded with/.test(st)) return { ok: true, detail: `${side} ${amount} of ${pair}: ${st.slice(3)} after ${secs} s` }
   return { ok: false, detail: `${side} ${amount} of ${pair}: after ${secs} s the site says "${st ? st.slice(st.indexOf(' ') + 1) : await site.text('#fStatus') || 'nothing'}"`, at: '#fStatus' }
