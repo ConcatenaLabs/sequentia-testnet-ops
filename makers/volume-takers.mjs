@@ -22,7 +22,9 @@
 // cores, a rail's success rate under `min_success` (over its last 50 trades), the in-tree trade's
 // p95 time over `max_tree_p95_ms` (the operator's co-signing is most of it), or the wallet probe
 // (a person's trade, through the public wallet-facing maker, every `probe_seconds`) slower by more
-// than `max_probe_worse_ms` than at the first step.
+// than `max_probe_worse_ms` than at the first step. While the operator's finality waits on the
+// Bitcoin anchor (`chain`), the in-tree rail and the probe make no trade and the ramp holds (a
+// pause, never a step back); Lightning and the chain need no Arca finality and trade on.
 //
 //   node makers/volume-takers.mjs --config /etc/sequentia/volume-takers.json [--dry-run]
 //
@@ -61,6 +63,7 @@ const trades = []   // {t, pair, rail, side, usd, ok, ms, err}
 const tradesFile = path.join(STATE, 'trades.jsonl')
 const record = (r) => { trades.push(r); fs.appendFileSync(tradesFile, JSON.stringify(r) + '\n') }
 let busySkipped = { tree: 0, pln: 0, onchain: 0 }
+let pausedSkipped = 0   // in-tree trades not made while the operator's finality waited on the anchor
 const inFlight = { tree: 0, pln: 0, onchain: 0 }
 const pct = (xs, p) => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))] }
 
@@ -130,6 +133,10 @@ let step = 0, stepStarted = now(), cleanSince = now(), holdReason = null, probeB
 const probes = []
 function launch (pair) {
   const rail = pickRail(pair)
+  // an in-tree trade waits for the operator's finality; Lightning and the chain do not, so they
+  // go on at their own share while the anchor holds it (the share of the tree is not moved onto
+  // them: each rail keeps the pace the mix gives it)
+  if (rail === 'tree' && chainWait) { pausedSkipped++; return }
   if (inFlight[rail] >= (LIMIT[rail] || 1)) { busySkipped[rail]++; return }
   const side = pickSide(pair), usd = pickUsd()
   inFlight[rail]++
@@ -141,7 +148,8 @@ function launch (pair) {
 }
 
 // ---- the operator's finality (cfg.chain: its /v1/chain): while it waits on the Bitcoin anchor
-// the ramp holds where it is, a pause and not a fault, and it never steps back for it
+// the in-tree rail makes no trade, and the ramp holds where it is, a pause and not a fault, never
+// stepping back for it; the Lightning and on-chain rails, which need no Arca finality, trade on
 let chainWait = null
 async function readChain () {
   if (!cfg.chain) return
@@ -163,7 +171,7 @@ function rules () {
   const tree = trades.filter((x) => x.rail === 'tree' && x.ok && x.t > now() - 15 * 60e3).map((x) => x.ms)
   const p95 = pct(tree, 0.95)
   if (tree.length >= 20 && p95 > RAMP.max_tree_p95_ms) broken.push(`in-tree p95 ${p95} ms`)
-  if (chainWait) broken.push(`PAUSE: the operator's finality waits on ${chainWait}`)
+  if (chainWait) broken.push(`PAUSE (in-tree only): the operator's finality waits on ${chainWait}`)
   const lastProbes = probes.slice(-3).filter((x) => x.ok).map((x) => x.ms)
   if (probeBase != null && lastProbes.length && Math.min(...lastProbes) > probeBase + RAMP.max_probe_worse_ms) broken.push(`a wallet's trade ${Math.min(...lastProbes)} ms, ${probeBase} ms at the first step`)
   return broken
@@ -184,6 +192,7 @@ function rampTick () {
 }
 async function probe () {
   const p = cfg.probe; if (!p) return
+  if (chainWait) return   // the probe is an in-tree trade
   const t0 = now()
   try {
     const usd = p.usd || 20, side = probes.length % 2 ? 'sell' : 'buy'
@@ -212,7 +221,8 @@ function summary () {
       busy_skipped: busySkipped[rail], in_flight: inFlight[rail], top_errors: topErrors(r) }
   }
   const s = { at: new Date().toISOString(), step, share: RAMP.steps[step], hold: holdReason, load: os.loadavg().map((x) => +x.toFixed(2)), cores: os.cpus().length,
-    probe_ms: probes.slice(-3).map((x) => (x.ok ? x.ms : 'failed')), probe_base_ms: probeBase, pairs: per, rails, dry_run: DRY }
+    probe_ms: probes.slice(-3).map((x) => (x.ok ? x.ms : 'failed')), probe_base_ms: probeBase, pairs: per, rails,
+    paused: chainWait, tree_skipped_paused: pausedSkipped, dry_run: DRY }
   fs.writeFileSync(path.join(STATE, 'summary.json'), JSON.stringify(s, null, 1))
   fs.writeFileSync(path.join(STATE, 'ramp.json'), JSON.stringify({ step, stepStarted, cleanSince, probeBase }))
   const tot = Object.values(per).reduce((a, x) => a + x.usd1h, 0)
@@ -243,8 +253,6 @@ let stopping = false
 for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { stopping = true; summary(); log('stopping: in-flight trades finish on their own'); setTimeout(() => process.exit(0), 2000) })
 const TICK = 250
 while (!stopping) {
-  // paused while the operator's finality waits on the anchor: no new trade, the ramp held
-  if (chainWait) { await sleep(TICK); continue }
   const share = RAMP.steps[step]
   for (const pair of PAIRS) {
     const target = (pair.usd_per_day ?? cfg.usd_per_day_per_pair) * share

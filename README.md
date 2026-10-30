@@ -449,8 +449,12 @@ box's load average over a share of its cores; a rail's success rate under 98%;
 the in-tree trade's p95 time over its bound; or the wallet probe (a person's
 trade, through the public wallet-facing maker, every five minutes) slower by more
 than a second than at the first step. While the operator's finality waits on
-the Bitcoin anchor (`chain` names its `/v1/chain`), the takers make no trade and
-the ramp holds where it is (`HOLD PAUSE`), never stepping back for it. The configuration names the assets, the
+the Bitcoin anchor (`chain` names its `/v1/chain`), the in-tree rail makes no
+trade (an in-tree trade waits on that finality; the wallet probe is one), the
+Lightning and on-chain rails trade on at their own share, which needs none, and
+the ramp holds where it is (`HOLD PAUSE (in-tree only)`), never stepping back
+for it. The summary counts the in-tree trades the pause held back
+(`tree_skipped_paused`). The configuration names the assets, the
 pairs and their targets, the mix, each rail's concurrency, the sizes, the ramp,
 the takers' wallets and the crosser's command line. The takers' coins come from
 their own wallets, which the health pass refills.
