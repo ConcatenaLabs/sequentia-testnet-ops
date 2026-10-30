@@ -50,7 +50,13 @@ htlc_settlement_poll_interval = "60s"
 track_all_base_delay = "1s"
 max_track_all_delay = "60s"
 htlc_expiry_delta = 40
-htlc_send_expiry_delta = 100
+# A payment out of the ark may lock up to this many blocks. Another Bark
+# ark's receive invoice asks a final lock of twice its vtxo_exit_delta and its
+# htlc_expiry_delta (184 blocks with these settings), so paying it over a
+# channel or two needs well over that; at 100 such a payment finds no route.
+# 258 is also the delta arcad's send timeout is sized for (arca's
+# server/arcad.example.toml, [lightning]).
+htlc_send_expiry_delta = 258
 max_user_invoice_cltv_delta = 250
 invoice_expiry = "48h"
 receive_htlc_forward_timeout = "3min"
