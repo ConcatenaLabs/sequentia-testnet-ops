@@ -549,7 +549,10 @@ start was measured above 6.5 GB, and above `MemoryHigh` the kernel throttles a
 process hard enough that its calls hang, so the limits sit well above that peak;
 they keep a runaway (29-45 GB were seen) from starving the nodes and the Arca
 operator that share the box. The health pass says when it is throttled
-(`MEMORY THROTTLED`). A restart costs Ocean its startup rescan and
+(`MEMORY THROTTLED`), when it holds more than half its file-descriptor limit
+open (`FILE DESCRIPTORS HIGH`), and when it is resident past 8 GB (`MEMORY
+HIGH`): either is a leak, hours before it stops answering (`HEALTH_LEAK_UNITS`
+names the units and their sizes, `unit:MB`). A restart costs Ocean its startup rescan and
 nothing else.
 
 ```sh
