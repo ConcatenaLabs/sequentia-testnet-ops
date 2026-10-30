@@ -98,7 +98,10 @@ export async function run ({ b, report, widths, funded, problems }) {
       await h.type('#recvAmt', '0.0001')
       const ok = await h.waitFor("/amount=0\\.0001/.test(document.querySelector('#addr').textContent) && /lightning=/.test(document.querySelector('#addr').textContent)", 60000).then(() => true, () => false)
       const code = await h.text('#addr'); await h.type('#recvAmt', '')
-      return { ok, detail: code.replace(/(lightning=)\w{12}\w*/, '$1…').slice(0, 140) }
+      // The code is drawn again without the amount a moment after the field empties: the next line
+      // reads Receive as a person leaves it, not mid-redraw.
+      await h.waitFor("!/lightning=/i.test(document.querySelector('#addr').textContent)", 15000).catch(() => {})
+      return { ok, detail: code.replace(/(lightning=)\w{12}\w*/i, '$1…').slice(0, 140) }
     })
     if (words) await R('RCV-WORDS', w, 'Receive says none of the words default mode never says', h, async () => {
       const f = forbiddenIn(await h.text('section[data-panel=receive]'), words); return { ok: !f.length, detail: f }
