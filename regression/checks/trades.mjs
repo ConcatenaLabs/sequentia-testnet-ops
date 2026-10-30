@@ -18,6 +18,9 @@ const WALLET = 'https://sequentiatestnet.com/wallet/'
 const DEX = 'https://sequentiatestnet.com/dex/'
 export const BOUND_MS = 60000
 const REVIEW_MS = 60000
+// A purchase paid with BTC from the Bitcoin ark reads "Received" within BOUND_MS and "Settled" once
+// the trade's Bitcoin side is final: the next Bitcoin blocks (about 10 minutes each on testnet4).
+export const SETTLE_MS = 60 * 60000
 
 // The Trade tab: what is paid, what is received, the amount paid.
 const TAB_TRADES = [
@@ -95,7 +98,8 @@ async function tabTrade (h, pay, get, amount) {
   const row = await h.eval("((document.querySelector('#userComposerRoot #ucTrades .uc-trade')||{}).innerText||'').replace(/\\s+/g,' ')")
   const note = await h.text('#userComposerRoot #ucNote')
   const secs = ((Date.now() - tC) / 1000).toFixed(1)
-  if (done && !/^Returned/.test(done)) return { ok: true, detail: `${amount} ${pay} → ${get}: ${done} after ${secs} s (ticket in ${((tC - t0) / 1000).toFixed(1)} s)` }
+  const trade = await h.eval("((document.querySelector('#userComposerRoot #ucTrades .uc-trade')||{}).dataset||{}).trade||null")
+  if (done && !/^Returned/.test(done)) return { ok: true, trade, detail: `${amount} ${pay} → ${get}: ${done} after ${secs} s (ticket in ${((tC - t0) / 1000).toFixed(1)} s)` }
   return { ok: false, detail: `${amount} ${pay} → ${get}: after ${secs} s the trade reads "${row || 'no row'}"${note ? '; ' + note : ''}`, at: '#userComposerRoot #ucTrades' }
 }
 
@@ -145,9 +149,12 @@ export async function run ({ b, report, trader }) {
     if (!r.ok && bought.get(key) === false && /You have no \S+ to trade|in the chooser/.test(String(r.detail))) return { skip: 'the purchase before it did not trade, and the wallet holds none: ' + r.detail }
     return r
   }
+  let arkPurchase = null   // the purchase paid with BTC from the Bitcoin ark: { trade, t }
   for (const [id, pay, get, amount] of TAB_TRADES) {
     const line = `The Trade tab trades ${amount} ${pay} for ${get} within ${BOUND_MS / 1000} s`
-    const ok = await report.line('WW-TRADE-' + id, 'desktop', line, wp, unlessUnbought('WW-' + pairOf(id), () => tabTrade(w, pay, get, amount).catch((e) => ({ ok: false, detail: String(e && e.message || e) }))))
+    const ok = await report.line('WW-TRADE-' + id, 'desktop', line, wp, unlessUnbought('WW-' + pairOf(id), () => tabTrade(w, pay, get, amount)
+      .then((r) => { if (r.ok && pay === 'BTC' && r.trade) arkPurchase = { trade: r.trade, t: Date.now() }; return r })
+      .catch((e) => ({ ok: false, detail: String(e && e.message || e) }))))
     if (id.endsWith('-BUY')) bought.set('WW-' + pairOf(id), !!ok)
     await sleep(3000)
   }
@@ -172,4 +179,20 @@ export async function run ({ b, report, trader }) {
     if (id.endsWith('-BUY')) bought.set('DX-' + pairOf(id), !!ok)
     await sleep(3000)
   }
+  // The purchase paid with BTC from the Bitcoin ark reaches Settled, not only Received (#98): the
+  // wallet page stays open, as a person's would, and its row is read until it settles.
+  const settleLine = `A purchase paid with BTC from the Bitcoin ark reaches Settled within ${SETTLE_MS / 60000} min`
+  if (!arkPurchase) { report.skip('WW-TRADE-BTC-ARK-SETTLED', 'desktop', settleLine, 'the BTC purchase above did not trade'); return }
+  await w.click('[data-tab=swap]').catch(() => {})
+  await report.line('WW-TRADE-BTC-ARK-SETTLED', 'desktop', settleLine, wp, async () => {
+    const q = `(()=>{ const d=document.querySelector('#userComposerRoot #ucTrades .uc-trade[data-trade=${JSON.stringify(JSON.stringify(arkPurchase.trade)).slice(1, -1)}]'); return d ? d.dataset.state+' '+((d.querySelector('.uc-state')||{}).textContent||'') : 'gone' })()`
+    let st = ''
+    while (Date.now() - arkPurchase.t < SETTLE_MS) {
+      st = await w.eval(q).catch(() => st)
+      if (/^(settled|returned|failed) /.test(st)) break
+      await sleep(15000)
+    }
+    const mins = ((Date.now() - arkPurchase.t) / 60000).toFixed(1)
+    return { ok: /^settled /.test(st), detail: `after ${mins} min the trade reads "${st.replace(/^\S+ /, '')}" (${st.split(' ')[0]})`, at: '#userComposerRoot #ucTrades' }
+  })
 }

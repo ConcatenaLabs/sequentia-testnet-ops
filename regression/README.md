@@ -60,7 +60,9 @@ a small market purchase then the sale of what it bought, first in the web wallet
 on SeqDEX's market page through the same wallet open in another tab. Each must be done within 60
 seconds of the confirmation (the Trade tab saying what was bought is received, SeqDEX saying it
 traded), or the line fails with what the page says then: a refusal, a trade still waiting, or no
-answer. One run spends about 60 USDX through the books, most of it bought back, plus fees.
+answer. The Trade tab's sale of BTC, paid from the Bitcoin ark, is also followed
+to "Settled" with the wallet left open, for up to an hour after it was received
+(`WW-TRADE-BTC-ARK-SETTLED`), which makes the surface take up to an hour longer. One run spends about 60 USDX through the books, most of it bought back, plus fees.
 
 The wallet holds USDX in its default mode; the rest it buys. Make it as the funded wallet is made,
 under the name `rgtrader`, and top it up with USDX from its Receive tab's faucet or from
