@@ -12,16 +12,21 @@ export async function run ({ report, cache }) {
   const R = (id, line, fn) => report.line('AM-' + id, 'source', line, null, async () => fn())
   const composer = src('screens/user_composer.dart'), send = src('screens/send_screen.dart'), shell = src('screens/shell.dart')
   const picker = src('data/asset_picker.dart'), words = src('data/default_words.dart'), history = src('screens/history_screen.dart')
+  const engine = src('data/user_trade.dart'), market = src('data/market_view.dart') + src('widgets/market_view.dart')
 
   await R('TRD-SEARCH', 'Trade (default mode): the pickers are searchable, take a pasted id and leave hidden assets out (showAssetSheet)', () => {
     const plain = /DropdownButton<String>\(/.test(composer); const sheet = /showAssetSheet\(/.test(composer)
     return { ok: sheet && !plain, detail: plain ? 'user_composer.dart: _picker is a plain DropdownButton (ucPay, ucGet)' : { sheet } }
   })
   await R('TRD-AMOUNTS', 'Trade (default mode): an amount in You pay shows what You receive, and the other way', () => {
-    const n = (composer.match(/TextField\(/g) || []).length; return { ok: n >= 2, detail: `${n} amount field(s) in user_composer.dart` }
+    // Two amount fields, the receive one included, and the engine's two-way estimate behind them.
+    const fields = /ValueKey\('ucAmount'\)|'ucAmount'/.test(composer) && /'ucReceive'/.test(composer)
+    const est = /engine\.estimate\(/.test(composer) && /receiveAtoms/.test(composer) && /Future<Estimate> estimate\(/.test(engine)
+    return { ok: fields && est, detail: fields && est ? '' : `fields ${fields}, two-way estimate ${est} (user_composer.dart, user_trade.dart)` }
   })
   await R('TRD-MARKET', 'Trade (default mode): the pair\'s market (last price, 1D 1W 1M chart, best bid and ask, recent trades)', () => {
-    const ok = /'1D'/.test(composer) && /Best bid/.test(composer + src('data/user_trade.dart')); return { ok, detail: ok ? '' : 'no market view in user_composer.dart' }
+    const ok = /MarketView\(/.test(composer) && /'1D'/.test(market) && /Best bid/.test(market) && /Recent trades/.test(market) && /CustomPainter/.test(market)
+    return { ok, detail: ok ? '' : 'no market view in user_composer.dart (data/market_view.dart, widgets/market_view.dart)' }
   })
   await R('SND-PICKER', 'Send: a searchable asset sheet, BTC first, held first, hidden left out, a pasted id found', () => {
     const ok = /showAssetSheet\(/.test(send) && /registrySearch:\s*true/.test(send) && /isHidden\(/.test(send) && /BTC/.test(picker) && /hidden/.test(picker)
