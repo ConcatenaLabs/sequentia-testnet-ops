@@ -61,6 +61,9 @@ def assets_of(path):
 
 def price(feed, key):
     v = feed.get(key)
+    # A price the feed dates (as_of) more than ten minutes ago is its source's last answer: no price.
+    if isinstance(v, dict) and not v.get("static") and v.get("as_of") and time.time() - float(v["as_of"]) > 600:
+        return None
     v = v.get("price") if isinstance(v, dict) else v
     try:
         v = float(v)

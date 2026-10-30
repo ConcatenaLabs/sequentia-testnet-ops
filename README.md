@@ -367,7 +367,10 @@ Every maker of the on-chain book follows one rule, so that the book every wallet
 shows (covenant, resting, interactive and cross-chain offers, both orientations
 of a pair taken together) is never crossed by its makers:
 
-- **One feed.** Prices come from the box's price server (`/prices`, port 8088).
+- **One feed.** Prices come from the box's market-data feed (`/prices`, port 8088;
+  Caddy serves the same values publicly through the :8080 app). Each ticker carries
+  `as_of`, the time of the reading it serves, and a maker takes a price more than ten
+  minutes old as no price: its pair is not quoted until the feed reads its source again.
 - **Never through the book.** Before it quotes, a maker reads the pair's best bid
   and ask from the relay's ticker (`/v1/market/<base>/<quote>/ticker`, every
   rail, both orientations, liftable offers only). It never asks at or below the

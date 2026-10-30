@@ -65,17 +65,20 @@ is_atoms() { [[ $1 =~ ^[1-9][0-9]*$ ]]; }
 # TOUCH_BPS to the maker's side and kept GUARD_BPS clear of the book's best price on the
 # other side (an ask at least best bid * (1 + GUARD_BPS), a bid at most best ask *
 # (1 - GUARD_BPS), from the relay's ticker, in quote atoms per base atom); nothing when
-# the feed lacks either price. A ticker that does not answer leaves the feed's price.
+# the feed lacks either price, or dates it (as_of) more than ten minutes ago. A ticker that
+# does not answer leaves the feed's price.
 price_pair() { # baseKey basePrec quoteKey quotePrec side usd baseId quoteId
   local feed ticker
   feed=$(curl -sf -m 10 "$FEED") || return 1
   ticker=$(curl -sf -m 10 "$RELAY/v1/market/$7/$8/ticker" 2>/dev/null || echo '{}')
   python3 -c '
-import json, math, sys
+import json, math, sys, time
 d, t = json.loads(sys.argv[1]), json.loads(sys.argv[2] or "{}")
 bk, bp, qk, qp, side, usd, touch, guard = sys.argv[3], int(sys.argv[4]), sys.argv[5], int(sys.argv[6]), sys.argv[7], float(sys.argv[8]), float(sys.argv[9]), float(sys.argv[10])
 def px(k):
     v = d.get(k)
+    if isinstance(v, dict) and not v.get("static") and v.get("as_of") and time.time() - float(v["as_of"]) > 600:
+        return 0.0
     v = v.get("price") if isinstance(v, dict) else v
     return float(v)
 b, q = px(bk), px(qk)

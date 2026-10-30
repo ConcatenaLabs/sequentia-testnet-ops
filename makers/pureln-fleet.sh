@@ -29,8 +29,9 @@ export PLN_ASOCK=$ASOCK PLN_BSOCK=$BSOCK
 # does not answer.
 refresh_prices() { local p; p=$(curl -sf -m 10 "$FEED") && PRICES=$p; }
 
-# The price of a ticker, or 0 when the feed does not carry it.
-px() { echo "$PRICES" | python3 -c "import json,sys; d=json.load(sys.stdin); v=d.get(\"$1\") or d.get(\"t$1\") or 0; print(v[\"price\"] if isinstance(v,dict) else v)" 2>/dev/null; }
+# The price of a ticker, or 0 when the feed does not carry it or dates it (as_of) more than ten
+# minutes ago (a last answer kept while the feed is down ages the same way).
+px() { echo "$PRICES" | python3 -c "import json,sys,time; d=json.load(sys.stdin); v=d.get(\"$1\") or d.get(\"t$1\") or 0; old=isinstance(v,dict) and not v.get(\"static\") and v.get(\"as_of\") and time.time()-float(v[\"as_of\"])>600; print(0 if old else (v[\"price\"] if isinstance(v,dict) else v))" 2>/dev/null; }
 is_positive() { python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) > 0 else 1)" "$1" 2>/dev/null; }
 is_atoms() { [[ $1 =~ ^[1-9][0-9]*$ ]]; }
 
