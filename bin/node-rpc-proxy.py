@@ -66,6 +66,11 @@ def is_flag(v):
     return isinstance(v, bool) or (is_uint(v) and v in (0, 1))
 
 
+def is_address(v):
+    # One address as a person typed or pasted it: bech32, blech32 or base58.
+    return isinstance(v, str) and re.match(r"^[0-9A-Za-z]{14,120}$", v) is not None
+
+
 def descriptors(v):
     # Single scripts only, as the wallet asks: raw(<hex>) or addr(<address>).
     # A ranged descriptor (an xpub with a range) would have the node derive
@@ -108,6 +113,9 @@ ALLOWED = {
     "getmempoolinfo": shape(),
     "scantxoutset": shape(lambda v: v == "start", descriptors),
     "decodescript": shape(lambda v: is_hex(v, 20000)),
+    "validateaddress": shape(is_address),  # an address the person gave: a payment, an offboard, a claim
+    "getsupervisedassets": shape(),  # assets whose issuer can freeze holdings
+    "isassetfrozen": shape(is_hash, lambda v: is_hex(v, 20000)),  # a supervised asset and one script
     "getanchorstatus": shape(),
     "getfeeexchangerates": shape(),
     "dumpassetlabels": shape(),  # the node's rates are keyed by label

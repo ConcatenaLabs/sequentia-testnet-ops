@@ -44,6 +44,19 @@ export async function run ({ b, report, widths, funded, problems }) {
   await setWidth(b, page, widths[0])
   await openWallet(b, h)
   const joined = await waitCode(h)
+  // The node calls the leaf wallet makes to read an address a person gives it (a payment from
+  // leaves, an offboard, a claim) and to tell a supervised asset from a plain one, asked of the
+  // page's own node route as the wallet asks them.
+  await R('NODE-READS', null, 'The node route answers the wallet\'s address and supervised-asset reads', h, async () => {
+    const r = await h.eval(`(async()=>{const call=(method,params)=>fetch('/node-rpc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({method,params,id:1})}).then(r=>r.json());
+      const v=await call('validateaddress',['tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx']);
+      const s=await call('getsupervisedassets',[]);
+      const a=(Array.isArray(s.result)&&s.result[0]&&s.result[0].asset)||'0'.repeat(64);
+      const f=await call('isassetfrozen',[a,'0014'+'11'.repeat(20)]);
+      return {validateaddress:v.error?v.error.message:(v.result&&v.result.isvalid),getsupervisedassets:s.error?s.error.message:s.result.length+' assets',isassetfrozen:f.error?f.error.message:f.result}})()`)
+    const refused = (x) => typeof x === 'string' && /not allowed here/.test(x)
+    return { ok: r.validateaddress === true && !refused(r.getsupervisedassets) && !refused(r.isassetfrozen), detail: r }
+  })
   for (const w of widths) {
     await setWidth(b, page, w); await sleep(800)
     await tab(h, 'balance')
