@@ -111,6 +111,9 @@ function errText (msg) {
   return m.length > 600 ? m.slice(0, 200) + ' ... ' + m.slice(-395) : m
 }
 
+// The smallest in-tree trade a wallet is asked for when it cannot pay the size drawn.
+const MIN_TREE_USD = 50
+
 // One trade: `side` buy = the taker gets the base; usd its size.
 async function trade (pair, rail, side, usd) {
   const b = ASSETS[pair.base], q = ASSETS[pair.quote]
@@ -118,12 +121,32 @@ async function trade (pair, rail, side, usd) {
   if (!pb || !pq) throw new Error('no price in the feed')
   if (DRY) { await sleep(rail === 'pln' ? 200 : rail === 'tree' ? 3000 : 1500); if (Math.random() < (cfg.dry_fail || 0.005)) throw new Error('dry-run failure'); return {} }
   if (rail === 'tree') {
-    const w = wallets.find((x) => !x.busy); if (!w) throw new Error('no idle wallet')
-    w.busy = true
+    const idle = wallets.filter((x) => !x.busy); if (!idle.length) throw new Error('no idle wallet')
+    // Each wallet pays with what it holds: random sides drain a wallet of the asset they keep
+    // paying (it then answered "no-funds" a third of the time), so the side drawn is taken when a
+    // wallet can pay it, else the other side, which trades the wallet back toward balance; with
+    // neither, the largest trade one side can pay, at least MIN_TREE_USD.
+    const legs = { buy: [q, pq, b], sell: [b, pb, q] }
+    const atomsOf = (t, p, v) => Math.max(1, Math.round(v / p * 10 ** t.precision))
+    let pick = null
+    for (const w of idle) {
+      const live = (await fetch(w.url + '/balance', { method: 'POST', body: '{}', signal: AbortSignal.timeout(30000) }).then((r) => r.json()).catch(() => ({}))).live || {}
+      const has = (t) => Number(BigInt(live[t.id] || 0)) / 10 ** t.precision
+      for (const s of [side, side === 'buy' ? 'sell' : 'buy']) {
+        const [payT, payPx] = legs[s]
+        const can = has(payT) * payPx * 0.98
+        if (can >= usd) { pick = { w, s, usd }; break }
+        if (!pick && can >= MIN_TREE_USD) pick = { w, s, usd: can }
+      }
+      if (pick && pick.usd === usd) break
+    }
+    if (!pick) throw new Error('no-funds: no idle wallet holds $' + MIN_TREE_USD + ' of ' + pair.base + ' or ' + pair.quote)
+    const [payT, payPx, recvT] = legs[pick.s]
+    pick.w.busy = true
     try {
-      const [pay, receive, payT, payPx] = side === 'buy' ? [q.id, b.id, q, pq] : [b.id, q.id, b, pb]
-      return await walletTrade(w.url, pay, receive, Math.max(1, Math.round(usd / payPx * 10 ** payT.precision)))
-    } finally { w.busy = false }
+      const r = await walletTrade(pick.w.url, payT.id, recvT.id, atomsOf(payT, payPx, pick.usd))
+      return { ...r, side: pick.s, usd: pick.usd }
+    } finally { pick.w.busy = false }
   }
   const atoms = Math.max(1, Math.round(usd / pb * 10 ** b.precision))
   return crosserTake(pair, side, atoms, rail === 'pln' ? 'pureln' : 'covenant,samechain')
@@ -157,7 +180,7 @@ function launch (pair) {
   inFlight[rail]++
   const t0 = now()
   trade(pair, rail, side, usd).then(
-    (r) => record({ t: t0, pair: pair.key, rail, side, usd: Math.round(usd * 100) / 100, ok: true, ms: now() - t0, family: r.family }),
+    (r) => record({ t: t0, pair: pair.key, rail, side: r.side || side, usd: Math.round((r.usd || usd) * 100) / 100, ok: true, ms: now() - t0, family: r.family }),
     (e) => record({ t: t0, pair: pair.key, rail, side, usd: Math.round(usd * 100) / 100, ok: false, ms: now() - t0, err: errText(e.message) }),
   ).finally(() => { inFlight[rail]-- })
 }

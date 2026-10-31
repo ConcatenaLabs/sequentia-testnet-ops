@@ -438,7 +438,7 @@ and charts read.
 
 | Rail | How a trade is made |
 |---|---|
-| `tree` | an in-tree swap through a headless wallet running the wallets' own composer engine (sequentia-web-wallet `tooling/user-mode-wallet.mjs`, `POST /trade`, units `seqob-volume-wallet@<port>`), against the agents' leaf maker `leaf-maker-agents.service` (127.0.0.1:9977), so a person's trade never queues behind theirs. That maker signs its trade reports with the public leaf maker's relay key (a copy of its `rest-offer.key`), which the relay already lists, so its trades reach the trade log with no change to the relay; it rests no orders, so the key signs nothing else for it |
+| `tree` | an in-tree swap through a headless wallet running the wallets' own composer engine (sequentia-web-wallet `tooling/user-mode-wallet.mjs`, `POST /trade`, units `seqob-volume-wallet@<port>`), against the agents' leaf maker `leaf-maker-agents.service` (127.0.0.1:9977), so a person's trade never queues behind theirs. That maker signs its trade reports with the public leaf maker's relay key (a copy of its `rest-offer.key`), which the relay already lists, so its trades reach the trade log with no change to the relay; it rests no orders, so the key signs nothing else for it. Each trade pays with what a wallet holds: the side drawn when an idle wallet can pay it, else the other side (which trades the wallet back toward balance), else the largest trade one side can pay, at least $50 |
 | `pln` | a pure-Lightning swap: `seqob-crosser -take … -take-families pureln` |
 | `onchain` | a covenant fill or an interactive lift: `seqob-crosser -take … -take-families covenant,samechain` |
 
