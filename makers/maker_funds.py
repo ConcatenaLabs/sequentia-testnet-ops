@@ -431,10 +431,13 @@ def cmd_fund(a):
     # What the sources sent that is not in a block yet, by address and asset: a consumer paid at an
     # address counts it as held, so a pass run before the last one's payment confirms pays nothing
     # twice (a scan of the chain's unspent outputs does not see the mempool).
+    # Every transaction the wallet has not seen in a block (listsinceblock from the tip), however
+    # many it made since: a window of its latest can miss one, which was then paid again.
     in_flight = {}
     for w0, n0 in sources:
         try:
-            for tx in rpc(n0, "listtransactions", ["*", 500], w0):
+            tip = rpc(n0, "getbestblockhash", [])
+            for tx in rpc(n0, "listsinceblock", [tip], w0).get("transactions", []):
                 if tx.get("category") == "send" and tx.get("confirmations", 1) == 0 and tx.get("address"):
                     k = (tx["address"], tx.get("asset"))
                     in_flight[k] = in_flight.get(k, 0) + int(round(abs(float(tx["amount"])) * NODE_ATOMS))
@@ -772,12 +775,18 @@ def btc_going_rate(cli, floor=30.0, cap=500.0, api=TESTNET4_FEE_API):
 def btc_inflight(cli, wallet, label, min_conf=3):
     """The live payments from `wallet` to addresses labelled `label` (a bump keeps the address)
     with fewer than `min_conf` confirmations: a replaced one is skipped, its replacement counted;
-    a just-confirmed one counts until its receiver has surely read the block.
+    a just-confirmed one counts until its receiver has surely read the block. Read by the label:
+    the newest transactions of a busy wallet (the cross makers' HTLC locks) push a payment out of
+    any window of the wallet's latest, and a payment not seen was paid again. So every transaction
+    since the block min_conf - 1 below the tip is read (listsinceblock: those blocks and the
+    mempool, however many); listtransactions' own label filter returns only incoming ones.
     [(txid, sats, sat/vB or 0 when not in the mempool, confirmations)]"""
-    r = subprocess.run(cli.split() + ["-rpcwallet=" + wallet, "-named", "listtransactions", "count=1000"],
-                       capture_output=True, text=True, timeout=120, check=True)
+    def call(*args):
+        return subprocess.run(cli.split() + list(args), capture_output=True, text=True, timeout=120, check=True).stdout.strip()
+    since = call("getblockhash", str(max(0, int(call("getblockcount")) - min_conf + 1)))
+    r = json.loads(call("-rpcwallet=" + wallet, "listsinceblock", since))
     out = {}
-    for t in json.loads(r.stdout):
+    for t in r.get("transactions", []):
         if (t.get("category") != "send" or t.get("label") != label or not 0 <= t.get("confirmations", 0) < min_conf
                 or t.get("abandoned") or t.get("replaced_by_txid")):
             continue
