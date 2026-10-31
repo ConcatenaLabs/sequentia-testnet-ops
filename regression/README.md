@@ -2,7 +2,9 @@
 
 Checks, after every deploy, that each thing a person can do on the testnet's user-facing surfaces
 still works: the web wallet in default and developer mode, SeqDEX, Ambra browser, and Ambra mobile
-from its source, and that trading itself works. [`CAPABILITIES.md`](CAPABILITIES.md) lists every line and the rule it holds a
+from its source, that trading itself works, and that the public pages around the web wallet (the
+front page, the faucet page, Compages, the explorer, the staking pools, the Core download and
+Emissio's report scopes) meet a new tester as they should. [`CAPABILITIES.md`](CAPABILITIES.md) lists every line and the rule it holds a
 surface to; the rules of default mode are in the web wallet's
 [`docs/DEFAULT_MODE.md`](https://github.com/ConcatenaLabs/sequentia-web-wallet/blob/main/docs/DEFAULT_MODE.md).
 
@@ -20,7 +22,9 @@ About 25 minutes. It needs Node 22 and a Chromium: Playwright's under `~/.cache/
 checks, which takes a slow or far link out of the timings), the browser runs without Chromium's
 sandbox, which refuses root. Options:
 
-- `--only web-wallet,seqdex,ambra-browser,ambra-mobile,trades,levo`: some surfaces only.
+- `--only web-wallet,seqdex,ambra-browser,ambra-mobile,trades,levo,public-pages`: some surfaces only.
+- `SITE_URL=<url>` (environment): the public-pages lines against another front door, such as a
+  local build of the pages before a deploy.
 - `--widths desktop,phone`: desktop is 1440 px, phone 390 px on a touch screen.
 - `--funded <file>`: the funded test wallet's phrase (default
   `~/.local/share/sequentia-regression/wallets/rgfunded.phrase`). Without it, the lines that need
