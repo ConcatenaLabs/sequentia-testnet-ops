@@ -1,3 +1,5 @@
 {
-  "_": "Lines known to fail, each with what lost it (or that it was never built) and who is on it. A known line still fails the run; this only says why. Remove an entry when its line passes."
+  "_": "Lines known to fail, each with what lost it (or that it was never built) and who is on it. A known line still fails the run; this only says why. Remove an entry when its line passes.",
+  "WW-LNARK-WORDS": "built (web wallet #417 and #422, Ambra browser #115) and not yet deployed: the web wallet serves it once ww1_2_deploy.sh runs on the box (WW1)",
+  "AB-LNARK-SAME": "built (web wallet #417 and #422, Ambra browser #115) and not yet deployed: the web wallet serves it once ww1_2_deploy.sh runs on the box (WW1)"
 }
