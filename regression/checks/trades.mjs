@@ -108,6 +108,11 @@ async function tabTrade (h, pay, get, amount) {
     const slow = tC - t0 > TICKET_MS
     return { ok: !slow, trade, detail: `${amount} ${pay} → ${get}: ${done} after ${secs} s (ticket in ${ticketS} s${slow ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''})` }
   }
+  // No row of its own yet: the top row is an earlier trade's, and is not reported as this one's.
+  const rows1 = await h.eval("document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade').length")
+  if (!(rows1 > rows0)) {
+    return { ok: false, detail: `${amount} ${pay} → ${get}: confirmed, and after ${secs} s the trade is not in the list yet${note ? ': ' + note : ''}`, at: '#userComposerRoot #ucTrades' }
+  }
   return { ok: false, detail: `${amount} ${pay} → ${get}: after ${secs} s the trade reads "${row || 'no row'}"${note ? '; ' + note : ''}`, at: '#userComposerRoot #ucTrades' }
 }
 
