@@ -140,6 +140,7 @@ wallet connected).
 | AB-WORDS | use every tab without a forbidden word | Never in default mode |
 | AB-DEV-MODE | switch to developer mode (the address and every rail) and back | The principle |
 | AB-NO-ERRORS | use the popup without an uncaught error | (all) |
+| AB-LNARK-SAME | have a wallet from before move its Lightning balances to the Ark as the web wallet does (the same module) | BTC |
 
 Not checked yet: Ambra browser's approval window's Trade? and Place an order? (the trades
 surface trades through the web wallet); Stake; reveal and remove the phrase (the suite removes a wallet only to import the
@@ -166,6 +167,17 @@ funded one).
 
 Not checked here: everything at run time (pairing with SeqDEX, Send and Receive on a device, Stake,
 the site approvals). They need a phone or an emulator.
+
+## Lightning balances moved to the Ark, live
+
+From the `rglnmove` wallet (`checks/ln-to-ark.mjs`), a web wallet that holds balances in its own
+Lightning channels, as one made before default mode held its coins in the Ark does.
+
+| Id | A person can | Contract |
+|---|---|---|
+| WW-LNARK-WORDS | rely on the page to move such balances, in the contract's words | BTC |
+| WW-LNARK-MOVE | see what the channels held move by itself into what is sent in seconds, the figure held and "Moving <amount> <TICKER> so it can be sent in seconds." under it meanwhile | BTC |
+| WW-LNARK-CLOSED | find each emptied channel closed, or read in developer mode why it stays | BTC |
 
 ## Trading, live
 

@@ -22,7 +22,7 @@ About 25 minutes. It needs Node 22 and a Chromium: Playwright's under `~/.cache/
 checks, which takes a slow or far link out of the timings), the browser runs without Chromium's
 sandbox, which refuses root. Options:
 
-- `--only web-wallet,seqdex,ambra-browser,ambra-mobile,trades,levo,public-pages`: some surfaces only.
+- `--only web-wallet,seqdex,ambra-browser,ambra-mobile,trades,levo,public-pages,ln-to-ark`: some surfaces only.
 - `SITE_URL=<url>` (environment): the public-pages lines against another front door, such as a
   local build of the pages before a deploy.
 - `--widths desktop,phone`: desktop is 1440 px, phone 390 px on a touch screen.
@@ -32,6 +32,9 @@ sandbox, which refuses root. Options:
 - `--trader <file>`: the trader wallet's phrase (default
   `~/.local/share/sequentia-regression/wallets/rgtrader.phrase`). Without it, the trade lines are
   SKIP.
+- `--lnmove <file>`: the phrase of a wallet from before default mode, with balances in its own
+  Lightning channels (default `~/.local/share/sequentia-regression/wallets/rglnmove.phrase`).
+  Without it, the move's live line is SKIP.
 - `--out <dir>`: where the results go (default `~/.cache/sequentia-regression/runs/<time>`).
 - `--ext <dir>`: Ambra browser from this checkout instead of a fresh clone of its default branch,
   to run its lines against a branch before it merges.
@@ -73,6 +76,18 @@ The wallet holds USDX in its default mode; the rest it buys. Make it as the fund
 under the name `rgtrader`, and top it up with USDX from its Receive tab's faucet or from
 `treasury2026`. Its phrase stays on the laptop, mode 600, and is never committed.
 
+## The Lightning-to-Ark wallet
+
+The `ln-to-ark` surface opens a web wallet that holds BTC and an asset in its own hosted Lightning
+channels, as a wallet made before default mode held its coins in the Ark does, and watches it in
+default mode for up to 30 minutes: what the channels hold moves to the wallet's Bitcoin ark and
+the operator's tree by itself, the figure holds, "Moving <amount> <TICKER> so it can be sent in
+seconds." shows while it moves, and each emptied channel is closed or developer mode says why it
+stays. A run that passes empties the channels, so the next one says there is nothing to move
+(SKIP). To run it again, open the wallet in developer mode and Move to Lightning some BTC and an
+asset (the channel opens after a few testnet4 blocks). Keep the phrase as `rglnmove`, mode 600,
+never committed.
+
 ## What each part does
 
 | Path | What |
@@ -81,6 +96,7 @@ under the name `rgtrader`, and top it up with USDX from its Receive tab's faucet
 | `lib/suite.mjs` | Lines, results and screenshots; the widths; the page helpers; the words default mode never says, read from the deployed web wallet's `USER_MODE_FORBIDDEN_WORDS`. |
 | `checks/web-wallet.mjs` | The web wallet, a fresh wallet and the funded one, default and developer mode. |
 | `checks/seqdex.mjs` | SeqDEX's Markets, a pair's page, Portfolio, the wallet chooser, and Ambra browser connected once across pages. |
+| `checks/ln-to-ark.mjs` | A wallet from before default mode moving its own Lightning balances to the Ark: the words and the module on the page, then the move live from the `rglnmove` wallet. |
 | `checks/levo.mjs` | Levo's board and a sale's page: amounts in BTC, the switch to dollars, a sale paid over Lightning. Nothing is bought. `LEVO_URL` points it at another Levo, such as a local demo. |
 | `checks/ambra-browser.mjs` | Ambra browser's popup in default mode, a fresh wallet and the funded one imported. |
 | `checks/trades.mjs` | Live market purchases and sales from the trader wallet, in the Trade tab and on SeqDEX through the web wallet. |

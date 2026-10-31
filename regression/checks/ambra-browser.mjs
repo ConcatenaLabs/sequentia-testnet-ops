@@ -3,13 +3,25 @@
 // imported from its phrase. Nothing is sent or traded; Review is asked for and not confirmed.
 import { sleep, helpers, forbiddenWords, forbiddenIn, PICKER, SEARCH, CLOSE } from '../lib/suite.mjs'
 import { newExtensionWallet } from './seqdex.mjs'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const W = 'popup'
 const tab = async (h, t) => { await h.click(`.tabs [data-tab=${t}]`); await sleep(1500) }
 const rows = (h) => h.eval("[...document.querySelectorAll('#assetList .asset-row')].map(r=>({k:r.dataset.key, tk:(r.querySelector('.tk')||{}).innerText, fig:(r.querySelector('.fig')||{}).innerText}))")
 
-export async function run ({ b, report, funded, problems }) {
+export async function run ({ b, report, funded, problems, ext }) {
   const R = (id, line, h, fn) => report.line('AB-' + id, W, line, h && h.page, fn)
+  // The move of a wallet's own Lightning balances to the Ark is the web wallet's, copied: the same
+  // module, byte for byte, as the deployed page serves.
+  await R('LNARK-SAME', 'Moves Lightning balances to the Ark with the web wallet\'s own module, unchanged', null, async () => {
+    if (!ext || !ext.dir) return { skip: 'no checkout of Ambra browser' }
+    const mine = (() => { try { return readFileSync(join(ext.dir, 'vendor/lightning-to-ark.js'), 'utf8') } catch { return null } })()
+    if (mine == null) return { ok: false, detail: 'vendor/lightning-to-ark.js is missing' }
+    const r = await fetch('https://sequentiatestnet.com/wallet/lightning-to-ark.js', { cache: 'no-store' })
+    const live = r.ok ? await r.text() : null
+    return { ok: live === mine, detail: live == null ? 'the page serves no lightning-to-ark.js (HTTP ' + r.status + ')' : (live === mine ? 'identical' : 'they differ') }
+  })
   const pop = await newExtensionWallet(b)
   const h = helpers(pop)
   const words = await forbiddenWords(h).catch(() => null)
