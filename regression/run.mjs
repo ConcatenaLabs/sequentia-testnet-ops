@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The regression suite: every capability in CAPABILITIES.md, checked on the live testnet.
 //
-//   node regression/run.mjs [--only web-wallet,seqdex,ambra-browser,ambra-mobile,trades,levo,ln-to-ark]
+//   node regression/run.mjs [--only web-wallet,seqdex,ambra-browser,ambra-mobile,trades,levo,public-pages,ln-to-ark]
 //                           [--widths desktop,phone] [--funded <phrase file>]
 //                           [--trader <phrase file>] [--lnmove <phrase file>] [--out <dir>]
 //

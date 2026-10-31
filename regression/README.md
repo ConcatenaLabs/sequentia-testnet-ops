@@ -22,7 +22,7 @@ About 25 minutes. It needs Node 22 and a Chromium: Playwright's under `~/.cache/
 checks, which takes a slow or far link out of the timings), the browser runs without Chromium's
 sandbox, which refuses root. Options:
 
-- `--only web-wallet,seqdex,ambra-browser,ambra-mobile,trades,levo,public-pages`: some surfaces only.
+- `--only web-wallet,seqdex,ambra-browser,ambra-mobile,trades,levo,public-pages,ln-to-ark`: some surfaces only.
 - `SITE_URL=<url>` (environment): the public-pages lines against another front door, such as a
   local build of the pages before a deploy.
 - `--widths desktop,phone`: desktop is 1440 px, phone 390 px on a touch screen.
