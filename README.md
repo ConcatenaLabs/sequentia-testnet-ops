@@ -138,8 +138,11 @@ credential itself. Nothing links to the path.
   `scantxoutset`, which go one at a time; a batch carrying any other call is
   refused whole. The leaf wallet asks for what one check reads of all its
   coins in a batch, and makes the calls one by one where a batch is refused.
-- **Rate.** Each source (the address Caddy saw; an IPv6 /48) may make 20
-  calls a second, in bursts of 400, and all sources together 200 a second;
+- **Rate.** Each source (the address Caddy saw; an IPv6 /48) may make 60
+  calls a second, in bursts of 1,200, and all sources together 600 a second;
+  a leaf wallet reads two calls a block when it catches up with the chain, so
+  one that was away for hours catches up within the burst and one away for
+  days at what its own round trips allow;
   each call in a batch counts as one, and a batch is admitted whole or refused
   whole, taking nothing when it is refused, so a wallet that asks again gets
   through once the tokens it needs have gathered (`bin/node-rpc-proxy-limits-test.py`
