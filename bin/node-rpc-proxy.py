@@ -151,14 +151,21 @@ class Bucket:
     def __init__(self, rate, burst):
         self.rate, self.burst, self.tokens, self.at = rate, burst, float(burst), time.monotonic()
 
-    def take(self):
+    def refill(self):
         now = time.monotonic()
         self.tokens = min(self.burst, self.tokens + (now - self.at) * self.rate)
         self.at = now
-        if self.tokens >= 1:
-            self.tokens -= 1
-            return True
-        return False
+
+    def has(self, n):
+        self.refill()
+        return self.tokens >= n
+
+    def take(self, n=1):
+        """Takes `n` tokens, all of them or none."""
+        if not self.has(n):
+            return False
+        self.tokens -= n
+        return True
 
 
 class Limits:
@@ -170,7 +177,9 @@ class Limits:
         self.all_scans = Bucket(a.scan_all_per_second, a.scan_all_burst)
         self.scanning = threading.Lock()
 
-    def take(self, source, heavy):
+    def take(self, source, heavy, n=1):
+        """Admits `n` calls from `source` (a batch counts each of its calls), all of them or none:
+        a refused batch costs nothing, so a client asking again finds the tokens it waited for."""
         with self.lock:
             now = time.monotonic()
             if len(self.sources) > 100000:  # forget sources idle for ten minutes
@@ -178,8 +187,10 @@ class Limits:
             calls, scans, _ = self.sources.get(source) or (
                 Bucket(self.a.source_per_second, self.a.source_burst), Bucket(self.a.scan_per_second, self.a.scan_burst), now)
             self.sources[source] = (calls, scans, now)
-            if not calls.take() or not self.all_calls.take():
+            if not calls.has(n) or not self.all_calls.has(n):
                 return "too many calls from one source or in all; slow down"
+            calls.take(n)
+            self.all_calls.take(n)
             if heavy and (not scans.take() or not self.all_scans.take()):
                 return "scantxoutset reads the whole UTXO set: %d in a row, then %g a second from one source; try again later" % (
                     self.a.scan_burst, self.a.scan_per_second)
@@ -343,11 +354,9 @@ def make_handler(a, auth, limits, counts, upstream_slots):
                 if c[0] in NOT_IN_BATCH:
                     return self.refuse(403, -32601, "in a batch: %s is taken one call at a time" % c[0], c[2])
                 calls.append(c)
-            source = source_of(self)
-            for _ in calls:
-                why = limits.take(source, False)
-                if why:
-                    return self.refuse(429, -32000, why)
+            why = limits.take(source_of(self), False, len(calls))
+            if why:
+                return self.refuse(429, -32000, why)
             if not upstream_slots.acquire(blocking=False):
                 return self.refuse(503, -32000, "the node is busy; try again")
             try:
