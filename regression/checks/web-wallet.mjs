@@ -5,7 +5,10 @@
 import { join } from 'node:path'
 import { sleep, helpers, setWidth, forbiddenWords, forbiddenIn, PICKER, SEARCH, CLOSE } from '../lib/suite.mjs'
 
-const BASE = 'https://sequentiatestnet.com/wallet/'
+// WW_BASE checks another copy of the page: a branch served in front of the testnet by the web
+// wallet's tooling/live-proxy.mjs, before it is deployed.
+const BASE = process.env.WW_BASE || 'https://sequentiatestnet.com/wallet/'
+const ORIGIN = new URL(BASE).origin
 
 async function openWallet (b, h, { phrase } = {}) {
   await b.send('Page.navigate', { url: BASE }, h.page.sessionId)
@@ -32,6 +35,11 @@ async function mode (h, m) {
 const waitCode = (h) => h.waitFor("/^bitcoin:/i.test((document.querySelector('#addr')||{}).textContent||'')", 180000).then(() => true, () => false)
 const balanceTickers = (h) => h.eval("[...document.querySelectorAll('section[data-panel=balance] .bt-tk .tk')].filter(e=>e.getClientRects().length).map(e=>e.innerText.trim())")
 const totalText = (h) => h.text('#balTotal')
+// A number of four or more digits not grouped (thousands separators), in what a person reads.
+const ungrouped = (t) => (String(t).match(/(^|[^\d.,])\d{4,}(?=[.\s]|$)/g) || []).map((x) => x.trim())
+// A dash in a sentence (a word on each side), which default mode's copy never uses.
+const dashes = (t) => String(t).split('\n').filter((l) => /\S\s[—–]\s\S/.test(l)).map((l) => l.trim().slice(0, 100))
+const pickAsset = (sel, tk) => `(async()=>{const b=document.querySelector(${JSON.stringify(sel)}); if(!b) return false; b.click(); await new Promise(r=>setTimeout(r,500)); const i=document.querySelector('.swpop-search input'); if(!i) return false; i.value=${JSON.stringify(tk)}; i.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(r=>setTimeout(r,400)); const o=[...document.querySelectorAll('.swpop [role=option]')].find(o=>((o.querySelector('.swopt-tk')||{}).firstChild||{}).textContent===${JSON.stringify(tk)}); if(!o){ i.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'})); return false } o.click(); await new Promise(r=>setTimeout(r,800)); return true})()`
 
 export async function run ({ b, report, widths, funded, problems }) {
   const R = (id, w, line, h, fn) => report.line('WW-' + id, w, line, h && h.page, fn)
@@ -43,20 +51,11 @@ export async function run ({ b, report, widths, funded, problems }) {
   // ---------- a fresh wallet, default mode ----------
   await setWidth(b, page, widths[0])
   await openWallet(b, h)
-  const joined = await waitCode(h)
-  // The node calls the leaf wallet makes to read an address a person gives it (a payment from
-  // leaves, an offboard, a claim) and to tell a supervised asset from a plain one, asked of the
-  // page's own node route as the wallet asks them.
-  await R('NODE-READS', null, 'The node route answers the wallet\'s address and supervised-asset reads', h, async () => {
-    const r = await h.eval(`(async()=>{const call=(method,params)=>fetch('/node-rpc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({method,params,id:1})}).then(r=>r.json());
-      const v=await call('validateaddress',['tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx']);
-      const s=await call('getsupervisedassets',[]);
-      const a=(Array.isArray(s.result)&&s.result[0]&&s.result[0].asset)||'0'.repeat(64);
-      const f=await call('isassetfrozen',[a,'0014'+'11'.repeat(20)]);
-      return {validateaddress:v.error?v.error.message:(v.result&&v.result.isvalid),getsupervisedassets:s.error?s.error.message:s.result.length+' assets',isassetfrozen:f.error?f.error.message:f.result}})()`)
-    const refused = (x) => typeof x === 'string' && /not allowed here/.test(x)
-    return { ok: r.validateaddress === true && !refused(r.getsupervisedassets) && !refused(r.isassetfrozen), detail: r }
+  await R('PHRASE-GONE', null, 'Once the backup is confirmed, the recovery phrase is no longer in the page', h, async () => {
+    const r = await h.eval("(()=>{const m=(localStorage.getItem('swk.sequentia.mnemonic')||'').split(' '); const w=document.getElementById('words'); return {wordNodes:w?w.children.length:null, pending:typeof window._pending, inPage:m.length>=3 && document.documentElement.outerHTML.includes(m.slice(0,3).join(' '))}})()")
+    return { ok: r.wordNodes === 0 && r.pending !== 'string' && !r.inPage, detail: r }
   })
+  const joined = await waitCode(h)
   for (const w of widths) {
     await setWidth(b, page, w); await sleep(800)
     await tab(h, 'balance')
@@ -103,6 +102,10 @@ export async function run ({ b, report, widths, funded, problems }) {
       await h.waitFor("!/lightning=/i.test(document.querySelector('#addr').textContent)", 15000).catch(() => {})
       return { ok, detail: code.replace(/(lightning=)\w{12}\w*/i, '$1…').slice(0, 140) }
     })
+    await R('RCV-NO-INVOICE', w, 'Receive: a wallet holding no BTC shows no invoice card and no empty framed box', h, async () => {
+      const c = await h.visible('#lnRecvCard'), box = await h.visible('#lnRecvBolt11')
+      return { ok: !c && !box, detail: { card: c, emptyBox: box } }
+    })
     if (words) await R('RCV-WORDS', w, 'Receive says none of the words default mode never says', h, async () => {
       const f = forbiddenIn(await h.text('section[data-panel=receive]'), words); return { ok: !f.length, detail: f }
     })
@@ -115,8 +118,8 @@ export async function run ({ b, report, widths, funded, problems }) {
     await R('SND-BALANCE', w, 'Send: next to the asset its one figure, "balance <amount>"', h, async () => {
       const t = await h.text('section[data-panel=send] .ravail'); return { at: 'section[data-panel=send] .ravail',  ok: /^balance /.test(t), detail: t }
     })
-    await R('SND-INVOICE', w, 'Send: "Pay an invoice" with "Paste an invoice to pay it with your BTC."', h, async () => {
-      const t = await h.text('section[data-panel=send]'); return { ok: /Paste an invoice to pay it with your BTC\./.test(t), detail: (t.match(/pay an invoice[^\n]*\n[^\n]*/i) || [''])[0] }
+    await R('SND-NO-INVOICE', w, 'Send: a wallet holding no BTC shows no "Pay an invoice" card', h, async () => {
+      const c = await h.visible('#lnSendCard'); return { ok: !c, detail: { card: c } }
     })
     if (words) await R('SND-WORDS', w, 'Send says none of the words default mode never says, and has no fee-rate field', h, async () => {
       const t = await h.text('section[data-panel=send]'); const f = forbiddenIn(t, words)
@@ -171,6 +174,31 @@ export async function run ({ b, report, widths, funded, problems }) {
     await R('MKT-TRADES', w, 'Market: Recent trades with price, amount and time, or "No trades yet"', h, async () => {
       const t = await h.text('#ucMarket'); return { ok: /Recent trades/.test(t) || /No trades yet/.test(t), detail: (t.match(/Recent trades.*/) || ['none'])[0] }
     })
+    await R('TRD-FLIP', w, 'Trade: ⇅ exchanges You pay and You receive, the amount typed going with its asset', h, async () => {
+      if (!(await h.visible('#ucFlip'))) return { ok: false, detail: 'no ⇅ control' }
+      await h.type('#ucAmount', '0.001'); await sleep(600)
+      const before = await h.eval("[document.querySelector('#ucPay').innerText.trim(), document.querySelector('#ucGet').innerText.trim()]")
+      await h.click('#ucFlip'); await sleep(1500)
+      const after = await h.eval("[document.querySelector('#ucPay').innerText.trim(), document.querySelector('#ucGet').innerText.trim(), document.querySelector('#ucReceive').value]")
+      await h.click('#ucFlip'); await sleep(1000); await h.type('#ucAmount', '')
+      return { ok: after[0] === before[1] && after[1] === before[0] && after[2] === '0.001', detail: { before, after } }
+    })
+    await R('MKT-BTC-QUOTE', w, 'Market: BTC against a fiat stablecoin is priced in the stablecoin ("BTC / USDX")', h, async () => {
+      const p1 = await h.eval(pickAsset('#ucPay', 'BTC')), p2 = await h.eval(pickAsset('#ucGet', 'USDX'))
+      await h.waitFor("/\\//.test((document.querySelector('#ucMarket')||{}).innerText||'')", 20000).catch(() => {})
+      const head = (await h.text('#ucMarket')).split('\n')[0]
+      return { ok: p1 && p2 && /^BTC \/ USDX/.test(head), detail: { picked: [p1, p2], head } }
+    })
+    if (w === widths[0]) await R('TRD-KEEP-RELOAD', w, 'A reload keeps the open tab and the Trade pair and amount', h, async () => {
+      await h.type('#ucAmount', '0.002'); await sleep(800)
+      const pair = await h.eval("[document.querySelector('#ucPay').innerText.trim(), document.querySelector('#ucGet').innerText.trim()]")
+      await b.send('Page.reload', {}, h.page.sessionId)
+      await h.waitFor("document.querySelector('#app') && getComputedStyle(document.querySelector('#app')).display !== 'none' && !!document.querySelector('#ucAmount')", 240000).catch(() => {})
+      await sleep(3000)
+      const r = await h.eval("({tab:(document.querySelector('#tabs button.active')||{dataset:{}}).dataset.tab, pay:(document.querySelector('#ucPay')||{innerText:''}).innerText.trim(), get:(document.querySelector('#ucGet')||{innerText:''}).innerText.trim(), amount:(document.querySelector('#ucAmount')||{}).value})")
+      await h.type('#ucAmount', '').catch(() => {})
+      return { ok: r.tab === 'swap' && r.pay === pair[0] && r.get === pair[1] && r.amount === '0.002', detail: { before: pair, after: r } }
+    })
     if (words) await R('TRD-WORDS', w, 'Trade says none of the words default mode never says', h, async () => {
       const f = forbiddenIn(await h.text('section[data-panel=swap]'), words); return { ok: !f.length, detail: f }
     })
@@ -181,26 +209,76 @@ export async function run ({ b, report, widths, funded, problems }) {
       for (const t of ['balance', 'send', 'receive', 'swap', 'history']) { await tab(h, t); const f = forbiddenIn(await h.text('#app'), words); if (f.length) found[t] = f }
       return { ok: !Object.keys(found).length, detail: found }
     })
+    if (words) await R('MORE-WORDS', w, 'Mix, Issuance, Stake, Sign, Help and Settings say no word default mode never says, and no dash in a sentence', h, async () => {
+      const found = {}
+      for (const t of ['mix', 'assets', 'stake', 'sign', 'help', 'settings']) {
+        await h.eval(`(document.querySelector('#tabs button[data-tab=${t}]')||{click(){}}).click(),1`); await sleep(1500)
+        const txt = await h.text(`section[data-panel=${t}]`); const f = [...forbiddenIn(txt, words), ...['SeqDEX', 'OpenAMP'].filter((x) => txt.includes(x)), ...dashes(txt)]
+        if (f.length) found[t] = f
+      }
+      await tab(h, 'balance')
+      return { ok: !Object.keys(found).length, detail: found }
+    })
     if (w === 'phone') await R('PHONE-FIT', w, 'Phone: no tab scrolls sideways', h, async () => {
       const over = {}
       for (const t of ['balance', 'send', 'receive', 'swap', 'history']) { await tab(h, t); const o = await h.overflow(); if (o > 1) over[t] = o + 'px' }
       return { ok: !Object.keys(over).length, detail: over }
     })
   }
+  // A faucet payment is in the balance the moment the faucet says it was sent, and in History.
+  await R('FAUCET-AT-ONCE', null, 'A faucet payment shows under its asset as arriving the moment the faucet says it was sent, and History lists it as Received', h, async () => {
+    await setWidth(b, page, widths[0]); await tab(h, 'balance')
+    const asset = await h.eval("(()=>{const b=[...document.querySelectorAll('#faucetBtns button')].find(x=>x.dataset.faucet==='EURX')||[...document.querySelectorAll('#faucetBtns button')].find(x=>x.dataset.faucet && x.dataset.faucet!=='BTC'); if(!b) return null; b.click(); return b.dataset.faucet})()")
+    if (!asset) return { skip: 'no faucet button for an asset' }
+    const said = await h.waitFor("/arriving|Received|Already|error/i.test((document.querySelector('#faucetStatus')||{}).innerText||'')", 120000).then(() => true, () => false)
+    const st = await h.text('#faucetStatus')
+    if (/Already funded/i.test(st)) return { skip: 'the faucet paid this address recently: ' + st }
+    if (!said || !/arriving|Received/.test(st)) return { ok: false, detail: 'faucet: ' + st }
+    const shown = await h.waitFor(`[...document.querySelectorAll('section[data-panel=balance] .bt-tk .tk')].some(e=>e.innerText.trim()===${JSON.stringify(asset)})`, 2500).then(() => true, () => false)
+    await h.waitFor("/Received/.test((document.querySelector('#faucetStatus')||{}).innerText||'')", 120000).catch(() => {})
+    await tab(h, 'history')
+    const row = await h.waitFor(`[...document.querySelectorAll('#histList .item')].some(i=>/Received/.test(i.innerText) && i.innerText.includes(${JSON.stringify(asset)}))`, 30000).then(() => true, () => false)
+    return { ok: shown && row, detail: { faucet: st, inBalanceWithin2_5s: shown, historyRow: row } }
+  })
+  // The node calls the leaf wallet makes to read an address a person gives it (a payment from
+  // leaves, an offboard, a claim) and to tell a supervised asset from a plain one, asked of the
+  // page's own node route as the wallet asks them.
+  await R('NODE-READS', null, 'The node route answers the wallet\'s address and supervised-asset reads', h, async () => {
+    const r = await h.eval(`(async()=>{const call=(method,params)=>fetch('/node-rpc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({method,params,id:1})}).then(r=>r.json());
+      const v=await call('validateaddress',['tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx']);
+      const s=await call('getsupervisedassets',[]);
+      const a=(Array.isArray(s.result)&&s.result[0]&&s.result[0].asset)||'0'.repeat(64);
+      const f=await call('isassetfrozen',[a,'0014'+'11'.repeat(20)]);
+      return {validateaddress:v.error?v.error.message:(v.result&&v.result.isvalid),getsupervisedassets:s.error?s.error.message:s.result.length+' assets',isassetfrozen:f.error?f.error.message:f.result}})()`)
+    const refused = (x) => typeof x === 'string' && /not allowed here/.test(x)
+    return { ok: r.validateaddress === true && !refused(r.getsupervisedassets) && !refused(r.isassetfrozen), detail: r }
+  })
   await R('NO-ERRORS', null, 'No uncaught error on the page (fresh wallet)', null, async () => ({ ok: problems(page).length === 0, detail: problems(page).slice(0, 4) }))
 
   // ---------- the funded test wallet ----------
   if (!funded) {
-    for (const id of ['BAL-BTC-FIRST', 'BAL-HIDE', 'TRD-HELD-FIRST', 'TRD-HIDDEN', 'DEV-PICKER', 'DEV-TETHER']) report.skip('WW-' + id, null, 'needs the funded test wallet', 'no --funded phrase file')
+    for (const id of ['BAL-RELOAD', 'BAL-BTC-FIRST', 'BAL-HIDE', 'SND-PICKER-HELD', 'SND-FEE-LINE', 'AMT-GROUPED', 'TRD-NO-FALSE-UPTO', 'TRD-HELD-FIRST', 'TRD-HIDDEN', 'STK-FROM-BALANCE', 'DEV-PICKER', 'DEV-TETHER']) report.skip('WW-' + id, null, 'needs the funded test wallet', 'no --funded phrase file')
     return
   }
   // A fresh profile for it: the page holds one wallet per origin.
   await b.send('Page.navigate', { url: 'about:blank' }, page.sessionId); await sleep(1000)
-  await b.send('Storage.clearDataForOrigin', { origin: 'https://sequentiatestnet.com', storageTypes: 'all' }, page.sessionId).catch(() => {})
+  await b.send('Storage.clearDataForOrigin', { origin: ORIGIN, storageTypes: 'all' }, page.sessionId).catch(() => {})
   await setWidth(b, page, widths[0])
   await openWallet(b, h, { phrase: funded.phrase })
   await tab(h, 'balance')
   const held = await h.waitFor("(()=>{const t=[...document.querySelectorAll('section[data-panel=balance] .bt-tk .tk')].map(e=>e.innerText.trim()); return t.length>=3 ? t : false})()", 240000).then(() => true, () => false)
+  await R('BAL-RELOAD', null, 'A reload opens on the last figures: the total never reads 0, nor "Up to date." before everything is read', h, async () => {
+    await h.waitFor("/Up to date/.test((document.querySelector('#syncStatus')||{}).innerText||'')", 240000).catch(() => {})
+    await b.send('Page.reload', {}, h.page.sessionId)
+    const seen = []; const t0 = Date.now()
+    while (Date.now() - t0 < 15000) {
+      await sleep(250)
+      const r = await h.eval("({t:((document.querySelector('#balTotal')||{}).innerText||'').replace(/\\s+/g,' '), s:((document.querySelector('#syncStatus')||{}).innerText||'')})").catch(() => null)
+      if (r && r.t && (!seen.length || seen[seen.length - 1].t !== r.t || seen[seen.length - 1].s !== r.s)) seen.push({ ms: Date.now() - t0, ...r })
+    }
+    const zero = seen.filter((x) => /total balance 0 /i.test(x.t))
+    return { ok: held && !zero.length, detail: zero.length ? { zero: zero.slice(0, 3) } : seen.slice(0, 4) }
+  })
   for (const w of widths) {
     await setWidth(b, page, w); await sleep(800)
     await tab(h, 'balance')
@@ -214,7 +292,40 @@ export async function run ({ b, report, widths, funded, problems }) {
       const t = await balanceTickers(h), body = await h.text('section[data-panel=balance]'), after = await totalText(h)
       return { ok: (r === 'hidden' || (r === 'no GOLD row' && w !== widths[0])) && !t.includes('GOLD') && /Hidden assets \(1\)/.test(body) && before === after, detail: { r, rows: t, totalBefore: before.replace(/\s+/g, ' '), totalAfter: after.replace(/\s+/g, ' ') } }
     })
+    await tab(h, 'send')
+    await R('SND-PICKER-HELD', w, 'Send: the asset picker lists BTC, then every asset the wallet holds, with its balance', h, async () => {
+      await tab(h, 'balance'); const bal = (await balanceTickers(h).catch(() => [])) || []; await tab(h, 'send')
+      const p = await h.eval(PICKER('#recipients .rec .asset-chooser')); await h.eval(CLOSE)
+      // Every row Balance lists (a hidden asset is not one of them) is under Your assets.
+      return { ok: p.rows[0] === 'BTC' && bal.length > 1 && bal.every((t) => p.rows.includes(t)), detail: { rows: p.rows.slice(0, 8), groups: p.groups, balance: bal } }
+    })
+    await R('SND-FEE-LINE', w, 'Send: paying a receive code shows no network fee line waiting for the amount', h, async () => {
+      await tab(h, 'receive'); const code = (await h.text('#addr')).trim(); await tab(h, 'send')
+      await h.eval("(()=>{const s=document.querySelector('#recipients .rec .rasset'); const o=[...s.options].find(x=>x.textContent.trim()==='USDX'); if(o){ s.value=o.value; s.dispatchEvent(new Event('change',{bubbles:true})) } return !!o})()")
+      await h.type('#recipients .rec .raddr', code); await h.type('#recipients .rec .ramt', '0.01'); await sleep(2500)
+      const shown = await h.visible('#sendFeeBox'), t = shown ? await h.text('#sendFeeBox') : ''
+      const avail = await h.text('#recipients .rec .ravail')
+      await h.type('#recipients .rec .raddr', ''); await h.type('#recipients .rec .ramt', '')
+      // A code paid at its address (before the wallet's instant side has opened) has a fee line, which
+      // must say the fee: never one waiting for the amount already typed.
+      return { ok: /^bitcoin:/i.test(code) && !/set once the amount is entered/.test(t), detail: { feeLine: shown ? t.slice(0, 80) : '(none)', balanceLine: avail } }
+    })
+    await R('AMT-GROUPED', w, 'Amounts outside Balance are grouped as Balance groups them (Send, the pickers, Trade)', h, async () => {
+      const send = await h.text('#recipients .rec .ravail')
+      const p = await h.eval(PICKER('#recipients .rec .asset-chooser')); const rows = await h.eval("[...document.querySelectorAll('.swpop .swopt-bal')].map(x=>x.innerText).join(' | ')"); await h.eval(CLOSE)
+      await tab(h, 'swap'); await sleep(2500)
+      const have = await h.text('#ucHave')
+      const found = [...ungrouped(send), ...ungrouped(rows), ...ungrouped(have)]
+      return { ok: !found.length, detail: { send, have, ungrouped: found, picker: p.kind } }
+    })
     await tab(h, 'swap'); await sleep(4000)
+    await R('TRD-NO-FALSE-UPTO', w, 'Trade: no "The book can fill up to …" for an amount the book can fill', h, async () => {
+      const ok1 = await h.eval(pickAsset('#ucPay', 'USDX')), ok2 = await h.eval(pickAsset('#ucGet', 'GOLD'))
+      await h.type('#ucAmount', '1'); await h.waitFor("Number((document.querySelector('#ucReceive')||{}).value)>0", 30000).catch(() => {})
+      await sleep(1500); const note = await h.text('#ucNote'); const got = await h.eval("document.querySelector('#ucReceive').value"); await h.type('#ucAmount', '')
+      if (!(Number(got) > 0)) return { skip: 'the book priced nothing for 1 USDX → GOLD: ' + (note || 'no answer') }
+      return { ok: ok1 && ok2 && !/can fill up to/i.test(note), detail: { receive: got, note } }
+    })
     await R('TRD-HELD-FIRST', w, 'Trade: the You receive picker lists BTC, then your assets, before the rest', h, async () => {
       const p = await h.eval(PICKER('#ucGet')); await h.eval(CLOSE)
       const at = '#ucGet'; const mine = ['BTC', 'USDX', 'GOLD']; const i = p.rows.findIndex((x) => !mine.includes(x))
@@ -226,6 +337,14 @@ export async function run ({ b, report, widths, funded, problems }) {
       if (!p.search) { await h.eval(CLOSE); return { at: '#ucPay', ok: false, detail: `a plain <select>; hidden GOLD listed: ${p.rows.includes('GOLD')}` } }
       const s = await h.eval(SEARCH('GOLD')); await h.eval(CLOSE)
       return { ok: !p.rows.includes('GOLD') && !!s && s.includes('GOLD'), detail: { first: p.rows, search: s } }
+    })
+    await R('STK-FROM-BALANCE', w, 'Stake and Mix count what the balance shows: Stake offers its fee in a held asset, Mix says what is held', h, async () => {
+      await h.eval("(document.querySelector('#tabs button[data-tab=stake]')||{click(){}}).click(),1"); await sleep(1500)
+      const fee = await h.eval("[...document.querySelectorAll('#stFeeAsset option')].map(o=>o.textContent)")
+      await h.eval("(document.querySelector('#tabs button[data-tab=mix]')||{click(){}}).click(),1"); await sleep(3000)
+      const plan = await h.text('#cjPlan')
+      await tab(h, 'swap'); await sleep(1500)
+      return { ok: Array.isArray(fee) && fee.length >= 1 && !/transparent coins/.test(plan) && !/you hold 0 /.test(plan), detail: { feeChoices: fee, mixPlan: plan.slice(0, 120) } }
     })
     await R('TRD-HELD-TRADABLE', w, 'Trade: every asset the balance shows can be paid from (never "You have no <T> to trade.")', h, async () => {
       const bad = {}

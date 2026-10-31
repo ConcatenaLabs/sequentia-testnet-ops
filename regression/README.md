@@ -38,6 +38,9 @@ sandbox, which refuses root. Options:
 - `--out <dir>`: where the results go (default `~/.cache/sequentia-regression/runs/<time>`).
 - `--ext <dir>`: Ambra browser from this checkout instead of a fresh clone of its default branch,
   to run its lines against a branch before it merges.
+- `WW_BASE=<url>` (environment): the web wallet's lines read this copy of the page instead of
+  the public one, such as a branch served in front of the testnet by the web wallet's
+  `tooling/live-proxy.mjs` (`WW_BASE=http://127.0.0.1:8791/wallet/`), before it is deployed.
 
 It prints one line per capability and width, `PASS`, `FAIL` or `SKIP`, with what it saw, and
 writes each failure's screenshot beside `results.txt`. It exits 0 only when nothing failed. A
