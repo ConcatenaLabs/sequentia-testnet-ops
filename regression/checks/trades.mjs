@@ -77,7 +77,7 @@ async function openTrader (b, h, phrase) {
   await h.waitFor("document.querySelector('#app') && getComputedStyle(document.querySelector('#app')).display !== 'none'", 240000)
   // Joined: Receive gives a receive code.
   await h.click('[data-tab=receive]')
-  await h.waitFor("/^bitcoin:/.test((document.querySelector('#addr')||{}).textContent||'')", 240000)
+  await h.waitFor("/^bitcoin:/i.test((document.querySelector('#addr')||{}).textContent||'')", 240000)
 }
 
 // One trade in the Trade tab. -> { ok, detail }
