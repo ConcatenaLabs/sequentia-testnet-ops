@@ -788,6 +788,7 @@ its repository, `ConcatenaLabs/arca`: `server/README.md` for the server,
 | The checkout and its build | `/opt/arca`, at the commit the binaries in `/opt/arca/target/release` are built from (`BUILT_FROM` beside them); a new revision is built in a clone of its own, `/opt/arca-head`, and its three binaries installed there |
 | `arca-signer.service` | Holds the operator key (`/etc/arca/operator.key`) and signs on `/run/arca/signer.sock`; its append-only record is `/var/lib/arca/signer.record` |
 | `arcad.service` | The server, its rounds and its watcher, on `127.0.0.1:3535`; metrics on `127.0.0.1:3536`; configuration `/etc/arca/arcad.toml` |
+| `arca-watchtower.service` | The operator's watchtower (`arca watchtower serve`), on `127.0.0.1:3537`, reached at `https://sequentiatestnet.com/watchtower/` and listed in `arcad.toml`'s `[watcher] watchtowers`, so wallets that name none deposit their coins with it; its wallet (and the fee coins it may pay with) in `/var/lib/arca-watchtower`. It runs the `arca` binary of `/opt/arca/target/release`, so a move to a new revision restarts it too |
 | Its node | The dexnode (`seq-dexnode`, RPC 18300), which runs with `-txindex` and `-validateanchor` |
 | Its database | PostgreSQL 16, cluster `16/main`, database `arca`, reached over the Unix socket as the `arca` role |
 | Its secrets | `/etc/arca/operator.key`, `/etc/arca/wallet.mnemonic` and `/etc/arca/arcad.toml` (which holds the node's RPC password), each mode 600, owned by the `arca` user |
