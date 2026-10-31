@@ -181,9 +181,17 @@ funded one).
 | AM-ARK-MIGRATE | a wallet from before moves its Lightning BTC to the ark; a lost board holds nothing back | BTC |
 | AM-WORDS-TEST | default mode's sentences are tested against the forbidden words | Never in default mode |
 | AM-HIS-TRADES | History lists a default-mode trade as one row | History |
+| AM-TRD-BTC-ADDRESS | BTC at the address is moved for a trade that needs it and said so, never "no BTC"; a board stops at the server's largest coin | Trade |
+| AM-TRD-DEADLINE | every source is asked at once; the quote takes what answered within 8 s (20 s for the BTC desk alone) | Trade |
+| AM-TRD-KEPT | what was entered and a price being asked survive the background, the app lock and a restart | Trade |
+| AM-TRD-SENDING | Trade frees the screen after 1.5 s; the trade goes on under Open as "Sending…" | Trade |
+| AM-TRD-ABOUT | the amount that follows the price reads "about"; Review reads "Getting the exact price…" | Trade |
+| AM-TRD-WORDS | one word per trade state in Open and History, with no promised time | Trade, History |
+| AM-TRD-FLIP | ⇅ swaps You pay and You receive, each amount with its asset | Trade |
+| AM-STK-PLAIN | Stake says what it is for, how much, where (pools by whether producing, none picked), its cost and how to get it back | Stake, pools and Mix |
 
-Not checked here: everything at run time (pairing with SeqDEX, Send and Receive on a device, Stake,
-the site approvals). They need a phone or an emulator.
+Not checked here: everything at run time (pairing with SeqDEX, Send and Receive on a device, a
+stake made, the site approvals). They need a phone or an emulator.
 
 ## Lightning balances moved to the Ark, live
 
