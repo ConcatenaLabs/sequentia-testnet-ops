@@ -16,6 +16,7 @@ put it in place and keep copies of it.
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `bin/node-rpc-proxy.py` | The node JSON-RPC for browser wallets behind `/node-rpc`: the calls a wallet makes and no other, rate-limited, with the node's credential added on the box. Installed at `/usr/local/lib/node-rpc-proxy/`. |
+| `bin/node-rpc-proxy-limits-test.py` | The node route's limits in simulated time: a refused batch costs nothing, and a client asking every 2.2 s gets a 64-call batch through steadily. |
 | `makers/liquidity-health.sh`, `makers/maker_funds.py`, `makers/liquidity-targets.json` | The makers' and the Arca operator's health, every ten minutes: the depth audit, treasury2026 kept at its floors (minting the faucet assets it runs short of), and every consumer refilled below its floor from `treasury2026` and `maker-bridged` only. See "The makers' health". |
 | `makers/volume-takers.mjs` | Traders that trade against the makers on every rail and pair, both ways, at a daily volume target, ramped under load, health and wallet-latency rules. See "Trading volume: the volume takers". |
 | `bin/seqdex-depth-audit.py` | How deep every SeqDEX market is on every rail, and whether its best level can be taken now: one table and a verdict per directed market. See "How deep the books are". |
@@ -139,7 +140,10 @@ credential itself. Nothing links to the path.
   coins in a batch, and makes the calls one by one where a batch is refused.
 - **Rate.** Each source (the address Caddy saw; an IPv6 /48) may make 20
   calls a second, in bursts of 400, and all sources together 200 a second;
-  each call in a batch counts as one. `scantxoutset` reads the whole UTXO
+  each call in a batch counts as one, and a batch is admitted whole or refused
+  whole, taking nothing when it is refused, so a wallet that asks again gets
+  through once the tokens it needs have gathered (`bin/node-rpc-proxy-limits-test.py`
+  holds that, in simulated time). `scantxoutset` reads the whole UTXO
   set, and a wallet makes a few after each new block (one per window of its
   on-chain scripts and per output it looks for), none while the chain has not
   moved since its last command: thirty in a row from a
