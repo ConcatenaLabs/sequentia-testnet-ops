@@ -12,11 +12,11 @@ network = "@NETWORK@"
 # answer an exit it must contest.
 vtxo_lifetime = 2016
 vtxo_exit_delta = 72
-max_vtxo_amount = "5000000 sat"
+max_vtxo_amount = "100000000 sat"
 min_board_amount = "10000 sat"
-max_board_amount = "5000000 sat"
-max_offboard_amount = "5000000 sat"
-max_arkoor_amount = "5000000 sat"
+max_board_amount = "100000000 sat"
+max_offboard_amount = "100000000 sat"
+max_arkoor_amount = "100000000 sat"
 max_vtxo_exit_depth = 100
 max_arkoor_fanout = 4
 required_board_confirmations = 2
