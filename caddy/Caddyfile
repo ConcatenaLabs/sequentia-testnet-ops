@@ -197,6 +197,14 @@ HTML {err.status_code}
 		}
 	}
 
+	# The operator's watchtower (`arca watchtower serve`, arca-watchtower.service):
+	# wallets deposit their coins with it, and it brings each on the chain under
+	# its owner's key once its batch is released. It answers one request a
+	# connection.
+	handle_path /watchtower/* {
+		reverse_proxy 127.0.0.1:3537
+	}
+
 	# The live leaf maker (the web wallet's tooling/lsp/leaf-maker.mjs, leaf-maker.service):
 	# the in-tree swaps and BTC trades user mode's Trade tab asks it for, at
 	# /leafmaker/v1/… from the wallets on this origin. No page links here.
