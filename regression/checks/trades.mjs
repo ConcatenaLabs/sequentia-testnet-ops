@@ -9,7 +9,8 @@
 // so the wallet ends about where it started, less the fees. Refill it with USDX from the faucet
 // (its Receive tab) or from treasury2026.
 //
-// A line passes when, within BOUND_MS of the person's confirmation, the Trade tab says what was
+// A line passes when, within BOUND_MS of the person's confirmation (BTC_PAID_BOUND_MS for a
+// purchase paid with BTC), the Trade tab says what was
 // bought is received ("Received. Settled after the next Bitcoin blocks." or "Settled"), or SeqDEX
 // says "Traded with … order". Otherwise it fails with what the page says at that moment.
 import { sleep, helpers } from '../lib/suite.mjs'
@@ -17,6 +18,12 @@ import { sleep, helpers } from '../lib/suite.mjs'
 const WALLET = 'https://sequentiatestnet.com/wallet/'
 const DEX = 'https://sequentiatestnet.com/dex/'
 export const BOUND_MS = 60000
+// A purchase paid with BTC is bounded by BTC_PAID_BOUND_MS instead: the wallet pays its BTC only
+// once the asset held for it is final, its leaf made in the operator's next round (every 60 s on
+// the testnet) and that round's block certified (a 60 s block), so it reads "Received" one to two
+// and a half minutes after the confirmation, never within BOUND_MS (92 s measured, 31 October).
+export const BTC_PAID_BOUND_MS = 180000
+const boundOf = (pay) => (pay === 'BTC' ? BTC_PAID_BOUND_MS : BOUND_MS)
 const REVIEW_MS = 60000
 // A person waits this long at most for a price: from Review to the ticket in the Trade tab, from
 // the button to the wallet's dialog on SeqDEX (#363: about 3 s is typical, 10 s the most). A trade
@@ -98,7 +105,7 @@ async function tabTrade (h, pay, get, amount) {
   const rows0 = await h.eval("document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade').length")
   const tC = Date.now()
   await h.click('#userComposerRoot #ucConfirm')
-  const done = await waitValue(h, `(()=>{ const r=document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade'); if(r.length<=${rows0}) return false; const s=(r[0].querySelector('.uc-state')||{}).textContent||''; return /^(Received|Settled|Returned)/.test(s) ? s : false })()`, BOUND_MS).catch(() => null)
+  const done = await waitValue(h, `(()=>{ const r=document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade'); if(r.length<=${rows0}) return false; const s=(r[0].querySelector('.uc-state')||{}).textContent||''; return /^(Received|Settled|Returned)/.test(s) ? s : false })()`, boundOf(pay)).catch(() => null)
   const row = await h.eval("((document.querySelector('#userComposerRoot #ucTrades .uc-trade')||{}).innerText||'').replace(/\\s+/g,' ')")
   const note = await h.text('#userComposerRoot #ucNote')
   const secs = ((Date.now() - tC) / 1000).toFixed(1)
@@ -150,7 +157,7 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
 }
 
 export async function run ({ b, report, trader }) {
-  const lines = [...TAB_TRADES.map((t) => ['WW-TRADE-' + t[0], `The Trade tab prices ${t[3]} ${t[1]} for ${t[2]} within ${TICKET_MS / 1000} s and trades it within ${BOUND_MS / 1000} s`]),
+  const lines = [...TAB_TRADES.map((t) => ['WW-TRADE-' + t[0], `The Trade tab prices ${t[3]} ${t[1]} for ${t[2]} within ${TICKET_MS / 1000} s and trades it within ${boundOf(t[1]) / 1000} s`]),
     ...DEX_TRADES.map((t) => ['DX-TRADE-' + t[0], `SeqDEX through the web wallet: a market ${t[2]} of ${t[3]} on ${t[1]}, priced within ${TICKET_MS / 1000} s and traded within ${BOUND_MS / 1000} s`])]
   if (!trader) { for (const [id, line] of lines) report.skip(id, 'desktop', line, 'no trader wallet (--trader)'); return }
   const wp = await b.page('about:blank')
@@ -167,7 +174,7 @@ export async function run ({ b, report, trader }) {
   }
   let arkPurchase = null   // the purchase paid with BTC from the Bitcoin ark: { trade, t }
   for (const [id, pay, get, amount] of TAB_TRADES) {
-    const line = `The Trade tab prices ${amount} ${pay} for ${get} within ${TICKET_MS / 1000} s and trades it within ${BOUND_MS / 1000} s`
+    const line = `The Trade tab prices ${amount} ${pay} for ${get} within ${TICKET_MS / 1000} s and trades it within ${boundOf(pay) / 1000} s`
     const ok = await report.line('WW-TRADE-' + id, 'desktop', line, wp, unlessUnbought('WW-' + pairOf(id), () => tabTrade(w, pay, get, amount)
       .then((r) => { if (r.ok && pay === 'BTC' && r.trade) arkPurchase = { trade: r.trade, t: Date.now() }; return r })
       .catch((e) => ({ ok: false, detail: String(e && e.message || e) }))))

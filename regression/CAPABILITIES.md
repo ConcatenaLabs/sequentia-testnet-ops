@@ -201,7 +201,8 @@ Lightning channels, as one made before default mode held its coins in the Ark do
 From the trader wallet (`checks/trades.mjs`): a small market purchase, then the sale of what it
 bought, each priced within 10 seconds (Review to the ticket; on SeqDEX, the button to the wallet's
 dialog) and done within 60 seconds of the confirmation, or failed with the time or what the page
-says.
+says. A purchase paid with BTC has 180 seconds: the wallet pays its BTC only once the asset held
+for it is final, in the operator's next round and that round's certified block.
 
 | Id | Can | Contract |
 |---|---|---|
