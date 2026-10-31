@@ -1,0 +1,10 @@
+[Unit]
+Description=Sequentia DEX health probe every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=seq-health-probe.service
+
+[Install]
+WantedBy=timers.target

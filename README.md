@@ -19,6 +19,7 @@ put it in place and keep copies of it.
 | `bin/node-rpc-proxy-limits-test.py` | The node route's limits in simulated time: a refused batch costs nothing, and a client asking every 2.2 s gets a 64-call batch through steadily. |
 | `makers/liquidity-health.sh`, `makers/maker_funds.py`, `makers/liquidity-targets.json` | The makers' and the Arca operator's health, every ten minutes: the depth audit, treasury2026 kept at its floors (minting the faucet assets it runs short of), and every consumer refilled below its floor from `treasury2026` and `maker-bridged` only. See "The makers' health". |
 | `makers/volume-takers.mjs` | Traders that trade against the makers on every rail and pair, both ways, at a daily volume target, ramped under load, health and wallet-latency rules. See "Trading volume: the volume takers". |
+| `bin/dex-health-probe.sh`, `systemd/seq-health-probe.service`, `systemd/seq-health-probe.timer` | The DEX's health on the box every five minutes, to the journal: the ports, the chain, the nodes' wallets, the relay's markets and every DEX unit. See "The DEX health probe". |
 | `bin/seqdex-depth-audit.py` | How deep every SeqDEX market is on every rail, and whether its best level can be taken now: one table and a verdict per directed market. See "How deep the books are". |
 | `bin/arca-pg-restore-drill.sh` | Restores the Arca operator's database from its newest base backup and every WAL segment after it into a scratch cluster, and checks the last commit is there. |
 | `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
@@ -737,6 +738,28 @@ BTC is the one asset no script can mint. The BTC sides of the books are what
 the BTC desk's and the pure-Lightning fleet's Lightning channels hold, and what
 the order crosser and the cross-chain makers hold on testnet4; they are sized
 from the testnet4 coins the service wallets hold.
+
+## The DEX health probe
+
+`bin/dex-health-probe.sh` checks, every five minutes (`seq-health-probe.timer`),
+that the DEX's ports listen, that node000 answers, that node000 and the dexnode
+hold their wallets (node000 the `sbtc-bridge` one among them), that the relay on
+:9955 lists at least 20 markets, and that every unit that runs the DEX is active:
+`seqobd`, `leaf-maker`, `leaf-maker-btc`, `leaf-maker-agents`, `seqob-xmakers`,
+`seqob-conf-maker`, `seqob-samechain-fleet`, `seqob-pureln-fleet`, `lsp-b5b1`,
+`seqob-ln-asset` and `seqob-ln-asset-b`. It reads each node through its data
+directory, so it holds no credential. Each check is one line in the journal; the
+last line is the verdict, and a failure names every check that failed and what it
+read:
+
+    systemctl status seq-health-probe        # the verdict of the last run
+    journalctl -u seq-health-probe -n 20     # its board
+
+It exits 1 when a check fails, so the unit shows as failed until the cause is
+fixed. Install or update it from this checkout:
+
+    install -m 644 systemd/seq-health-probe.service systemd/seq-health-probe.timer /etc/systemd/system/
+    systemctl daemon-reload && systemctl enable --now seq-health-probe.timer
 
 ## The SeqLN nodes' channel options
 

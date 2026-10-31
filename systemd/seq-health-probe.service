@@ -1,0 +1,7 @@
+[Unit]
+Description=Sequentia DEX health probe (bin/dex-health-probe.sh; why it fails is its last line)
+
+[Service]
+Type=oneshot
+ExecStart=/root/sequentia/sequentia-testnet-ops/bin/dex-health-probe.sh
+Nice=10
