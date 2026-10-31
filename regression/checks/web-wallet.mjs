@@ -204,6 +204,12 @@ export async function run ({ b, report, widths, funded, problems }) {
     })
     await tab(h, 'history')
     await R('HIS-OPEN', w, 'History opens', h, async () => ({ ok: await h.visible('#historyPanel') }))
+    await R('HIS-NO-RESCUE', w, 'History in default mode offers no Bump fee, Replace or Speed up: a payment that waits is sped up by itself', h, async () => {
+      await tab(h, 'history')
+      const found = await h.eval("[...document.querySelectorAll('#historyPanel button')].map(b=>b.textContent.trim()).filter(t=>/^(Bump fee|Replace…|Speed up)$/.test(t))")
+      await tab(h, 'balance')
+      return { ok: !found.length, detail: found }
+    })
     if (words) await R('APP-WORDS', w, 'No tab in default mode says a word default mode never says', h, async () => {
       const found = {}
       for (const t of ['balance', 'send', 'receive', 'swap', 'history']) { await tab(h, t); const f = forbiddenIn(await h.text('#app'), words); if (f.length) found[t] = f }
@@ -243,6 +249,17 @@ export async function run ({ b, report, widths, funded, problems }) {
   // The node calls the leaf wallet makes to read an address a person gives it (a payment from
   // leaves, an offboard, a claim) and to tell a supervised asset from a plain one, asked of the
   // page's own node route as the wallet asks them.
+  // What waits on the chain is sped up by itself, and a coin received out of round is refreshed
+  // at the next round by itself: the served page carries both (a live run needs a full block, or
+  // the faucet's payment and a round, which the default-mode drive shows).
+  await R('SPEED-REFRESH-BUILT', null, 'The page speeds up what waits and refreshes what is received by itself, in words default mode may say', h, async () => {
+    const r = await h.eval(`(async()=>{const t=(p)=>fetch(new URL(p,location.href)).then(r=>r.ok?r.text():'');
+      const sp=await t('speed-up.js'), lv=await t('leaves.js'), wasm=await t('leaves/pkg/leaf_wallet_bg.wasm');
+      const m=sp.match(/spedUp: '([^']+)'/);
+      return {words:m?m[1]:null, refresh:lv.includes("run('refresh_received'"), library:wasm.includes('refresh_received')&&wasm.includes('speed_up')}})()`)
+    const said = r.words ? forbiddenIn(r.words, words || []) : ['no words']
+    return { ok: !!r.words && !said.length && r.refresh && r.library, detail: r }
+  })
   await R('NODE-READS', null, 'The node route answers the wallet\'s address and supervised-asset reads', h, async () => {
     const r = await h.eval(`(async()=>{const call=(method,params)=>fetch('/node-rpc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({method,params,id:1})}).then(r=>r.json());
       const v=await call('validateaddress',['tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx']);
