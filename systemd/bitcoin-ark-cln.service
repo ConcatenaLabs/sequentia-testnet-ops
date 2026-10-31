@@ -1,7 +1,7 @@
 [Unit]
 Description=Core Lightning, the Bitcoin ark's Lightning gateway (with the hold-invoice plugin)
-After=network-online.target bitcoin-ark-bitcoind.service
-Wants=bitcoin-ark-bitcoind.service
+After=network-online.target bitcoin-ark-bitcoind.service bitcoin-ark-feeproxy.service
+Wants=bitcoin-ark-bitcoind.service bitcoin-ark-feeproxy.service
 
 [Service]
 Type=simple

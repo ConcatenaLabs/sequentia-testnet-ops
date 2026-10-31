@@ -984,13 +984,14 @@ back. No page links to it.
 | `bitcoin-ark-cln` | The Lightning gateway: Core Lightning 26.06.6 with Boltz's hold-invoice plugin v0.3.3 and its own gRPC interface | `/opt/bitcoin-ark/cln`, data `/var/lib/bitcoin-ark/cln`, peers on `0.0.0.0:19746`, reached at `sequentiatestnet.com:19746` by other operators' Bitcoin gateways, gRPC `19747` and hold gRPC `19748` on loopback |
 | `bitcoin-ark-captaind` | Bark's server: rounds, in-ark payments, Lightning through the gateway | `/opt/bitcoin-ark/bin/captaind`, data `/var/lib/bitcoin-ark/captaind`, public gRPC `127.0.0.1:3545`, admin `3546`, integrations `3547` (loopback only) |
 | `bitcoin-ark-watchmand` | Bark's watchman: answers exits, sweeps expired rounds back to the server's wallet | `/opt/bitcoin-ark/bin/watchmand`, data `/var/lib/bitcoin-ark/watchmand` |
-| `bitcoin-ark-feeproxy` | The node's RPC with fee estimates from the live mempool, for `captaind`, `watchmand` and Bark wallets (`bitcoin-ark/fee-proxy.py`) | `/opt/bitcoin-ark/bin/fee-proxy.py`, `127.0.0.1:18352` |
+| `bitcoin-ark-feeproxy` | The node's RPC with fee estimates from the live mempool, for `captaind`, `watchmand`, the Lightning gateway and Bark wallets (`bitcoin-ark/fee-proxy.py`) | `/opt/bitcoin-ark/bin/fee-proxy.py`, `127.0.0.1:18352` |
 
 All five run as the `bark` system user. The configuration files are the ones
 in `bitcoin-ark/`, with the box's paths and ports filled in:
 `/etc/bitcoin-ark/bitcoin.conf`, `/var/lib/bitcoin-ark/cln/config`,
 `/etc/bitcoin-ark/captaind.toml`, `/etc/bitcoin-ark/watchmand.toml`. The
-Lightning node and the fee proxy reach Bitcoin Core by its cookie; captaind and
+Lightning node (through the fee proxy) and the fee proxy reach Bitcoin Core by
+its cookie; captaind and
 watchmand log in as `ark`, whose password is drawn on the box into
 `/etc/bitcoin-ark/rpc.password` (mode 600) and written into their two
 configurations (mode 640, the `bark` group), since they read their credentials
@@ -1054,8 +1055,8 @@ and integration interfaces are never routed.
   read from those blocks, then says a sat or two, or nothing, and Bark prices
   every round, offboard, board and exit child from it as given, taking its
   configured fallback only when there is no estimate at all: a round paid
-  that way waits for hours. So `captaind`, `watchmand` and Bark wallets reach
-  the node through `bitcoin-ark-feeproxy`, which passes every call through
+  that way waits for hours. So `captaind`, `watchmand`, the Lightning gateway
+  and Bark wallets reach the node through `bitcoin-ark-feeproxy`, which passes every call through
   unchanged, each with its caller's cookie, except that an `estimatesmartfee`
   answer is raised to the going rate: the most of 30 sat/vB, Core's own
   estimate, the rate that makes the next block of the node's mempool, and the
@@ -1063,13 +1064,18 @@ and integration interfaces are never routed.
   projected block), capped at 500 (Bark caps at its own `max_fee_rate`, 100).
   It reads the going rate every 30 seconds and logs each change to the
   journal. Bark's fallbacks are 30 sat/vB too.
-- **Fixed fee rates for the gateway.** The ark's own node can go hours with no
-  fee estimate, and Core Lightning then refuses to open or close a channel
-  ("Cannot estimate fees (yet)"). `bitcoin-ark/cln.config` sets
+- **Fee rates for the gateway.** The ark's own node can go hours or days with
+  no fee estimate. Core Lightning then refuses to open or close a channel
+  ("Cannot estimate fees (yet)"), and refuses every channel a peer opens to it
+  ("Cannot accept channel: feerates unknown"). So it reads the node through
+  the fee proxy, which always answers. `bitcoin-ark/cln.config` also sets
   `force-feerates`, an option that exists on test networks only and is read
   at start: 30 sat/vB for the gateway's own on-chain transactions (opens,
   mutual closes, sweeps), and 2 sat/vB for the commitment transaction, whose
   rate the channel's peer signs too and whose anchor lifts it when needed.
+  And it sets `ignore-fee-limits`: Core Lightning's floor for a peer's
+  commitment rate is half its slowest estimate, which the proxy makes the
+  going rate, and would refuse the usual 1 to 2 sat/vB.
 - **A Lightning receive needs its wallet online.** Bark's server holds an
   incoming payment for three minutes (`receive_htlc_forward_timeout`) while
   the wallet claims it (`bark lightning claim`); unclaimed, the payment fails
