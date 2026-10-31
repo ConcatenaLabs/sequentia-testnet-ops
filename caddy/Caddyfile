@@ -198,11 +198,30 @@ HTML {err.status_code}
 	}
 
 	# The operator's watchtower (`arca watchtower serve`, arca-watchtower.service):
-	# wallets deposit their coins with it, and it brings each on the chain under
-	# its owner's key once its batch is released. It answers one request a
-	# connection.
+	# wallets deposit their coins with it, sealed, and it brings each on the
+	# chain under its owner's key once its batch is released or a sender takes
+	# an earlier coin of its lineage home. It answers one request a connection.
 	handle_path /watchtower/* {
 		reverse_proxy 127.0.0.1:3537
+	}
+
+	# The watchtowers this box runs for the users of other operators, one per
+	# operator, each checking deposits against that operator's key:
+	# arca.albertodeluigi.com's (arca-watchtower-peer.service), and operator
+	# B's, the box's stand-in second operator (arca-watchtower-for-b.service).
+	handle_path /watchtower-peer/* {
+		reverse_proxy 127.0.0.1:3538
+	}
+	handle_path /watchtower-for-b/* {
+		reverse_proxy 127.0.0.1:3539
+	}
+
+	# Operator B's watchtower for this operator's users (the operator bundle's
+	# own, arca-b-watchtower.service): the stand-in for the one a second
+	# operator runs on its own machine. Operator B has no domain, so it is
+	# reached here.
+	handle_path /watchtower-b/* {
+		reverse_proxy 127.0.0.1:23537
 	}
 
 	# The live leaf maker (the web wallet's tooling/lsp/leaf-maker.mjs, leaf-maker.service):
