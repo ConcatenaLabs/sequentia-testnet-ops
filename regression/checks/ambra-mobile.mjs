@@ -71,6 +71,40 @@ export async function run ({ report, cache }) {
     const t = join(dir, 'app/test/default_words_test.dart'); const ok = existsSync(t) && /forbidden/.test(readFileSync(t, 'utf8'))
     return { ok, detail: ok ? 'app/test/default_words_test.dart' : 'no test' }
   })
+  // Ambra #162 to #169 (package AM5).
+  const ark = src('data/ark_btc_service.dart'), stake = src('screens/stake_screen.dart'), swords = src('data/stake_words.dart'), main = readFileSync(join(dir, 'app/lib/main.dart'), 'utf8')
+  await R('TRD-BTC-ADDRESS', 'Trade: BTC at the address with too little on the ark is moved for the trade and said so, never "You have no BTC"; a board stops at the server\'s largest coin (#162)', () => {
+    const ok = /'btc-moving'/.test(engine) && /btcMove/.test(composer) && /boardFor\(BigInt sats\)/.test(ark) && /if \(amount > maxBoard\) amount = maxBoard/.test(ark)
+    return { ok, detail: ok ? '' : 'user_trade.dart btc-moving, ark_btc_service.dart boardFor / maxBoard' }
+  })
+  await R('TRD-DEADLINE', 'Trade: every source asked at once, the quote takes what answered within 8 s (20 s for the BTC desk alone), a late answer let go of (#163, #165)', () => {
+    const ok = /kQuoteFirmMs = 8000/.test(engine) && /kBtcOnlyFirmMs = 20000/.test(engine) && /_inTime\(/.test(engine) && /Future\.wait\(\s*worth\.map/.test(engine)
+    return { ok }
+  })
+  await R('TRD-KEPT', 'Trade: what was entered and a price being asked survive the background, the app lock and a restart; the lock covers the open wallet (#164)', () => {
+    const ok = /draftKey/.test(composer) && /_restoreDraft\(/.test(composer) && /Offstage\(offstage: !repo\.unlocked/.test(main)
+    return { ok }
+  })
+  await R('TRD-SENDING', 'Trade: the screen is free after 1.5 s and the trade goes on under Open as "Sending…" (#165)', () => {
+    const ok = /kConfirmShownFor = Duration\(milliseconds: 1500\)/.test(composer) && /static const sending = 'Sending…'/.test(engine)
+    return { ok }
+  })
+  await R('TRD-ABOUT', 'Trade: the amount that follows the price reads "about", Review reads "Getting the exact price…" (#166)', () => {
+    const ok = /static const about = 'about'/.test(engine) && /Getting the exact price…/.test(engine) && /UserWords\.about/.test(composer)
+    return { ok }
+  })
+  await R('TRD-WORDS', 'Trade: one word per state in Open and History, no promised time ("Received, settling") (#167)', () => {
+    const ok = /'Received, settling'/.test(engine) && !/Settled in a minute or two|Settled after the next Bitcoin blocks/.test(engine) && /tradeStateWord\(rec,/.test(history)
+    return { ok }
+  })
+  await R('TRD-FLIP', 'Trade: ⇅ between You pay and You receive, each amount with its asset (#168)', () => {
+    const ok = /ValueKey\('ucFlip'\)/.test(composer) && /void _flip\(\)/.test(composer)
+    return { ok }
+  })
+  await R('STK-PLAIN', 'Stake (default mode): what it is for, how much, where (pools by whether producing, none picked), cost, getting it back (#169)', () => {
+    const ok = /whatTitle/.test(swords) && /poolVerdict\(/.test(swords) && /_plainBody\(/.test(stake) && /StakeWords\.step2/.test(stake)
+    return { ok }
+  })
   await R('HIS-TRADES', 'History: a default-mode trade is one row ("Swapped <pay> for <get>")', () => {
     const ok = /UserTrade|userTrade|Swapped/.test(history); return { ok, detail: ok ? '' : 'history_screen.dart lists chain transactions only; default-mode trades show only under Swap › Your trades' }
   })
