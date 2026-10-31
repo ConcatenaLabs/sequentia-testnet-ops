@@ -620,8 +620,9 @@ not (`holdings` in its `/v1/chain`), or, from an operator that does not report
 it, as its info's `fundable` (its final coins, less what it owes) plus what
 reached its addresses in the last hour and is not final yet. A payment still in
 the mempool counts as held too, and so does what the operator's batches hand
-back within the hour: the batches every leaf of which its holder released,
-which the operator reclaims (`reclaimable` in its `/v1/chain` `pool`). Its
+back within the hour: the lowest nodes every leaf of which its holder released,
+which the operator unrolls toward and reclaims (`reclaimable` in its `/v1/chain`
+`pool`). Its
 target covers at least `cover_hours` (6 by default) of what its pool drains an
 hour net of what reclaims and sweeps bring back (`net_drawn_last_hour`): an
 operator whose rounds draw faster than its batches come back is refilled to
@@ -630,6 +631,20 @@ hold until a reclaim or their expiry, what of it is released and comes back
 within the hour, and what the last hour drew and brought back. When coins an hour old or more wait at the
 address and `fundable` is less than they hold, the operator's finality has
 stalled: the pass pays nothing more and logs `OPERATOR FINALITY STALLED`.
+
+An operator also keeps a float: what its wallet can spend on the chain of each
+asset it serves, for holders moving coins out of the Ark (a move out pays the
+whole coin given up, so a stake moves a whole faucet coin). Its floor per asset,
+in whole units, is `float_floor` in the targets file: five of the faucet's coins
+of each faucet asset (250,000 tSEQ, 2,500,000 USDX, 50 EURX, GOLD, SILVR and
+OILX), and 10 of USDC.e and EURC.e. Each pass logs, per asset, what the wallet
+can spend against its floor and what more is fronted in refreshes, and a line
+starting `ARCA FLOAT LOW` for an asset under it: a stake or a withdrawal of it
+then waits until reclaims or a refill bring the wallet back above it. By hand:
+
+```sh
+python3 -I makers/maker_funds.py arca-float --targets makers/liquidity-targets.json --assets /root/lq1/assets-leaf.txt
+```
 While the operator's `/v1/chain` says its finality waits on the Bitcoin anchor
 (`waiting_on` `anchor`: Bitcoin runs competing chains above the height the
 chain anchors to, and nothing new is buried until it settles), the pass pays it
