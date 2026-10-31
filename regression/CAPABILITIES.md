@@ -30,15 +30,21 @@ How each surface is read:
 | WW-BAL-BTC-FIRST | see BTC first and every other asset as one row among equals, no "native" label | Names |
 | WW-BAL-HIDE | hide an asset: it moves to "Hidden assets (n)", the total is unchanged | Balance |
 | WW-BAL-FAUCET | ask the testnet faucet for an asset | Receive |
+| WW-FAUCET-AT-ONCE | see a faucet payment under its asset as arriving the moment the faucet says it was sent, and as "Received" in History (SKIP while the faucet's hourly limit holds) | Receive, History |
+| WW-BAL-RELOAD | reload and see the last figures at once: the total never 0, "Up to date." only once everything is read | Balance |
 | WW-RCV-CODE | get one receive code, `bitcoin:<address>?ark=…&sequentia=…` | Receive |
 | WW-RCV-SHORT | get a code that scans at a glance: upper case, the request short (`SQR1…`), under 450 characters | Receive |
 | WW-RCV-TIP | read what the code takes ("Any asset, any amount. …") | Receive |
 | WW-RCV-BUTTONS | copy the code, make a new one; no address-only controls | Receive |
 | WW-RCV-AMOUNT | ask for an amount of BTC: the code names it and carries an invoice | Receive |
+| WW-RCV-NO-INVOICE | not meet a BTC invoice card, or an empty framed box, while holding no BTC on the ark | BTC |
 | WW-RCV-WORDS | read Receive without a word default mode never says | Never in default mode |
 | WW-SND-RECIPIENT | paste a receive code, an address or an invoice into "Recipient" | Send |
 | WW-SND-BALANCE | see the asset's one figure, "balance <amount>", beside it | Send |
-| WW-SND-INVOICE | pay a BTC invoice ("Paste an invoice to pay it with your BTC.") | BTC |
+| WW-SND-NO-INVOICE | not meet "Pay an invoice" while holding no BTC on the ark | BTC |
+| WW-SND-PICKER-HELD | choose any held asset in Send's picker: BTC, then every asset held, with its balance | Asset pickers |
+| WW-SND-FEE-LINE | pay a receive code without a network fee line that still waits for the amount typed | Send |
+| WW-AMT-GROUPED | read amounts grouped as Balance groups them, in Send, the pickers and Trade | Names |
 | WW-SND-WORDS | read Send without a forbidden word or a fee-rate field | Never in default mode |
 | WW-TRD-FORM | trade with You pay and You receive, their amounts, and Review | Trade |
 | WW-TRD-PAY-SEARCH | search the You pay picker | Asset pickers |
@@ -49,18 +55,27 @@ How each surface is read:
 | WW-TRD-AMOUNTS | type what they pay or what they get, and see the other | Trade |
 | WW-TRD-HELD-TRADABLE | pay from every asset the balance shows (never "You have no <T> to trade.") | Trade |
 | WW-TRD-REFUSE | read a refusal in plain words | Trade |
+| WW-TRD-FLIP | exchange You pay and You receive with ⇅, the amount typed going with its asset | Trade |
+| WW-TRD-NO-FALSE-UPTO | type an amount the book can fill without being told "The book can fill up to …" | Trade |
+| WW-TRD-KEEP-RELOAD | reload and find the open tab and the Trade pair and amount as they were | Trade |
 | WW-TRD-WORDS | read Trade without a forbidden word | Never in default mode |
 | WW-MKT-HEAD | read the pair, its last price and 24h change | Market |
 | WW-MKT-CHART | read a chart with 1D, 1W, 1M and the chart library's notice | Market |
 | WW-MKT-BOOK | read the best bid and ask and the depth bar, or that nobody trades | Market |
 | WW-MKT-TRADES | read recent trades, or "No trades yet" | Market |
+| WW-MKT-BTC-QUOTE | read BTC priced in a fiat stablecoin ("BTC / USDX") | Market |
 | WW-HIS-OPEN | open History | History |
 | WW-APP-WORDS | use every tab without meeting a forbidden word | Never in default mode |
+| WW-MORE-WORDS | use Mix, Issuance, Stake, Sign, Help and Settings without a forbidden word, a hidden product's name or a dash in a sentence | Never in default mode |
+| WW-STK-FROM-BALANCE | stake and mix from what the balance shows: Stake offers its fee in a held asset, Mix counts the asset's one figure | Balance |
+| WW-PHRASE-GONE | confirm the backup and leave no recovery phrase in the page | (security) |
 | WW-PHONE-FIT | use every tab on a phone without sideways scrolling | (layout) |
 | WW-NO-ERRORS, WW-NO-ERRORS-FUNDED | use the page without an uncaught error | (all) |
 
-Not checked yet: History's one row per trade ("Swapped … for …") and a payment's row (needs a
-trade or payment made by the run, which the suite does not make); "Your trades" Open and Past
+Not checked yet: History's one row per trade ("Swapped … for …") and a sent payment's row (needs a
+trade or payment made by the run, which this surface does not make; WW-FAUCET-AT-ONCE checks a
+received one); moving what a stake, a delegation or a mix needs out of the Ark (it moves coins;
+the web wallet's UX2 walk proves it); "Your trades" Open and Past
 (same); the Send review and its refusals after Review (they need a recipient that would be paid);
 Stake, Issuance, Mix and Sign (developer tools reached from More; their own drives are in the web
 wallet's `tooling/`). A coin paid on the chain to the shown address ending as part of what a

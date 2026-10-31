@@ -1,5 +1,19 @@
 {
   "_": "Lines known to fail, each with what lost it (or that it was never built) and who is on it. A known line still fails the run; this only says why. Remove an entry when its line passes.",
   "WW-LNARK-WORDS": "built (web wallet #417 and #422, Ambra browser #115) and not yet deployed: the web wallet serves it once ww1_2_deploy.sh runs on the box (WW1)",
-  "AB-LNARK-SAME": "built (web wallet #417 and #422, Ambra browser #115) and not yet deployed: the web wallet serves it once ww1_2_deploy.sh runs on the box (WW1)"
+  "AB-LNARK-SAME": "built (web wallet #417 and #422, Ambra browser #115) and not yet deployed: the web wallet serves it once ww1_2_deploy.sh runs on the box (WW1)",
+  "WW-PHRASE-GONE": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-FAUCET-AT-ONCE": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-RCV-NO-INVOICE": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-SND-NO-INVOICE": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-TRD-FLIP": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-MKT-BTC-QUOTE": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-TRD-KEEP-RELOAD": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-MORE-WORDS": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-BAL-RELOAD": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-SND-PICKER-HELD": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-SND-FEE-LINE": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-AMT-GROUPED": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-TRD-NO-FALSE-UPTO": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-STK-FROM-BALANCE": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy."
 }
