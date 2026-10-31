@@ -252,6 +252,35 @@ def minted_before(once):
     return None
 
 
+def taken_or_forgotten(txid, what, wallet=None):
+    """A transaction `wallet` (the mint wallet unless named) just sent is in a block or the node's
+    mempool; else the node refused it (the wallet keeps a refused transaction, and the coins it
+    spends then read spent to that wallet for good: how recovered lost its EURX and SILVR
+    reissuance tokens). Such a transaction is abandoned at once, so its coins are the wallet's
+    again, and the run stops with the node's reason."""
+    wallet = wallet or MINT_WALLET
+    try:
+        rpc(MINT_NODE, "getmempoolentry", [txid])
+        return
+    except RuntimeError:
+        pass
+    tx = rpc(MINT_NODE, "gettransaction", [txid], wallet)
+    if tx.get("confirmations", 0) >= 1:
+        return
+    why = "not in the mempool"
+    try:
+        r = rpc(MINT_NODE, "testmempoolaccept", [[tx["hex"]]])[0]
+        why = r.get("reject-reason") or why
+    except (RuntimeError, KeyError, IndexError):
+        pass
+    try:
+        rpc(MINT_NODE, "abandontransaction", [txid], wallet)
+        forgot = "abandoned, so its coins are %s's again" % wallet
+    except RuntimeError as e:
+        forgot = "NOT abandoned (%s): abandontransaction %s in %s by hand" % (e, txid, wallet)
+    die("the node did not take the %s %s (%s): %s" % (what, txid, why, forgot))
+
+
 def mint_into_treasury(ticker, aid, units, wait_minutes=20, once=None):
     """Mint `units` (the node's whole units) of `ticker` with its reissuance token in `recovered`
     and deliver them to treasury2026; wait until the delivery is in a block, so the treasury can
@@ -287,11 +316,13 @@ def mint_into_treasury(ticker, aid, units, wait_minutes=20, once=None):
         if not fee:
             die("%s holds no %s to pay the issuance's fee in, and the node names no tSEQ" % (MINT_WALLET, ticker))
         reissue = rpc(MINT_NODE, "reissueasset", [aid, units, fee], MINT_WALLET)["txid"]
+        taken_or_forgotten(reissue, "reissuance of %s %s" % (units, ticker))
         fee_name = ticker if fee == aid else "tSEQ"
     to = rpc(MINT_NODE, "getnewaddress", ["", "bech32"], TREASURY)
     # The delivery's fee comes out of what is delivered, in the asset itself.
     st = rpc(MINT_NODE, "sendtoaddress", {"address": to, "amount": float("%.8f" % (units - keep)), "assetlabel": aid,
                                           "subtractfeefromamount": True}, MINT_WALLET)
+    taken_or_forgotten(st, "delivery of %s %s to %s" % (units - keep, ticker, TREASURY))
     rec = {"t": int(time.time()), "asset": ticker, "units": units, "delivered": round(units - keep, 8), "reissue": reissue,
            "delivery": st, "fee_asset": fee_name}
     if once:
@@ -308,6 +339,7 @@ def mint_into_treasury(ticker, aid, units, wait_minutes=20, once=None):
     # registered it yet, and answers "Invalid or non-wallet transaction id" until it does.
     t0 = time.time()
     while rpc(MINT_NODE, "gettransaction", [st], MINT_WALLET).get("confirmations", 0) < 1:
+        taken_or_forgotten(st, "delivery of %s %s to %s" % (units - keep, ticker, TREASURY))   # dropped from the mempool since
         if time.time() - t0 > wait_minutes * 60:
             die("the delivery of %s %s is not in a block after %d minutes: %s" % (units, ticker, wait_minutes, st))
         time.sleep(5)
