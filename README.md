@@ -596,6 +596,7 @@ the faucet assets.
 | the order crosser's wallet (`lsp-inventory`) | $200,000 | half | `lsp-inventory` |
 | the volume takers' wallet (`volume-taker`) | $300,000 | half | `volume-taker` |
 | Emissio's Bitcoin side (its `arca` wallet's Bitcoin ark wallet) | 5,000,000 sats | half | `emissio-btc` |
+| the faucet's Bitcoin side (its `arca` wallet's Bitcoin ark wallet, which pays the faucet's BTC) | 5,000,000 sats | half | `faucet-btc` |
 | each interactive fleet account | one and a half times its ten-level ladder ($390,000 a side) | half | `HEALTH_SC_USD` |
 | the in-tree leaf maker | $1M | half | `HEALTH_LEAF_MAKERS` |
 | the agents' leaf maker (`leaf-maker-agents`, the volume takers' in-tree counterparty) | $1M | half | `HEALTH_LEAF_MAKERS` |

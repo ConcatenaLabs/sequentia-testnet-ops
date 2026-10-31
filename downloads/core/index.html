@@ -25,6 +25,11 @@
   .pdesc{color:var(--dim);font-size:15px;margin:12px 0 0;max-width:680px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:22px 0 0}
   @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  .card.wide{grid-column:1/-1}
+  .card .mac{color:var(--dim);font-size:14px;margin:6px 0 18px}
+  .card .links{display:flex;flex-wrap:wrap;gap:12px}
+  .card .links .dl{flex:1 1 200px}
+  .dl.alt{background:transparent;border:1px solid var(--line);color:inherit}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px;display:flex;flex-direction:column}
   .os{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
   .card h3{font-size:18px;margin:8px 0 2px;font-weight:600}
@@ -61,26 +66,36 @@
     <section class="prod">
       <div class="phead">
         <h2>Sequentia Core</h2>
-        <span class="ver" data-ver="node">version 24.7.10</span>
+        <span class="ver" data-ver="node">version 25.2.5</span>
       </div>
-      <p class="pdesc">The full node and its desktop wallet. It validates the chain for itself rather than trusting
-        a server, and it is the software a block producer runs.</p>
+      <p class="pdesc">The full node and its desktop wallet. It checks every block for itself, holds BTC and every
+        Sequentia asset side by side, and is the software a block producer runs.</p>
       <div class="grid">
         <div class="card">
           <div class="os">Linux · x86-64</div>
           <h3>Node + desktop wallet</h3>
-          <div class="file">sequentia-core-24.7.10-linux-x86_64.tar.gz</div>
-          <a class="dl" href="../sequentia-core-24.7.10-linux-x86_64.tar.gz" download>↓ Download for Linux</a>
+          <div class="file">sequentia-core-25.2.5-linux-x86_64.tar.gz</div>
+          <a class="dl" href="../sequentia-core-25.2.5-linux-x86_64.tar.gz" download>↓ Download for Linux</a>
         </div>
         <div class="card">
           <div class="os">Windows · 64-bit</div>
           <h3>Node + desktop wallet</h3>
-          <div class="file">sequentia-core-24.7.10-win64-setup.exe</div>
-          <a class="dl" href="../sequentia-core-24.7.10-win64-setup.exe" download>↓ Download for Windows</a>
+          <div class="file">sequentia-core-25.2.5-win64-setup.exe</div>
+          <a class="dl" href="../sequentia-core-25.2.5-win64-setup.exe" download>↓ Download for Windows</a>
+        </div>
+        <div class="card wide" id="mac">
+          <div class="os">macOS</div>
+          <h3>On a Mac</h3>
+          <p class="mac">Use the web wallet in your browser: it holds BTC and every Sequentia asset, with the
+            faucet built in. To run the full node on your Mac, build Sequentia Core from source.</p>
+          <div class="links">
+            <a class="dl" href="/wallet/">Open the web wallet</a>
+            <a class="dl alt" href="https://github.com/ConcatenaLabs/Sequentia/blob/master/doc/build-osx.md" target="_blank" rel="noopener">Build from source</a>
+          </div>
         </div>
       </div>
       <div class="feat">
-        <div><b>Wallet</b>: send, receive and issue assets.</div>
+        <div><b>Wallet</b>: send, receive and issue assets; tSEQ is one asset among them.</div>
         <div><b>Staking tab</b>: committee schedule, stake weights and staking-output tools.</div>
         <div><b>Anchor watching</b>: follows Bitcoin testnet4 and reorgs when it does.</div>
         <div><b>Any-asset fees</b>: pay a fee in whichever asset a producer accepts.</div>

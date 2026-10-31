@@ -214,3 +214,26 @@ linked from the public surface; these lines hold it to its own contract (every a
 | LV-BUY-LN | buy a lot in BTC: reserve, pay the invoice over Lightning, receive the tokens (not written: needs a staked buyer wallet; proven on regtest by levo's `test_lightning_e2e.py`) |
 | LV-BUY-ASSET | buy in the asset the sale settles in, in one transaction (not written, as above) |
 | LV-RE-REST | see an unpaid lot go back to the sale after its timeout (not written, as above) |
+
+## Public pages around the web wallet
+
+The front page, the faucet page, Compages, the explorer, the staking pools, the Sequentia Core
+download and Emissio's report scopes, in headless Chromium, desktop and phone, as a new tester
+meets them; the explorer also in a light colour scheme. `regression/checks/public-pages.mjs`.
+Nothing is requested, bridged or sent: the faucet's and Compages' lines stop once the receive code
+is taken.
+
+| Id | A person can |
+|---|---|
+| PP-LAND-START | read the network's one line on the front page and start with one step: open the web wallet, which is the first card |
+| PP-LAND-PUBLIC | meet on the front page only public products, in plain words (no hidden product's path or name, no rail or protocol word) |
+| PP-FCT-BTC-AMT | see what a BTC request to the faucet pays, more than nothing |
+| PP-FCT-CODE | paste the web wallet's receive code into the faucet page, and ask for BTC there |
+| PP-CMP-CODE | paste a receive code where Compages asks for a Sequentia address, and see its address read and checked |
+| PP-EXP-LIGHT | read every figure on the explorer's dashboard in a light colour scheme (no white text on a light background) |
+| PP-EXP-LIGHT-ASSETS | read the explorer's Assets page in a light colour scheme |
+| PP-EXP-ASSETS | find the registered assets first on the Assets page, with a dash where a ticker or domain is missing |
+| PP-POOLS | read stakes in tSEQ on the pools page and delegate from the web wallet (More → Stake) |
+| PP-CORE-MAC | find a path on a Mac from the Core download page: the web wallet, or a build from source |
+| PP-EMI-BUGS | read that Emissio's bug reports cover the web wallet |
+| PP-EMI-SECURITY | read that Emissio's security reports cover the web wallet |

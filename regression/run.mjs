@@ -23,7 +23,7 @@ import { Report, chrome, clone } from './lib/suite.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
 const flag = (n, d) => { const i = argv.indexOf(n); return i < 0 ? d : argv[i + 1] }
-const SURFACES = ['web-wallet', 'seqdex', 'ambra-browser', 'ambra-mobile', 'trades', 'levo']
+const SURFACES = ['web-wallet', 'seqdex', 'ambra-browser', 'ambra-mobile', 'trades', 'levo', 'public-pages']
 const only = flag('--only', SURFACES.join(',')).split(',')
 const widths = flag('--widths', 'desktop,phone').split(',')
 const fundedFile = flag('--funded', join(homedir(), '.local/share/sequentia-regression/wallets/rgfunded.phrase'))
