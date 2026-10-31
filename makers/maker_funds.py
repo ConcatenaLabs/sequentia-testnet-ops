@@ -429,6 +429,51 @@ def cmd_budget(a):
         sys.exit(1)
 
 
+def cmd_arca_float(a):
+    """Each Arca operator's float, per asset it serves: what its wallet can spend on the chain now
+    (its info's `fundable`) against its `float_floor` in the targets file (whole units: what holders
+    moving coins out of the Ark take, a stake moving a whole faucet coin), in words, and a line
+    starting ARCA FLOAT LOW for each asset below it. A served asset with no floor is named."""
+    cfg = json.load(open(a.targets))
+    ids = {x["id"]: x for x in assets_of(a.assets)}
+    low = 0
+    for name, dest in cfg.get("consumers", {}).items():
+        if dest.get("kind") != "arca" or "float_floor" not in dest:
+            continue
+        floors = {k: v for k, v in dest["float_floor"].items() if k != "comment"}
+        try:
+            info = http_json(dest["info"])
+        except Exception as e:  # noqa: BLE001
+            print("ARCA FLOAT UNKNOWN %s: its info does not answer (%s)" % (name, e)); low += 1; continue
+        pool = arca_pool(dest["info"])
+        for s in info.get("assets", []):
+            x = ids.get(s.get("asset"), {"t": s.get("asset", "?")[:12], "prec": 8})
+            t, unit = x["t"], 10 ** x["prec"]
+            can = int(s.get("fundable") or 0)
+            fronted = int((pool.get(s.get("asset")) or {}).get("in_flight", 0) or 0)
+            if t not in floors:
+                print("  %s %s: it can spend %s on the chain; no float floor is set for it" % (name, t, fmt_units(can, unit)))
+                continue
+            floor = int(floors[t] * unit)
+            words = "%s %s float: it can spend %s on the chain now, %s its floor of %s (what holders moving coins out of the Ark take%s)" % (
+                name, t, fmt_units(can, unit), "above" if can >= floor else "UNDER", fmt_units(floor, unit),
+                "; a stake moves a whole faucet coin" if t == "tSEQ" else "")
+            if fronted:
+                words += "; %s more is fronted in refreshes, back as their batches are reclaimed or expire" % fmt_units(fronted, unit)
+            if can >= floor:
+                print("  " + words)
+            else:
+                low += 1
+                print("ARCA FLOAT LOW: " + words + ". A move out of the Ark of it waits until reclaims or a refill bring the float back")
+    if a.strict and low:
+        sys.exit(1)
+
+
+def fmt_units(atoms, unit):
+    v = atoms / unit
+    return "{:,.2f}".format(v) if abs(v) >= 100 or atoms == 0 else "{:,.8f}".format(v).rstrip("0").rstrip(".")
+
+
 def cmd_fund(a):
     """Top each destination up to its target in each asset it needs, from the first allowed
     source wallet that holds enough, the fee paid in the asset sent. A destination names its
@@ -757,7 +802,7 @@ def arca_flow_words(f):
     n = lambda k: int(f.get(k, 0))
     words = "%s atoms in batches until a reclaim or their expiry" % n("locked")
     if n("released"):
-        words += " (%s released by their holders, %s of it in batches whole released, which come back within the hour)" % (
+        words += " (%s released by their holders, %s of it in lowest nodes whole released, which come back within the hour)" % (
             n("released"), n("reclaimable"))
     if n("transferred"):
         words += ", %s in leaves paid on out of round, back only at their batches' expiry" % n("transferred")
@@ -1222,6 +1267,8 @@ def main():
     c.add_argument("--budget", default="", help="the targets file whose `budgets` cap what is paid of an asset no one can mint")
     c.add_argument("--budget-group", default="", help="the allocation shared by the destinations that have none of their own")
     c = sp.add_parser("budget"); c.add_argument("--targets", required=True)
+    c = sp.add_parser("arca-float"); c.add_argument("--targets", required=True); c.add_argument("--assets", required=True)
+    c.add_argument("--strict", action="store_true", help="exit 1 when any asset is under its floor")
     c = sp.add_parser("mint"); c.add_argument("--asset", required=True); c.add_argument("--units", type=float, required=True)
     c.add_argument("--assets", required=True); c.add_argument("--minutes", type=int, default=20)
     c.add_argument("--once", default="", help="a key: a mint already made under it is not made again")
@@ -1258,7 +1305,7 @@ def main():
     for k in ("awaiting", "partial"):
         if hasattr(a, k):
             setattr(a, k, set(x for x in getattr(a, k).split(",") if x))
-    {"budget": cmd_budget, "bark-refill": cmd_bark_refill, "wallets": cmd_wallets, "mint": cmd_mint, "floors": cmd_floors, "plan-targets": cmd_plan_targets, "accounts": cmd_accounts, "plan-sc": cmd_plan_sc, "plan-covseed": cmd_plan_covseed,
+    {"budget": cmd_budget, "arca-float": cmd_arca_float, "bark-refill": cmd_bark_refill, "wallets": cmd_wallets, "mint": cmd_mint, "floors": cmd_floors, "plan-targets": cmd_plan_targets, "accounts": cmd_accounts, "plan-sc": cmd_plan_sc, "plan-covseed": cmd_plan_covseed,
      "leafcfg": cmd_leafcfg, "plan-leaf": cmd_plan_leaf, "quotes": cmd_quotes, "fund": cmd_fund, "waitconf": cmd_waitconf, "oceancheck": cmd_oceancheck,
      "books": cmd_books}[a.cmd](a)
 

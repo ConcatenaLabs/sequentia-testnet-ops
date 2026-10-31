@@ -18,6 +18,17 @@
       "need": {
         "*": 20000000,
         "tSEQ": 18000000
+      },
+      "float_floor": {
+        "comment": "What the operator's wallet must be able to spend on the chain of each asset, in whole units, for holders moving coins out of the Ark: a move out pays the whole coin given up, so five of the faucet's coins of it (a stake moves a whole tSEQ faucet coin); USDC.e and EURC.e, which no faucet pays, at about twenty times what holders keep of them in the Ark. Below it the health pass logs ARCA FLOAT LOW.",
+        "tSEQ": 250000,
+        "USDX": 2500000,
+        "EURX": 50,
+        "GOLD": 50,
+        "SILVR": 50,
+        "OILX": 50,
+        "USDC.e": 10,
+        "EURC.e": 10
       }
     },
     "covenant-seeder": {

@@ -21,6 +21,8 @@
 #      times their ladders;
 #    - the leaf makers (what they quote is what they hold), to their targets, at their addresses.
 #    An asset short at its source that cannot be minted is logged AWAITING SUPPLY and skipped.
+#    The Arca operator's float (what its wallet can spend on the chain, for holders moving coins out
+#    of the Ark) is checked against its floor per asset, and logged ARCA FLOAT LOW below it.
 #    tSEQ, which no one can mint, is paid within its budget (`budgets` in the targets file): each
 #    consumer at most its allocation, treasury2026 never below its reserve.
 # Node credentials come from each node's elements.conf; nothing here prints a key or password.
@@ -104,6 +106,11 @@ tool plan-targets --targets "$TARGETS" --out-dir "$W" 2>&1 | grep -E 'not planne
 python3 -I -c 'import glob,json,sys; json.dump([d for p in sorted(glob.glob(sys.argv[1] + "/target-*.json")) for d in json.load(open(p)) if d.get("kind") != "bitcoin-ark"], open(sys.argv[1] + "/targets-plan.json", "w"))' "$W"
 tool fund --sources "$SOURCES" --assets "$STATE/assets-leaf.txt" --prices "$FEED" --plan "$W/targets-plan.json" $MINT --budget "$TARGETS" --out "$W/targets-sent.json" 2>&1 \
   | grep -vE 'enough$' | while read -r l; do log "targets: $l"; done
+
+# 3a''. the Arca operator's float: per asset it serves, what its wallet can spend on the chain now
+#       against what holders moving coins out of the Ark take (`float_floor` in the targets file),
+#       in words, and ARCA FLOAT LOW below it (a stake or a withdrawal then waits)
+tool arca-float --targets "$TARGETS" --assets "$STATE/assets-leaf.txt" 2>&1 | while read -r l; do log "$l"; done
 
 # 3a'. the Bitcoin ark sides of the targets file (BTC from the testnet4 service wallet)
 python3 -I -c 'import glob,json,shlex,sys
