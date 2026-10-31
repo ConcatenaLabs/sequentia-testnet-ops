@@ -66,7 +66,7 @@ How each surface is read:
 | WW-MKT-BTC-QUOTE | read BTC priced in a fiat stablecoin ("BTC / USDX") | Market |
 | WW-HIS-OPEN | open History | History |
 | WW-HIS-NO-RESCUE | not meet Bump fee, Replace or Speed up in History: a payment that waits two blocks is sped up by itself | History |
-| WW-SPEED-REFRESH-BUILT | have what waits on the chain sped up, and a coin received out of round refreshed at the next round, by the page itself, in words default mode may say (the page and its leaf wallet carry both; a live run is the default-mode drive's) | Balance, History |
+| WW-SPEED-REFRESH-BUILT | have what waits on the chain sped up by the page itself, in words default mode may say, with the refresh of received coins off unless the page turns it on (arca#492) | History |
 | WW-APP-WORDS | use every tab without meeting a forbidden word | Never in default mode |
 | WW-MORE-WORDS | use Mix, Issuance, Stake, Sign, Help and Settings without a forbidden word, a hidden product's name or a dash in a sentence | Never in default mode |
 | WW-STK-FROM-BALANCE | stake and mix from what the balance shows: Stake offers its fee in a held asset, Mix counts the asset's one figure | Balance |
