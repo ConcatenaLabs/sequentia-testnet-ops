@@ -1,0 +1,15 @@
+[Unit]
+Description=SeqOB covenant settler (settles both-offline covenant crosses into one joint FILL)
+After=network.target
+
+[Service]
+# SEQOB_NODE_RPC_USER and SEQOB_NODE_RPC_PASS: in the environment, never on the command line.
+EnvironmentFile=/etc/sequentia/seqob-settler.env
+ExecStart=/root/seqob-test/seqob-settler run -relay http://127.0.0.1:9955 -node-rpc 127.0.0.1:18300 -fee-wallet seqob-settler
+Restart=always
+RestartSec=5
+StandardOutput=append:/root/seqob-test/seqob-settler.log
+StandardError=append:/root/seqob-test/seqob-settler.log
+
+[Install]
+WantedBy=multi-user.target

@@ -77,7 +77,7 @@ launch_side() { # acct base quote side baseT quoteT usd key
   is_atoms "$bamt" && is_atoms "$qamt" || { echo "$acct $side: amounts '$bamt'/'$qamt' are not whole atoms; retrying"; return 1; }
   # 20 bps each side of the feed so the touch is a spread, not bid == ask.
   if [ "$side" = sell ]; then qamt=$(python3 -c "print(int($qamt*1.002))"); else qamt=$(python3 -c "print(int($qamt*0.998))"); fi
-  ./seqob-maker-sc -relay $RELAY -ocean $OCEAN -node-rpc "$SEQ_NODE_RPC" -account $acct     -base "$b" -quote "$q" -side $side -base-amount "$bamt" -quote-amount "$qamt"     -confidential=true -levels 20 -level-bps 40 -level-growth 1.12 -msats-per-byte 300     -maker-priv "$(cat "$key")"
+  SEQOB_NODE_RPC="$SEQ_NODE_RPC" SEQOB_MAKER_PRIV="$(cat "$key")" ./seqob-maker-sc -relay $RELAY -ocean $OCEAN -account $acct     -base "$b" -quote "$q" -side $side -base-amount "$bamt" -quote-amount "$qamt"     -confidential=true -levels 20 -level-bps 40 -level-growth 1.12 -msats-per-byte 300
 }
 
 run_side() { # acct base quote side baseT quoteT usd [keyfile [logfile]]

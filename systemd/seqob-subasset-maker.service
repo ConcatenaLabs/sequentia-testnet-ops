@@ -1,0 +1,16 @@
+[Unit]
+Description=SeqOB sub-asset GOLD maker (sells GOLD over Lightning via ln-asset, receives BTC on-chain to seqdex-mm-btc)
+After=network.target bitcoind.service seqob-subasset-relay.service
+Wants=seqob-subasset-relay.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root
+# SEQOB_BTC_RPC, bitcoind's RPC URL: in the environment, never on the command line.
+EnvironmentFile=/etc/sequentia/subasset-maker.env
+ExecStart=/root/seqob-test/subasset-requote.sh GOLD 100000 0.004 sell -- /root/sequentia/seqdex/bin/seqob-maker -mode subasset -base 3a0f9192219db59f8d7f87d93ac6311095dfe1255d149727b87baaa7d2cc71a1 -base-amount 100000 -btc-wallet seqdex-mm-btc -btc-chain testnet4 -asset-ln-socket /root/sequentia/lsp/ln-asset/sequentia-testnet/lightning-rpc -btc-locktime-delta 144 -min-btc-conf 0 -relay http://127.0.0.1:9966 -expiry 30m -requote -logtostderr
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

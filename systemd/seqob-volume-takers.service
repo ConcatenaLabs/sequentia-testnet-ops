@@ -1,15 +1,27 @@
 [Unit]
 Description=SeqDEX volume takers: real trades against the makers on every rail, ramped (makers/volume-takers.mjs)
-After=network-online.target seqobd.service
+After=network-online.target seqobd.service seqob-ln-btc-taker.service seqob-ln-asset-b.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/node /root/sequentia/sequentia-testnet-ops/makers/volume-takers.mjs --config /etc/sequentia/volume-takers.json
+User=takers
+Group=takers
+WorkingDirectory=/var/lib/volume-takers
+# SEQOB_SEQ_RPC, the dexnode's RPC URL, which the crosser legs spend through:
+# in the environment, never on a command line.
+EnvironmentFile=/etc/volume-takers/takers.env
+ExecStart=/usr/bin/node /opt/volume-takers/volume-takers.mjs --config /etc/volume-takers/volume-takers.json
 Restart=always
 RestartSec=30
 Nice=5
 CPUQuota=200%
 MemoryMax=2G
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/volume-takers
 
 [Install]
 WantedBy=multi-user.target

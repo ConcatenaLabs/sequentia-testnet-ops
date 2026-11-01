@@ -27,7 +27,14 @@ same sitting; one removed on purpose takes its line out with it.
 - **Validate before install.** `apply-caddy.sh` does; a Caddyfile that does not
   validate takes every product down at the next reload.
 - **A maker script holds no credential and launches nothing on missing data.**
-  The node RPC URL comes from `/etc/sequentia/seqob-makers.env` on the box. A
+  The node RPC URLs come from `/etc/sequentia/seqob-makers.env` on the box, and
+  reach a maker, with its key, in its environment (`SEQOB_NODE_RPC`,
+  `SEQOB_XSEQ_RPC`, `SEQOB_BTC_RPC`, `SEQOB_MAKER_PRIV`), never as a flag.
+- **No credential on a command line or in a unit's `Environment=`.** Every user
+  on the box reads a command line (`ps`, `/proc/<pid>/cmdline`) and every
+  unit's `Environment=` and `ExecStart=` (`systemctl show`), whatever the
+  file's mode. A unit takes a secret from an `EnvironmentFile=` of mode 600 or
+  a `LoadCredential=`, and passes none to its program as an argument. A
   script under `makers/` waits for the feeds it prices from and skips a maker
   whose amounts are not whole atoms: a maker launched with an empty argument
   prints its usage text on every relaunch, and the logs fill the disk.

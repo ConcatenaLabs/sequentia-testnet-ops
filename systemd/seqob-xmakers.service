@@ -1,0 +1,15 @@
+[Unit]
+Description=SeqOB cross-chain makers (supervised, auto re-quote after fill; makers/supervise-xmakers.sh)
+After=network.target seqobd.service
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/pkill -f "seqob-maker -mode cross"
+ExecStartPre=/bin/sleep 2
+ExecStart=/root/seqob-test/supervise-xmakers.sh
+Restart=always
+RestartSec=5
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target
