@@ -11,7 +11,7 @@
 //
 // A line passes when, within BOUND_MS of the person's confirmation (BTC_PAID_BOUND_MS for a
 // purchase paid with BTC), the Trade tab says what was
-// bought is received ("Received. Settled after the next Bitcoin blocks." or "Settled"), or SeqDEX
+// bought is received ("Received, settling" or "Settled"), or SeqDEX
 // says "Traded with … order". Otherwise it fails with what the page says at that moment.
 import { sleep, helpers } from '../lib/suite.mjs'
 
@@ -29,8 +29,10 @@ const REVIEW_MS = 60000
 // the button to the wallet's dialog on SeqDEX (#363: about 3 s is typical, 10 s the most). A trade
 // that takes longer is still made, so the lines after it run, and its line fails with the time.
 export const TICKET_MS = 10000
-// A purchase paid with BTC from the Bitcoin ark reads "Received" within BOUND_MS and "Settled" once
-// the trade's Bitcoin side is final: the next Bitcoin blocks (about 10 minutes each on testnet4).
+// A purchase paid with BTC from the Bitcoin ark reads "Received" once the BTC is paid over
+// Lightning, and "Settled" once the coin it received is settled in the operator's next round and
+// that round's block is certified: minutes, with no Bitcoin block to wait for. SETTLE_MS is a wide
+// margin over that, so a purchase that never settles fails and one merely slow does not.
 export const SETTLE_MS = 60 * 60000
 
 // The Trade tab: what is paid, what is received, the amount paid.
