@@ -93,6 +93,35 @@ export async function run ({ b, report, widths }) {
     })
     await scheme('dark')
 
+    // The explorer reads the Ark: a round, a coin taken out of it, and the transactions between.
+    const ROUND1 = 'c10e089a0781d9d38d0890e5c916dd81b2c7337a2bf501ed2bdbb6d090ae8061'
+    const EXIT1 = 'e6064262ff6c099e1dff47c2d6114a98ddd65e88b845bdf8dbfccba5241e6c62'
+    const COIN1 = '4b8744031811289dc6171ed549f798c3094c24ee035ae99bd7abf1aeb10aaf43'
+    await R('EXP-ARK-SYNC', null, 'The explorer\'s copy of the Ark is in step with the operator', async () => {
+      const r = await fetch(SITE + '/ark-index/status').then((x) => x.json()).catch((e) => ({ error: String(e) }))
+      return { ok: r.synced === true, detail: r }
+    })
+    for (const [id, path, line, want] of [
+      ['EXP-ARK-ROUND-TX', '/explorer/tx/' + ROUND1, 'A round\'s transaction says it is an Ark round', [/Ark round/, /makes round #1/]],
+      ['EXP-ARK-EXIT-TX', '/explorer/tx/' + EXIT1, 'A coin\'s exit says it is an Ark exit', [/Ark exit/]],
+      ['EXP-ARK-ROUND', '/explorer/ark/1', 'The Ark section shows a round, its batches and its coins, in the assets\' units', [/Ark round #1/, /3 in 2 batches/, /USDX/]],
+      ['EXP-ARK-COIN', '/explorer/ark/' + COIN1, 'The Ark section shows a coin, its round and what became of it, in plain words', [/Ark coin/, /exited by its owner/, /Round #1/]]]) {
+      await go(SITE + path, "/\\bArk\\b/.test(document.body.innerText)", 60000).catch(() => {})
+      await R(id, w, line, async () => {
+        const t = await h.bodyText(), over = await h.overflow()
+        const miss = want.filter((re) => !re.test(t)).map(String)
+        const hidden = (t.match(/\b(Arca|Ambra|SeqDEX|SeqLN|Lightning|Pignus|Levo|SeqPal)\b/) || [])[0]
+        return { ok: !miss.length && !hidden && over <= 1, detail: { missing: miss, hidden: hidden || 'none', overflow: over } }
+      })
+    }
+    await go(SITE + '/explorer/tx/ff4e43323076f5bdce6b3b2ba56b68af8001ca6b0b46b829fdc07d69b3da1007?expand', "/FEE_CAP/.test(document.body.innerText)", 60000).catch(() => {})
+    await R('EXP-CONTRACT-UNITS', w, 'A contract\'s amounts read in the asset\'s units, not in atoms', async () => {
+      const t = await h.bodyText()
+      const near = [...t.matchAll(/FEE_CAP[\s\S]{0,80}/g)].map((m) => m[0].replace(/\s+/g, ' '))
+      const units = near.some((x) => /0\.00100000 tSEQ/.test(x)), atoms = /100,?000 atoms/.test(t)
+      return { ok: units && !atoms, detail: { in_units: units, atoms_shown: atoms, near: near.slice(0, 3) } }
+    })
+
     await go(SITE + '/pools/', "document.querySelector('#stats') && document.querySelector('#stats').innerText.length > 0")
     await R('POOLS', w, 'The pools page gives stakes in tSEQ and offers delegation from the web wallet first', async () => {
       const stats = await h.text('#stats'), t = await h.bodyText()
