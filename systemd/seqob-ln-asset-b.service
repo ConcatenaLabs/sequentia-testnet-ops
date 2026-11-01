@@ -1,0 +1,19 @@
+[Unit]
+Description=SeqLN asset node ln-asset-b (the volume takers' asset leg)
+After=network.target
+
+[Service]
+Type=simple
+User=takers
+Group=takers
+ExecStart=/opt/volume-takers/seqln/asset-bin/lightningd --lightning-dir=/var/lib/volume-takers/ln/ln-asset-b --network=sequentia-testnet
+Restart=always
+RestartSec=6
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/volume-takers
+
+[Install]
+WantedBy=multi-user.target

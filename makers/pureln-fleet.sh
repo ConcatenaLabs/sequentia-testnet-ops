@@ -105,7 +105,7 @@ launch_btc() { # ticker assetid side base_atoms level name
   AMTS=$(price_btc $T $S $B0 $LVL) || { echo "$NAME: the feed has no price for $T or BTC; retrying"; return 1; }
   read -r BASE QUOTE <<< "$AMTS"
   is_atoms "$BASE" && is_atoms "$QUOTE" || { echo "$NAME: amounts '$BASE'/'$QUOTE' are not whole atoms"; return 1; }
-  $BIN -mode pureln -side $S -base $A -base-amount $BASE -quote-amount $QUOTE     -asset-ln-socket $ASOCK -ln-socket $BSOCK -btc-asset "" -relay $RELAY     -hold-timeout 3m0s -maker-priv "$(cat "$(maker_key $NAME)")" -logtostderr
+  SEQOB_MAKER_PRIV="$(cat "$(maker_key $NAME)")" $BIN -mode pureln -side $S -base $A -base-amount $BASE -quote-amount $QUOTE     -asset-ln-socket $ASOCK -ln-socket $BSOCK -btc-asset "" -relay $RELAY     -hold-timeout 3m0s -logtostderr
 }
 run_maker() { # ticker assetid side base_atoms level(1..8), against BTC
   local T=$1 A=$2 S=$3 BASE=$4 LVL=${5:-1}
@@ -140,7 +140,7 @@ launch_aa() { # baseT baseId quoteT quoteId side base_atoms level name
   AMTS=$(price_aa $BT $QT $S $B0 $LVL) || { echo "$NAME: the feed has no price for $BT or $QT; retrying"; return 1; }
   read -r BASE QUOTE <<< "$AMTS"
   is_atoms "$BASE" && is_atoms "$QUOTE" || { echo "$NAME: amounts '$BASE'/'$QUOTE' are not whole atoms"; return 1; }
-  $BIN -mode pureln -side $S -base $BA -base-amount $BASE -quote-amount $QUOTE     -quote-asset $QA -asset-ln-socket $ASOCK -ln-socket $ASOCK -relay $RELAY     -hold-timeout 3m0s -maker-priv "$(cat "$(maker_key $NAME)")" -logtostderr
+  SEQOB_MAKER_PRIV="$(cat "$(maker_key $NAME)")" $BIN -mode pureln -side $S -base $BA -base-amount $BASE -quote-amount $QUOTE     -quote-asset $QA -asset-ln-socket $ASOCK -ln-socket $ASOCK -relay $RELAY     -hold-timeout 3m0s -logtostderr
 }
 run_aa() { # baseT baseId base_atoms quoteT quoteId side level(1..8)
   local BT=$1 BA=$2 BASE=$3 QT=$4 QA=$5 S=$6 LVL=${7:-1}

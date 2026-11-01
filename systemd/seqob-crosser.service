@@ -1,0 +1,20 @@
+[Unit]
+Description=SeqOB crossing agent (rest-vs-rest execution across families)
+After=network-online.target seqobd.service
+
+[Service]
+# The node URLs and the taker's keys come from this file as SEQOB_SEQ_RPC,
+# SEQOB_BTC_RPC, SEQOB_TAKER_PRIV and SEQOB_TAKER_BLINDING, which the crosser
+# reads and hands its legs in their environment, never on a command line.
+EnvironmentFile=/etc/sequentia/seqob-crosser.env
+WorkingDirectory=/root/seqob-crosser-state
+ExecStart=/root/sequentia/seqdex/bin/seqob-crosser -auto -relays ${RELAYS} \
+  -seq-wallet ${SEQ_WALLET} -btc-wallet ${BTC_WALLET} -btc-chain testnet4 \
+  -asset-ln-socket ${ASSET_LN_SOCKET} -btc-ln-socket ${BTC_LN_SOCKET} \
+  -seqob-cli /root/sequentia/seqdex/bin/seqob-cli -state-dir /root/seqob-crosser-state \
+  -esplora ${ESPLORA} -min-profit-bps 10 -max-exposure-atoms 100000000000
+Restart=on-failure
+RestartSec=20
+
+[Install]
+WantedBy=multi-user.target

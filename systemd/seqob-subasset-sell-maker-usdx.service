@@ -1,0 +1,20 @@
+[Unit]
+Description=SeqDEX sub-asset SELL maker (USDX): locks BTC on-chain, receives USDX over LN on ln-asset
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root
+# SEQOB_BTC_RPC and SEQOB_MAKER_PRIV: in the environment, never on the command line.
+EnvironmentFile=/etc/sequentia/subasset-sell-maker.env
+ExecStart=/root/sequentia/seqdex/bin/seqob-maker -mode subasset-sell \
+  -base 2a515539da5e6a60caa7766ecd65bac0c10d15717ddd2088844ba58f4d04b9de -base-amount 50000000 -quote-amount 2000000 \
+  -btc-wallet sell-maker-btc -btc-chain testnet4 \
+  -asset-ln-socket /root/sequentia/lsp/ln-asset/sequentia-testnet/lightning-rpc \
+  -btc-locktime-delta 144 -min-btc-conf 0 \
+  -relay http://127.0.0.1:9971 -expiry 168h -requote -logtostderr
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

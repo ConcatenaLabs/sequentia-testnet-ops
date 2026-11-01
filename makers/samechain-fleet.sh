@@ -117,12 +117,12 @@ launch() { # acct side baseId baseKey basePrec quoteId quoteKey quotePrec keyfil
   is_atoms "$bamt" && is_atoms "$qamt" || { echo "[sc-fleet] amounts '$bamt'/'$qamt' are not whole atoms; retrying"; return 1; }
   fee=$b; [ "$side" = buy ] && fee=$q
   echo "[sc-fleet] $(date -u +%FT%TZ) $acct $side level 0: $bamt base atoms for $qamt quote atoms, $LEVELS levels"
-  "$BIN" -mode samechain -relay "$RELAY" -ocean "$OCEAN" -node-rpc "$SEQ_NODE_RPC" -account "$acct" \
+  SEQOB_NODE_RPC="$SEQ_NODE_RPC" SEQOB_MAKER_PRIV="$(cat "$key")" \
+  "$BIN" -mode samechain -relay "$RELAY" -ocean "$OCEAN" -account "$acct" \
     -base "$b" -quote "$q" -side "$side" -base-amount "$bamt" -quote-amount "$qamt" \
     -levels "$LEVELS" -level-bps "$LEVEL_BPS" -level-growth "$GROWTH" \
     -max-quote-age "$QUOTE_AGE" -guard-feed "$FEED" -guard-bps "$GUARD_BPS" \
-    -guard-base-key "$bk" -guard-quote-key "$qk" -guard-base-prec "$bp" -guard-quote-prec "$qp" -expiry 1h -fee-asset "$fee" -confidential=false -msats-per-byte 300 \
-    -maker-priv "$(cat "$key")"
+    -guard-base-key "$bk" -guard-quote-key "$qk" -guard-base-prec "$bp" -guard-quote-prec "$qp" -expiry 1h -fee-asset "$fee" -confidential=false -msats-per-byte 300
 }
 
 run_side() { # acct side baseT baseId baseKey basePrec quoteT quoteId quoteKey quotePrec usd

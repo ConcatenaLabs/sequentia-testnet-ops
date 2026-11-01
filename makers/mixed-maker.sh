@@ -47,8 +47,9 @@ while true; do
   Q=$(quote)
   if [[ $Q =~ ^[1-9][0-9]*$ ]]; then
     echo "[mixed] $(date -u +%FT%TZ) $ROLE $BASE GOLD atoms for $Q EURX atoms"
+    SEQOB_MAKER_PRIV="$(cat "$KEY")" SEQOB_XSEQ_RPC="$SEQ_NODE_RPC" \
     "$BIN" -mode $MODE -base $GOLD -quote-asset $EURX -base-amount $BASE -quote-amount "$Q" \
-      -maker-priv "$(cat "$KEY")" -xseq-rpc "$SEQ_NODE_RPC" -xseq-wallet xmm \
+      -xseq-wallet xmm \
       -asset-ln-socket $ASOCK -relay $RELAY -expiry 1h -requote -logtostderr
     echo "[mixed] $(date -u +%FT%TZ) exited rc=$?"
   else

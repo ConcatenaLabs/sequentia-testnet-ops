@@ -1,0 +1,15 @@
+[Unit]
+Description=SeqOB submarine maker (USDX buy): asset on-chain <-> BTC over Lightning, relay :9965
+After=network.target seqobd.service
+
+[Service]
+Restart=always
+RestartSec=5
+WorkingDirectory=/root/seqob-test
+# SEQOB_XSEQ_RPC, the dexnode's RPC URL: in the environment, never on the command line.
+EnvironmentFile=/etc/sequentia/seqob-xseq.env
+ExecStart=/root/seqob-test/subasset-requote.sh USDX 3000000000 0.004 buy -- /root/seqob-test/seqob-maker -mode lightning -side buy -base 2a515539da5e6a60caa7766ecd65bac0c10d15717ddd2088844ba58f4d04b9de -base-amount 3000000000 -relay http://127.0.0.1:9965 -xseq-wallet xmm -ln-socket /root/sequentia/lsp/btc-maker/testnet4/lightning-rpc -expiry 30m -max-0conf 3000000000 -spend-fee 1000
+Environment=REPRICE_SECS=7200
+
+[Install]
+WantedBy=multi-user.target

@@ -27,7 +27,7 @@
 // Bitcoin anchor (`chain`), the in-tree rail and the probe make no trade and the ramp holds (a
 // pause, never a step back); Lightning and the chain need no Arca finality and trade on.
 //
-//   node makers/volume-takers.mjs --config /etc/sequentia/volume-takers.json [--dry-run]
+//   node makers/volume-takers.mjs --config /etc/volume-takers/volume-takers.json [--dry-run]
 //
 // Writes `<state>/trades.jsonl` (one line a trade), `<state>/summary.json` and `<state>/ramp.json`
 // every minute, and a summary line to stdout; --dry-run makes no trade and draws each one's

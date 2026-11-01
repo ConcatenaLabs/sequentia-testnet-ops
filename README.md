@@ -25,9 +25,9 @@ put it in place and keep copies of it.
 | `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep; the Arca operator's daily PostgreSQL base backup; and the user timers that pull the bridge state and the Arca backups off the box. |
 | `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. `bitcoin-ark` covers the Bitcoin ark's Bitcoin Core and Lightning logs under `/var/log/bitcoin-ark`: daily or at 50 MB, seven kept. |
-| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the makers below (`seqob-pureln-fleet`, `seqob-conf-maker`, `seqob-samechain-fleet`, the `seqob-liquidity-health` timer, `seqob-mixed-gold-eurx-buyer-side`, `seqob-mixed-gold-eurx-seller-side`) of the two Bitcoin-side Lightning nodes (`seqob-ln-btc-maker`, `seqob-ln-btc-taker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key), and of the status page's checker (`gatus`); none holds a credential, each service reads its own mode-600 config. |
+| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the makers below (`seqob-pureln-fleet`, `seqob-conf-maker`, `seqob-samechain-fleet`, the `seqob-liquidity-health` timer, `seqob-mixed-gold-eurx-buyer-side`, `seqob-mixed-gold-eurx-seller-side`, `seqob-xmakers`, the four `seqob-submarine-*`, `seqob-subasset-maker`, `seqob-subasset-sell-maker-usdx`), of the order crosser and the covenant settler (`seqob-crosser`, `seqob-settler`), of the volume takers and their Lightning nodes (`seqob-volume-takers`, `seqob-ln-asset-b`, `seqob-ln-btc-taker`, as the `takers` user), of the other Bitcoin-side Lightning node (`seqob-ln-btc-maker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key), and of the status page's checker (`gatus`); none holds a credential, each service reads its own mode-600 config. |
 | `bitcoin-ark/` | The Bitcoin ark's configuration templates (Bitcoin Core, the Lightning gateway, Bark's server and watchman) and the one patch its Bark client carries. |
-| `makers/` | The scripts that keep SeqOB makers running on the box: `pureln-fleet.sh` (pure-Lightning makers), `supervise-conf.sh` (confidential makers), `samechain-fleet.sh` (interactive same-chain makers), `mixed-maker.sh` (the two mixed GOLD/EURX makers), `covenant_seed_all.mjs` (the on-chain covenant ladder) and `covenant_reclaim.py` (which takes back the coins of its expired orders). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the one secret the shell scripts read; the seeder reads the node's `elements.conf`. |
+| `makers/` | The scripts that keep SeqOB makers running on the box: `pureln-fleet.sh` (pure-Lightning makers), `supervise-conf.sh` (confidential makers), `samechain-fleet.sh` (interactive same-chain makers), `mixed-maker.sh` (the two mixed GOLD/EURX makers), `supervise-xmakers.sh` (the cross-chain makers), `subasset-requote.sh` (which reprices a sub-asset or submarine maker from the feed), `covenant_seed_all.mjs` (the on-chain covenant ladder) and `covenant_reclaim.py` (which takes back the coins of its expired orders). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the secrets the shell scripts read; the seeder reads the node's `elements.conf`. |
 | `status/gatus.yaml`, `status/site/index.html` | The testnet status page at `sequentiatestnet.com/status/`: the checks [Gatus](https://github.com/TwiN/gatus) runs every minute against the public address (the chain, the explorer, the web wallet, the faucet, Compages, the staking pools, Emissio and the Sequentia Core download), and the page that shows them. See "The status page". |
 | `bin/apply-docs.sh` | Pulls [sequentia-docs](https://github.com/ConcatenaLabs/sequentia-docs), the tester guide, builds it with its own `build.sh` and installs it in `/srv/docs`, which the Caddyfile serves at `/docs/`. |
 | `bin/apply-status.sh` | Builds Gatus at the pinned version if it is not there, installs its config, its unit (`systemd/gatus.service`) and the page, restarts it and checks every check has run. |
@@ -412,18 +412,26 @@ with `seqob-cli lift` from its taker key, cross-chain and Lightning legs on
 their own rails. It keeps the spread, and its exposure to a second leg that
 fails is capped by `-max-exposure-atoms`.
 
-`supervise-conf.sh`, `samechain-fleet.sh` and `mixed-maker.sh` read the node RPC URL, which carries a password, from
-`/etc/sequentia/seqob-makers.env` (mode 600); `makers/seqob-makers.env.example`
-names it.
+The maker scripts read the node RPC URLs, which carry passwords, from
+`/etc/sequentia/seqob-makers.env` (mode 600; `makers/seqob-makers.env.example`
+names them) and hand them to each maker, with its key, in its environment
+(`SEQOB_NODE_RPC`, `SEQOB_XSEQ_RPC`, `SEQOB_BTC_RPC`, `SEQOB_MAKER_PRIV`),
+never as a flag: every user on the box can read a command line. The units that
+start a maker directly take the same variables from an environment file of
+their own (`seqob-xseq.env` for the submarine makers, `subasset-maker.env`,
+`subasset-sell-maker.env`, `seqob-crosser.env`, `seqob-settler.env`, all mode
+600 under `/etc/sequentia`).
 
 The pure-Lightning makers that trade against BTC, and the submarine makers,
 pay and receive bitcoin through one Lightning node on Bitcoin testnet4, in
 `/root/sequentia/lsp/btc-maker`. While it is down they have no BTC leg: each
 exits on "btc lightning-rpc unreachable" and waits to be relaunched.
 
-The other end of its largest channel is a second testnet4 node, in
-`/root/sequentia/lsp/btc-taker`, which the order crosser (`seqob-crosser`)
-takes offers through.
+The other end of its largest channel is a second testnet4 node, btc-taker,
+which the order crosser (`seqob-crosser`) and the volume takers take offers
+through. It runs as the volume takers' user (see "Trading volume: the volume
+takers"), in `/var/lib/volume-takers/ln/btc-taker`; `/root/sequentia/lsp/btc-taker`
+links there for root's services.
 
 ```sh
 install -m 644 systemd/seqob-ln-btc-maker.service systemd/seqob-ln-btc-taker.service /etc/systemd/system/
@@ -473,16 +481,23 @@ pairs and their targets, the mix, each rail's concurrency, the sizes, the ramp,
 the takers' wallets and the crosser's command line. The takers' coins come from
 their own wallets, which the health pass refills.
 
-They run as `seqob-volume-takers.service` (`systemd/`), from this checkout, with
-their configuration in `/etc/sequentia/volume-takers.json` (mode 600: it holds
-the node RPC URL the on-chain rail spends through). Their on-chain coins are the
-dexnode wallet `volume-taker`, which the health pass keeps at its target; their
-Lightning legs go through the crosser's taker nodes (`ln-asset-b` and
-`btc-taker`).
+They run as `seqob-volume-takers.service` (`systemd/`) under the `takers`
+system user, which owns their state and their two Lightning nodes and nothing
+else: the script is installed at `/opt/volume-takers/volume-takers.mjs` from
+this checkout, beside the SeqLN binaries the nodes run
+(`/opt/volume-takers/seqln`, with `asset-bin/` for ln-asset-b), and the state is
+`/var/lib/volume-takers` (`trades.jsonl`, `summary.json`, the crosser's state,
+and the nodes under `ln/`). The configuration is
+`/etc/volume-takers/volume-takers.json` (root, readable by the group `takers`);
+the node RPC URL the on-chain rail spends through is `SEQOB_SEQ_RPC` in
+`/etc/volume-takers/takers.env` (mode 600, read by systemd), which the crosser
+hands its legs in their environment. Their on-chain coins are the dexnode
+wallet `volume-taker`, which the health pass keeps at its target; their
+Lightning legs go through the taker nodes `ln-asset-b` and `btc-taker`
+(`seqob-ln-asset-b.service`, `seqob-ln-btc-taker.service`, as the same user).
 
 ```sh
-node makers/volume-takers.mjs --config /etc/sequentia/volume-takers.json            # trades
-node makers/volume-takers.mjs --config /etc/sequentia/volume-takers.json --dry-run  # no trade: the schedule, sizes and ramp
+runuser -u takers -- env SEQOB_SEQ_RPC=… node /opt/volume-takers/volume-takers.mjs --config /etc/volume-takers/volume-takers.json --dry-run  # no trade: the schedule, sizes and ramp
 ```
 
 It writes one line a trade to `<state>/trades.jsonl` and, every minute, a summary
