@@ -105,7 +105,7 @@ export async function run ({ b, report, widths }) {
       ['EXP-ARK-ROUND-TX', '/explorer/tx/' + ROUND1, 'A round\'s transaction says it is an Ark round', [/Ark round/, /makes round #1/]],
       ['EXP-ARK-EXIT-TX', '/explorer/tx/' + EXIT1, 'A coin\'s exit says it is an Ark exit', [/Ark exit/]],
       ['EXP-ARK-ROUND', '/explorer/ark/1', 'The Ark section shows a round, its batches and its coins, in the assets\' units', [/Ark round #1/, /3 in 2 batches/, /USDX/]],
-      ['EXP-ARK-COIN', '/explorer/ark/' + COIN1, 'The Ark section shows a coin, its round and what became of it, in plain words', [/Ark coin/, /exited by its owner/, /Round #1/]]]) {
+      ['EXP-ARK-COIN', '/explorer/ark/' + COIN1, 'The Ark section shows a coin, its round and what became of it, in plain words', [/Ark coin/, /exited by its owner/, /\bRound\s+#1\b/i]]]) {
       await go(SITE + path, "/\\bArk\\b/.test(document.body.innerText)", 60000).catch(() => {})
       await R(id, w, line, async () => {
         const t = await h.bodyText(), over = await h.overflow()
@@ -114,7 +114,8 @@ export async function run ({ b, report, widths }) {
         return { ok: !miss.length && !hidden && over <= 1, detail: { missing: miss, hidden: hidden || 'none', overflow: over } }
       })
     }
-    await go(SITE + '/explorer/tx/ff4e43323076f5bdce6b3b2ba56b68af8001ca6b0b46b829fdc07d69b3da1007?expand', "/FEE_CAP/.test(document.body.innerText)", 60000).catch(() => {})
+    // Wait for the parameters' table, not the description, which names FEE_CAP first.
+    await go(SITE + '/explorer/tx/ff4e43323076f5bdce6b3b2ba56b68af8001ca6b0b46b829fdc07d69b3da1007?expand', "/FEE_CAP\\s+[0-9]/.test(document.body.innerText)", 60000).catch(() => {})
     await R('EXP-CONTRACT-UNITS', w, 'A contract\'s amounts read in the asset\'s units, not in atoms', async () => {
       const t = await h.bodyText()
       const near = [...t.matchAll(/FEE_CAP[\s\S]{0,80}/g)].map((m) => m[0].replace(/\s+/g, ' '))
