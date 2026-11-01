@@ -63,6 +63,10 @@ export async function run ({ b, report, widths, funded, problems }) {
       await h.waitFor("document.querySelectorAll('section[data-panel=balance] .bt-tk .tk').length", 60000)
       const t = await balanceTickers(h); return { ok: t.length === 1 && t[0] === 'BTC', detail: t }
     })
+    await R('BTC-EXIT-QUIET', w, 'While the ark answers, BTC says nothing of leaving it, and the page carries the rule that would', h, async () => {
+      const r = await h.eval("(async()=>{const lines=document.querySelectorAll('section[data-panel=balance] .bt-exit').length; const src=await fetch('btc-ark.js').then(r=>r.text()).catch(()=>''); return {lines, rule:/exit_auto/.test(src)}})()")
+      return { ok: r.lines === 0 && r.rule, detail: r }
+    })
     await R('BAL-TOTAL', w, 'One total in the reference currency at the top', h, async () => {
       const t = await totalText(h); return { ok: /total balance/i.test(t) && /\d/.test(t), detail: t.replace(/\s+/g, ' ') }
     })

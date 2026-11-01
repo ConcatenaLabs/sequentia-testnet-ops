@@ -37,6 +37,7 @@ How each surface is read:
 | WW-RCV-TIP | read what the code takes ("Any asset, any amount. …") | Receive |
 | WW-RCV-BUTTONS | copy the code, make a new one; no address-only controls | Receive |
 | WW-RCV-AMOUNT | ask for an amount of BTC: the code names it and carries an invoice | Receive |
+| WW-BTC-EXIT-QUIET | meet no line about BTC leaving the ark while the ark answers; the page carries the rule that moves it to the address when the ark stops renewing it | BTC |
 | WW-RCV-NO-INVOICE | not meet a BTC invoice card, or an empty framed box, while holding no BTC on the ark | BTC |
 | WW-RCV-WORDS | read Receive without a word default mode never says | Never in default mode |
 | WW-SND-RECIPIENT | paste a receive code, an address or an invoice into "Recipient" | Send |
