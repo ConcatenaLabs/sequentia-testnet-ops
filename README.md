@@ -854,7 +854,7 @@ its repository, `ConcatenaLabs/arca`: `server/README.md` for the server,
 | `arca-watchtower.service` | The operator's watchtower (`arca watchtower serve`), on `127.0.0.1:3537`, reached at `https://sequentiatestnet.com/watchtower/` and listed in `arcad.toml`'s `[watcher] watchtowers`, so wallets that name none deposit their coins with it; its wallet (and the fee coins it may pay with) in `/var/lib/arca-watchtower`. It runs the `arca` binary of `/opt/arca/target/release`, so a move to a new revision restarts it too |
 | `arca-watchtower-peer.service` | The watchtower this box runs for the users of the operator at `arca.albertodeluigi.com`, on `127.0.0.1:3538`, reached at `https://sequentiatestnet.com/watchtower-peer/`; its wallet in `/var/lib/arca-watchtower-peer`, made against that operator, whose `info` names it to its users |
 | `arca-watchtower-for-b.service` | The same for operator B's users (the box's stand-in second operator), on `127.0.0.1:3539`, reached at `https://sequentiatestnet.com/watchtower-for-b/`, named in B's `info`; its wallet in `/var/lib/arca-watchtower-for-b` |
-| `arca-btc-watchtower.service` | The watchtower for Bitcoin ark coins (`arca btc-watchtower serve`), on `127.0.0.1:3541`, reached at `https://sequentiatestnet.com/btc-watchtower/`; it takes deposits for any Bitcoin ark's coins and reads testnet4 through `bitcoin-ark-feeproxy` as `ark`, the password in `/etc/arca/btc-watchtower.env` (mode 640, group `arca`); its phrase and the BTC it pays fees with in `/var/lib/arca-btc-watchtower/btc-watchtower`. It runs the `arca` binary of `/opt/arca/target/release` |
+| `arca-btc-watchtower.service` | The watchtower for Bitcoin ark coins (`arca btc-watchtower serve`), on `127.0.0.1:3541`, reached at `https://sequentiatestnet.com/btc-watchtower/`; it takes deposits for any Bitcoin ark's coins and reads testnet4 through `bitcoin-ark-feeproxy` as `arktower`, a login of its own that the node limits to the calls a tower makes (`rpcwhitelist` in `bitcoin-ark/bitcoin.conf`), the password in `/etc/arca/btc-watchtower.env` (mode 640, group `arca`); its phrase and the BTC it pays fees with in `/var/lib/arca-btc-watchtower/btc-watchtower`. It runs the `arca` binary of `/opt/arca/target/release` |
 | `arca-b-watchtower.service` | Operator B's watchtower for this operator's users (its bundle's), on `127.0.0.1:23537`, reached at `https://sequentiatestnet.com/watchtower-b/` and listed in `arcad.toml`'s `[watcher] watchtowers` beside the box's own and `https://arca.albertodeluigi.com/watchtower` |
 | Its node | The dexnode (`seq-dexnode`, RPC 18300), which runs with `-txindex` and `-validateanchor` |
 | Its database | PostgreSQL 16, cluster `16/main`, database `arca`, reached over the Unix socket as the `arca` role |
@@ -1047,7 +1047,7 @@ back. No page links to it.
 
 | Unit | What | Where |
 |---|---|---|
-| `bitcoin-ark-bitcoind` | Bitcoin Core 31.1 on testnet4, with a transaction index, no wallet, outbound peers only (the box's own testnet4 node first) | `/opt/bitcoin-ark/core`, data `/var/lib/bitcoin-ark/bitcoind`, RPC `127.0.0.1:18342` by cookie, and as `ark` for captaind and watchmand |
+| `bitcoin-ark-bitcoind` | Bitcoin Core 31.1 on testnet4, with a transaction index, no wallet, outbound peers only (the box's own testnet4 node first) | `/opt/bitcoin-ark/core`, data `/var/lib/bitcoin-ark/bitcoind`, RPC `127.0.0.1:18342` by cookie, as `ark` for captaind and watchmand, and as `arktower` (limited to a tower's calls) for the Bitcoin ark watchtower |
 | `bitcoin-ark-cln` | The Lightning gateway: Core Lightning 26.06.6 with Boltz's hold-invoice plugin v0.3.3 and its own gRPC interface | `/opt/bitcoin-ark/cln`, data `/var/lib/bitcoin-ark/cln`, peers on `0.0.0.0:19746`, reached at `sequentiatestnet.com:19746` by other operators' Bitcoin gateways, gRPC `19747` and hold gRPC `19748` on loopback |
 | `bitcoin-ark-captaind` | Bark's server: rounds, in-ark payments, Lightning through the gateway | `/opt/bitcoin-ark/bin/captaind`, data `/var/lib/bitcoin-ark/captaind`, public gRPC `127.0.0.1:3545`, admin `3546`, integrations `3547` (loopback only) |
 | `bitcoin-ark-watchmand` | Bark's watchman: answers exits, sweeps expired rounds back to the server's wallet | `/opt/bitcoin-ark/bin/watchmand`, data `/var/lib/bitcoin-ark/watchmand` |
@@ -1062,7 +1062,14 @@ its cookie; captaind and
 watchmand log in as `ark`, whose password is drawn on the box into
 `/etc/bitcoin-ark/rpc.password` (mode 600) and written into their two
 configurations (mode 640, the `bark` group), since they read their credentials
-once and the cookie changes whenever the node starts. PostgreSQL is reached over
+once and the cookie changes whenever the node starts. The Bitcoin ark
+watchtower (`arca-btc-watchtower`) logs in as `arktower` instead, whose
+password is `/etc/bitcoin-ark/tower-rpc.password` (mode 600) and whose salted
+hash, in `/etc/bitcoin-ark/tower-rpcauth`, fills the template's
+`@TOWER_RPCAUTH@`. The node lets that login make only the calls a tower makes
+(`rpcwhitelist`), so a process running as `arca` cannot stop or blind the
+node captaind and the watchman rely on; `rpcwhitelistdefault=0` keeps every
+call for `ark` and the cookie. Without a tower login the block is left out. PostgreSQL is reached over
 its Unix socket as `bark`. The server's key is the mnemonic in
 `/var/lib/bitcoin-ark/captaind/mnemonic` (mode 600; the watchman holds a
 copy); keep a copy of it off the box.
