@@ -1152,6 +1152,24 @@ and integration interfaces are never routed.
   boards need two confirmations; boards, payments and Lightning amounts up to
   0.05 tBTC (0.01 over Lightning); Bark's own fee schedule, in satoshis.
 
+### A coin past its expiry
+
+A leaf lives 2,016 blocks. The wallets renew each one before then: while they
+are open, and through a renewal they hand the server ahead of time, which it
+runs by itself shortly before the expiry. A leaf that expires anyway is swept
+by the watchman back to the server's wallet with the rest of its round's
+tree; on Bitcoin that sweep is how the server gets its capital back, so it
+stays.
+
+**This ark's policy: an expired leaf is taken back in a round when its holder
+returns.** The holder's wallet asks for the leaf's refresh, and the server
+puts it in a round as a new leaf, less the refresh fee, however long the
+holder was away. It is a promise, not a rule in script: it holds for as long
+as the server keeps its database and its operator keeps it. A holder who
+wants to depend on no promise takes the leaf to the chain before it expires;
+the wallets do that by themselves when the server stops renewing a leaf worth
+its exit.
+
 ### Installing it
 
 Four owner scripts do it, each safe to paste again: prepare (download, check
