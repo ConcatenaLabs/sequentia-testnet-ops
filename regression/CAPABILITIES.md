@@ -255,7 +255,7 @@ linked from the public surface; these lines hold it to its own contract (every a
 
 ## Public pages around the web wallet
 
-The front page, the faucet page, Compages, the explorer, the staking pools, the Sequentia Core
+The front page, the faucet page, Compages, the explorer (its Ark section and labels too), the staking pools, the Sequentia Core
 download and Emissio's report scopes, in headless Chromium, desktop and phone, as a new tester
 meets them; the explorer also in a light colour scheme. `regression/checks/public-pages.mjs`.
 Nothing is requested, bridged or sent: the faucet's and Compages' lines stop once the receive code
@@ -271,6 +271,12 @@ is taken.
 | PP-EXP-LIGHT | read every figure on the explorer's dashboard in a light colour scheme (no white text on a light background) |
 | PP-EXP-LIGHT-ASSETS | read the explorer's Assets page in a light colour scheme |
 | PP-EXP-ASSETS | find the registered assets first on the Assets page, with a dash where a ticker or domain is missing |
+| PP-EXP-ARK-SYNC | rely on the explorer's copy of the Ark being in step with the operator |
+| PP-EXP-ARK-ROUND-TX | see on a transaction's page that it made an Ark round, and which |
+| PP-EXP-ARK-EXIT-TX | see on a transaction's page that it took a coin out of the Ark |
+| PP-EXP-ARK-ROUND | look up an Ark round in the explorer: its batches, its coins and their value in each asset's units |
+| PP-EXP-ARK-COIN | look up an Ark coin in the explorer: its round, its place and what became of it, in plain words |
+| PP-EXP-CONTRACT-UNITS | read a contract's amounts in the asset's units, not in atoms |
 | PP-POOLS | read stakes in tSEQ on the pools page and delegate from the web wallet (More → Stake) |
 | PP-CORE-MAC | find a path on a Mac from the Core download page: the web wallet, or a build from source |
 | PP-EMI-BUGS | read that Emissio's bug reports cover the web wallet |
