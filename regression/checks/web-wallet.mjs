@@ -250,15 +250,15 @@ export async function run ({ b, report, widths, funded, problems }) {
   // leaves, an offboard, a claim) and to tell a supervised asset from a plain one, asked of the
   // page's own node route as the wallet asks them.
   // What waits on the chain is sped up by itself, in words default mode may say; and a coin
-  // received out of round is put into a refresh only where the page turns it on (off: a refresh
-  // the operator cannot fund held the coins, arca#492).
-  await R('SPEED-REFRESH-BUILT', null, 'The page speeds up what waits by itself, in words default mode may say, and leaves the refresh of received coins off', h, async () => {
+  // received out of round is refreshed by itself unless the page turns it off, with a library that
+  // takes a waiting refresh back, so a refresh never holds a coin the wallet needs (arca#492).
+  await R('SPEED-REFRESH-BUILT', null, 'The page speeds up what waits by itself, in words default mode may say, and refreshes received coins with a library that takes a waiting refresh back', h, async () => {
     const r = await h.eval(`(async()=>{const t=(p)=>fetch(new URL(p,location.href)).then(r=>r.ok?r.text():'');
       const sp=await t('speed-up.js'), lv=await t('leaves.js'), wasm=await t('leaves/pkg/leaf_wallet_bg.wasm');
       const m=sp.match(/spedUp: '([^']+)'/);
-      return {words:m?m[1]:null, refreshGated:lv.includes('window.SEQ_REFRESH_RECEIVED === true'), refreshOn:window.SEQ_REFRESH_RECEIVED===true, library:wasm.includes('speed_up')}})()`)
+      return {words:m?m[1]:null, refreshByDefault:lv.includes('window.SEQ_REFRESH_RECEIVED === false'), refreshOff:window.SEQ_REFRESH_RECEIVED===false, library:wasm.includes('speed_up'), withdraws:wasm.includes('Arca/participation-withdraw')}})()`)
     const said = r.words ? forbiddenIn(r.words, words || []) : ['no words']
-    return { ok: !!r.words && !said.length && r.refreshGated && !r.refreshOn && r.library, detail: r }
+    return { ok: !!r.words && !said.length && r.refreshByDefault && !r.refreshOff && r.library && r.withdraws, detail: r }
   })
   await R('NODE-READS', null, 'The node route answers the wallet\'s address and supervised-asset reads', h, async () => {
     const r = await h.eval(`(async()=>{const call=(method,params)=>fetch('/node-rpc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({method,params,id:1})}).then(r=>r.json());
