@@ -269,6 +269,7 @@ budget is.
 |---|---|---|
 | The operator's equivocation bond | 10,000,000 tSEQ, about $1.75M | the operator's `[bond]` (arca `server/README.md`) |
 | What each of our instant counterparties (makers, swap services, the LSP) holds out of round per round | a tenth of the bond at its market value, about $175k | each one's `instant_budget` |
+| What the market's in-tree makers (`leaf-maker`, `leaf-maker-agents`) hold out of round per round | half the bond at its market value, about $875k | `instant_budget` `"0.5"` in `/etc/leaf-maker/maker.json` and `agents.json` |
 | The operator's fronting | 5,000,000 tSEQ, and about $200k across the priced assets | the operator's per-asset in-flight caps |
 | Our makers' inventory | about $275k across every pair | the BTC leaf maker (below), `HEALTH_LEAF_MAKERS` |
 | Our LSP's Lightning capital | about $100k, channels and the float that opens them | below |
@@ -292,6 +293,16 @@ it.
 | The covenant seeder, the interactive, confidential, cross-chain, submarine, sub-asset and mixed makers | other market makers | the market's |
 | The pure-Lightning fleet, and the channels between our LSP's nodes and `ln-asset-b` and `btc-taker` | other Lightning makers and their nodes | the market's |
 | The volume takers and volume wallets, the order crosser, the covenant settler | traders and arbitrageurs | the market's |
+
+The instant budget is each counterparty's own risk appetite: how much it holds
+out of round, trusting the operator's bond, before it waits for a round. Ours
+keep the plan's tenth. The two in-tree makers that stand for the rest of the
+market take half: a market of several makers lends the operator more trust a
+round than one maker's share does. A maker over its budget quotes nothing in
+any pair until its received coins are refreshed. Refreshes of one asset wait
+when the operator's in-flight cap for that asset is full. So the market's
+makers would otherwise stop quoting every pair whenever one asset's cap is
+reached, or the bond asset's price falls.
 
 Our makers and our LSP are kept at the plan this way:
 
