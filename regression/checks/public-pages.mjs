@@ -34,6 +34,12 @@ export async function run ({ b, report, widths }) {
   const go = async (url, ready, ms = 45000) => { await b.send('Page.navigate', { url }, page.sessionId); await h.waitFor(ready, ms); await sleep(800) }
   const scheme = (value) => b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value }] }, page.sessionId)
 
+  await R('LNADDR-NONE', null, 'A Lightning wallet asking for a payment name nobody holds is told so, in LNURL-pay\'s own form', async () => {
+    const r = await fetch(SITE + '/.well-known/lnurlp/nobody-' + Date.now().toString(36))
+    const j = await r.json().catch(() => null)
+    return { ok: r.status === 404 && r.headers.get('access-control-allow-origin') === '*' && !!j && j.status === 'ERROR' && /No wallet goes by that name/.test(j.reason || ''),
+      detail: { status: r.status, cors: r.headers.get('access-control-allow-origin'), body: j } }
+  })
   await R('FCT-BTC-AMT', null, 'The faucet says what a BTC request pays, more than nothing', async () => {
     const r = await fetch(SITE + '/faucet/amount?asset=BTC').then((x) => x.json())
     return { ok: r.asset === 'BTC' && Number(r.amount) > 0, detail: r }

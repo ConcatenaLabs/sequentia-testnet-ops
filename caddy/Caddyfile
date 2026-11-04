@@ -171,6 +171,13 @@ HTML {err.status_code}
 	handle_path /lsp/* {
 		reverse_proxy 127.0.0.1:9981
 	}
+	# A wallet's payment name as a Lightning address (the web wallet's
+	# tooling/lsp/lnaddr.mjs): a Lightning wallet paying name@sequentiatestnet.com
+	# asks this path, at the root and as it is, so no prefix is stripped. Its
+	# callback is under /lsp/lnaddr/.
+	handle /.well-known/lnurlp/* {
+		reverse_proxy 127.0.0.1:9981
+	}
 	# SBTC bridge peg endpoints (wallet silent peg). Only /pegin + /pegout are exposed; the
 	# bridge token is injected here so the browser never holds it (allocating an address moves no funds).
 	@sbtcpeg path /sbtc/pegin /sbtc/pegout

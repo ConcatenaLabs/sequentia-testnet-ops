@@ -15,5 +15,7 @@
   "WW-SND-FEE-LINE": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
   "WW-AMT-GROUPED": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
   "WW-TRD-NO-FALSE-UPTO": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
-  "WW-STK-FROM-BALANCE": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy."
+  "WW-STK-FROM-BALANCE": "Fixed in sequentia-web-wallet #410-#427 (UX2); fails on the public page until those are deployed (owner script ux2_webwallet_deploy.sh). Owner: the deploy.",
+  "WW-RCV-NAME": "built (web wallet #503) and not yet deployed: served once the release restarts the LSP and applies this Caddyfile (K2)",
+  "PP-LNADDR-NONE": "built (web wallet #503) and not yet deployed: served once the release restarts the LSP and applies this Caddyfile (K2)"
 }
