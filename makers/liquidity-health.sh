@@ -135,6 +135,16 @@ for m in $LEAF_MAKERS; do
   q=$(curl -sf -m 60 "http://127.0.0.1:$port/v1/quotes" 2>/dev/null) || { log "$name: does not answer on :$port"; continue; }
   addr=$(cat "$STATE/$name.address" 2>/dev/null || true)
   [ -n "$addr" ] || { log "$name: no address on record ($STATE/$name.address; written when the maker is set up)"; continue; }
+  # A maker over its instant budget cuts its quotes to the room left, or quotes a pair only after
+  # its next round: its quotes then say nothing of what it holds, and read as holding nothing they
+  # would pay it its whole target again every pass. Such a maker is not funded until it quotes in full.
+  cut=$(python3 -I -c '
+import json, sys
+d = json.loads(sys.argv[1])
+q = d.get("quotes") or []
+n = sum(1 for x in q if x.get("after_next_round")) + len(d.get("after_next_round") or [])
+print("%d of %d" % (n, len(q) + len(d.get("after_next_round") or [])) if n or not q else "")' "$q" 2>/dev/null) || cut="unreadable"
+  if [ -n "$cut" ]; then log "$name: its instant budget cuts its quotes ($cut cut or after its next round): what it holds is not read from them; not funded this pass"; continue; fi
   python3 -I -c '
 import json, sys
 q = json.loads(sys.argv[1]).get("quotes") or []
