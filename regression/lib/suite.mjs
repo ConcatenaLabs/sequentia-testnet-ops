@@ -11,6 +11,30 @@ import { homedir } from 'node:os'
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// The testnet faucet pays each asset once per wallet and once a day to one network, and never
+// refuses our own tooling: a request carrying the token the box keeps for it, as `X-Faucet-Exempt`
+// (sequentia-faucet, "Once per wallet"), is neither checked nor recorded. The suite reads the
+// token from FAUCET_EXEMPT_TOKEN_FILE, else ~/.config/sequentia/faucet-exempt.token, and without
+// one runs as any tester does.
+export function faucetToken (env = process.env) {
+  const f = env.FAUCET_EXEMPT_TOKEN_FILE || join(homedir(), '.config/sequentia/faucet-exempt.token')
+  try { const t = readFileSync(f, 'utf8').trim(); return t.length >= 32 ? t : null } catch { return null }
+}
+// Adds the token to the page's requests to `origin`/faucet, and to no other request, so it never
+// reaches another host. -> whether it is on.
+export async function faucetPass (b, page, origin, token = faucetToken()) {
+  if (!token) return false
+  b.on((m) => {
+    if (m.sessionId !== page.sessionId || m.method !== 'Fetch.requestPaused') return
+    const q = m.params
+    const headers = Object.entries(q.request.headers || {}).filter(([k]) => k.toLowerCase() !== 'x-faucet-exempt').map(([name, value]) => ({ name, value }))
+    if (q.request.url.startsWith(origin + '/faucet')) headers.push({ name: 'X-Faucet-Exempt', value: token })
+    b.send('Fetch.continueRequest', { requestId: q.requestId, headers }, page.sessionId).catch(() => {})
+  })
+  await b.send('Fetch.enable', { patterns: [{ urlPattern: origin + '/faucet*', requestStage: 'Request' }] }, page.sessionId)
+  return true
+}
+
 // Phone: a 390 x 844 touch screen; desktop: 1440 x 1000.
 export const WIDTHS = {
   desktop: { width: 1440, height: 1000, mobile: false, deviceScaleFactor: 1 },

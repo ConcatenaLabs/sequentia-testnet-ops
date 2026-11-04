@@ -30,7 +30,7 @@ How each surface is read:
 | WW-BAL-BTC-FIRST | see BTC first and every other asset as one row among equals, no "native" label | Names |
 | WW-BAL-HIDE | hide an asset: it moves to "Hidden assets (n)", the total is unchanged | Balance |
 | WW-BAL-FAUCET | ask the testnet faucet for an asset | Receive |
-| WW-FAUCET-AT-ONCE | see a faucet payment under its asset as arriving the moment the faucet says it was sent, and as "Received" in History (SKIP while the faucet's hourly limit holds) | Receive, History |
+| WW-FAUCET-AT-ONCE | see a faucet payment under its asset as arriving the moment the faucet says it was sent, and as "Received" in History (SKIP when every asset button is one the wallet has received, or, without the faucet token, when the faucet paid the suite's network that asset in the last day) | Receive, History |
 | WW-BAL-RELOAD | reload and see the last figures at once: the total never 0, "Up to date." only once everything is read | Balance |
 | WW-RCV-CODE | get one receive code, `bitcoin:<address>?ark=…&sequentia=…` | Receive |
 | WW-RCV-SHORT | get a code that scans at a glance: upper case, the request short (`SQR1…`), under 450 characters | Receive |

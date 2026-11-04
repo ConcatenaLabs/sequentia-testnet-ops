@@ -53,11 +53,25 @@ built, and who is on it; it still fails the run. The summary names any failing l
 in `known.json` (something new broke, or a check needs fixing) and any listed line that passes
 now (take it out).
 
+## The faucet token
+
+The testnet faucet pays each asset once per wallet, and each asset once a day to one network.
+Our own tooling is never refused: a request that carries the token the box keeps in
+`/root/sequentia/faucet-state/exempt.token`, as the header `X-Faucet-Exempt`, is neither
+checked nor recorded. The suite reads its copy from `FAUCET_EXEMPT_TOKEN_FILE`, else
+`~/.config/sequentia/faucet-exempt.token` (mode 600, never committed), and adds it to the web
+wallet page's requests to `/faucet` and to nothing else (`faucetPass` in `lib/suite.mjs`).
+Without it the suite runs as any tester does, and `WW-FAUCET-AT-ONCE` is SKIP on a second run
+the same day from one network. Copy it from the box once:
+
+    (umask 077; ssh seq 'cat /root/sequentia/faucet-state/exempt.token' > ~/.config/sequentia/faucet-exempt.token)
+
 ## The funded test wallet
 
 Some lines need a wallet that holds assets: BTC first and held assets before the rest in a picker,
 hiding an asset, paying from what the balance shows. That wallet is made once with the web
-wallet's own drive, which opens a new wallet on the live page and asks the faucet to pay it:
+wallet's own drive, which opens a new wallet on the live page and asks the faucet to pay it (with
+the faucet token, which the drive reads from the same place, as many times as it is needed):
 
     cd sequentia-web-wallet
     node tooling/default-mode-live-drive.mjs ~/.local/share/sequentia-regression/wallets \
@@ -80,8 +94,8 @@ to "Settled" with the wallet left open, for up to an hour after it was received
 (`WW-TRADE-BTC-ARK-SETTLED`), which makes the surface take up to an hour longer. One run spends about 60 USDX through the books, most of it bought back, plus fees.
 
 The wallet holds USDX in its default mode; the rest it buys. Make it as the funded wallet is made,
-under the name `rgtrader`, and top it up with USDX from its Receive tab's faucet or from
-`treasury2026`. Its phrase stays on the laptop, mode 600, and is never committed.
+under the name `rgtrader`, and top it up with USDX from `treasury2026` (the faucet pays a
+wallet its USDX once; the drive's `faucet rgtrader USDX`, with the faucet token, pays it again). Its phrase stays on the laptop, mode 600, and is never committed.
 
 ## The Lightning-to-Ark wallet
 
