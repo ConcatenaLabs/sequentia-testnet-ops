@@ -26,6 +26,7 @@ put it in place and keep copies of it.
 | `bin/arca-pg-restore-drill.sh` | Restores the Arca operator's database from its newest base backup and every WAL segment after it into a scratch cluster, and checks the last commit is there. |
 | `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep; the Arca operator's daily PostgreSQL base backup; and the user timers that pull the bridge state and the Arca backups off the box. |
+| `journald/90-sequentia-retention.conf` | The journal's size cap, and so how far back every unit's log reaches. See "Log rotation". |
 | `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. `bitcoin-ark` covers the Bitcoin ark's Bitcoin Core and Lightning logs under `/var/log/bitcoin-ark`: daily or at 50 MB, seven kept. |
 | `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the makers below (`seqob-pureln-fleet`, `seqob-conf-maker`, `seqob-samechain-fleet`, the `seqob-liquidity-health` timer, `seqob-mixed-gold-eurx-buyer-side`, `seqob-mixed-gold-eurx-seller-side`, `seqob-xmakers`, the four `seqob-submarine-*`, `seqob-subasset-maker`, `seqob-subasset-sell-maker-usdx`), of the order crosser and the covenant settler (`seqob-crosser`, `seqob-settler`), of the volume takers and their Lightning nodes (`seqob-volume-takers`, `seqob-ln-asset-b`, `seqob-ln-btc-taker`, as the `takers` user), of the other Bitcoin-side Lightning node (`seqob-ln-btc-maker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key), of the status page's checker (`gatus`), and of the web wallet's backend (`lsp-b5b1`, whose hosted Lightning nodes run in `seqln-hosted.slice` and outlive its restarts); none holds a credential, each service reads its own mode-600 config. |
 | `bitcoin-ark/` | The Bitcoin ark's configuration templates (Bitcoin Core, the Lightning gateway, Bark's server and watchman) and the one patch its Bark client carries. |
@@ -234,6 +235,22 @@ and truncates it in place (`copytruncate`) rather than moving it. The maker
 supervisors under `/root/seqob-test` append one file per maker to
 `/root/seqob-test/run` with a shell `>>` redirect, which rotates the same way.
 The system's daily logrotate timer applies both; nothing needs restarting.
+
+Every other service logs to the journal, the Arca operator's units among them
+(`arcad`, `arca-signer`, `arca-ln`, `arca-pg-wal`, the watchtowers), and needs
+no logrotate entry: journald rotates and vacuums its own files, oldest first,
+once they reach its cap. The cap sets how far back a unit's log reaches. The
+default is 4 GB, about five days of this box's logs (about 0.7 GB a day, a
+fifth of it `arcad`'s); `journald/90-sequentia-retention.conf` raises it to
+24 GB, about a month:
+
+```sh
+[ -d /etc/systemd/journald.conf.d ] || install -d -m 755 /etc/systemd/journald.conf.d
+install -m 644 journald/90-sequentia-retention.conf /etc/systemd/journald.conf.d/
+systemctl restart systemd-journald           # services keep their log streams
+journalctl --disk-usage                      # the space it holds
+journalctl -q -o short-iso | head -1         # its oldest entry: how far back it reaches
+```
 
 ## The testnet's numbers
 
@@ -998,9 +1015,12 @@ install -m 644 systemd/arca-signer.service systemd/arcad.service /etc/systemd/sy
 systemctl daemon-reload && systemctl enable --now arca-signer.service arcad.service
 ```
 
-The route is `handle_path /arca/*` in `caddy/Caddyfile`. Caddy closes a
-pooled connection to `arcad` after 30 idle seconds, so it never sends a
-request down a connection `arcad` has dropped. Caddy is the one proxy
+The route is `handle_path /arca/*` in `caddy/Caddyfile`. It carries plain
+requests only: `arcad` serves no WebSocket, because an Arca wallet polls its
+mailbox and every status it waits on (the server interface in Arca's
+specification), so there is no long-lived connection to keep alive. Caddy
+closes a pooled connection to `arcad` after 30 idle seconds, so it never sends
+a request down a connection `arcad` has dropped. Caddy is the one proxy
 `arcad` trusts (`[limits] trusted_proxies`, loopback), so each request counts
 against the address that reached Caddy, and the `[limits]` rates in
 `/etc/arca/arcad.toml` (one operator nonce and one witness of the signer's
@@ -1108,7 +1128,11 @@ after it into a scratch cluster on port 5499, waits for recovery to reach the
 end of the WAL, and checks the token is there and that the restored copy
 knows the same latest entry of the signer's record as the live database; it
 prints the row count of every table of `arca` in the restored copy, then
-deletes the scratch cluster. The live database is not touched.
+deletes the scratch cluster. Its one write to the live server is that token,
+committed through SQL into `arca_drill`; it only reads `arca` and the
+backups, and makes and changes no file or directory outside its scratch
+directory under `/var/tmp`. Each run against the live backups is kept, its
+output in `/var/log/arca-pg-drill/<UTC time>.log`.
 
 A restore is for one case: the database's own data directory lost or
 damaged on this box, while `/var/backups/arca-pg` and the signer's record
