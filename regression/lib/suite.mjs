@@ -5,7 +5,7 @@
 // detail. Every failure is screenshotted. A line that cannot run here (no funded wallet, a surface
 // with no live page) is SKIP with its reason, never PASS.
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -24,6 +24,36 @@ export function chrome () {
   if (dirs.length) return join(base, dirs[dirs.length - 1], 'chrome-linux64/chrome')
   for (const p of ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome']) if (existsSync(p)) return p
   throw new Error('no Chromium: set CHROME')
+}
+
+// The browsers still running on `profile` (an exact `--user-data-dir=<profile>` argument), other
+// than this process: [{ pid, comm }]. Linux only (/proc); elsewhere none are found. A browser left
+// by a run that died keeps its wallets open and keeps trading from them, so the next run on the
+// same profile would share its wallet with a second live copy of it.
+export function browsersOn (profile, proc = '/proc') {
+  const want = `--user-data-dir=${profile}`
+  const out = []
+  let pids = []
+  try { pids = readdirSync(proc).filter((p) => /^\d+$/.test(p)) } catch { return out }
+  for (const p of pids) {
+    if (Number(p) === process.pid) continue
+    let args, comm
+    // Chromium rewrites its process title: its arguments read as one string joined by spaces, not
+    // one per NUL. Either way, the argument is a whole word.
+    try { args = readFileSync(join(proc, p, 'cmdline'), 'utf8').split(/[\0 ]/); comm = readFileSync(join(proc, p, 'comm'), 'utf8').trim() } catch { continue }
+    if (args.includes(want) && /chrom|headless/i.test(comm)) out.push({ pid: Number(p), comm })
+  }
+  return out
+}
+
+// Stops the browsers browsersOn finds, by pid: asked to end, then killed after `graceMs`. -> the
+// pids it found.
+export async function stopBrowsersOn (profile, { graceMs = 3000, proc = '/proc' } = {}) {
+  const found = browsersOn(profile, proc)
+  for (const b of found) { try { process.kill(b.pid, 'SIGTERM') } catch {} }
+  if (found.length) await sleep(graceMs)
+  for (const b of browsersOn(profile, proc)) { try { process.kill(b.pid, 'SIGKILL') } catch {} }
+  return found.map((b) => b.pid)
 }
 
 // A fresh shallow clone of a ConcatenaLabs repository's default branch, under the cache.
