@@ -3,7 +3,7 @@
 // its phrase is given (--funded), restored into a fresh browser profile. Nothing is sent, traded
 // or signed: the checks open pickers, type amounts and ask for a review, and stop there.
 import { join } from 'node:path'
-import { sleep, helpers, setWidth, forbiddenWords, forbiddenIn, PICKER, SEARCH, CLOSE } from '../lib/suite.mjs'
+import { sleep, helpers, setWidth, forbiddenWords, forbiddenIn, faucetPass, PICKER, SEARCH, CLOSE } from '../lib/suite.mjs'
 
 // WW_BASE checks another copy of the page: a branch served in front of the testnet by the web
 // wallet's tooling/live-proxy.mjs, before it is deployed.
@@ -46,6 +46,8 @@ export async function run ({ b, report, widths, funded, problems }) {
   const page = await b.page('about:blank')
   const h = helpers(page)
   await page.b.send('Network.enable', {}, page.sessionId).catch(() => {})
+  // Our own tooling: the faucet neither refuses nor records this page's requests (README).
+  const faucetExempt = await faucetPass(b, page, ORIGIN).catch(() => false)
   const words = await forbiddenWords(h).catch(() => null)
 
   // ---------- a fresh wallet, default mode ----------
@@ -238,11 +240,13 @@ export async function run ({ b, report, widths, funded, problems }) {
   // A faucet payment is in the balance the moment the faucet says it was sent, and in History.
   await R('FAUCET-AT-ONCE', null, 'A faucet payment shows under its asset as arriving the moment the faucet says it was sent, and History lists it as Received', h, async () => {
     await setWidth(b, page, widths[0]); await tab(h, 'balance')
-    const asset = await h.eval("(()=>{const b=[...document.querySelectorAll('#faucetBtns button')].find(x=>x.dataset.faucet==='EURX')||[...document.querySelectorAll('#faucetBtns button')].find(x=>x.dataset.faucet && x.dataset.faucet!=='BTC'); if(!b) return null; b.click(); return b.dataset.faucet})()")
-    if (!asset) return { skip: 'no faucet button for an asset' }
-    const said = await h.waitFor("/arriving|Received|Already|error/i.test((document.querySelector('#faucetStatus')||{}).innerText||'')", 120000).then(() => true, () => false)
+    // An asset button still on: the faucet pays each asset once per wallet.
+    const asset = await h.eval("(()=>{const on=[...document.querySelectorAll('#faucetBtns button')].filter(x=>!x.disabled); const b=on.find(x=>x.dataset.faucet==='EURX')||on.find(x=>x.dataset.faucet && x.dataset.faucet!=='BTC'); if(!b) return null; b.click(); return b.dataset.faucet})()")
+    if (!asset) return { skip: 'no faucet button for an asset this wallet has not received' }
+    const said = await h.waitFor("/arriving|Received|already|error/i.test((document.querySelector('#faucetStatus')||{}).innerText||'')", 120000).then(() => true, () => false)
     const st = await h.text('#faucetStatus')
-    if (/Already funded/i.test(st)) return { skip: 'the faucet paid this address recently: ' + st }
+    // Without the token, a run soon after another from this network is held back for a day.
+    if (/already paid .* on your network/i.test(st)) return { skip: (faucetExempt ? 'the faucet refused the suite\'s token: ' : 'no faucet token (README), and the faucet paid this network today: ') + st }
     if (!said || !/arriving|Received/.test(st)) return { ok: false, detail: 'faucet: ' + st }
     const shown = await h.waitFor(`[...document.querySelectorAll('section[data-panel=balance] .bt-tk .tk')].some(e=>e.innerText.trim()===${JSON.stringify(asset)})`, 2500).then(() => true, () => false)
     await h.waitFor("/Received/.test((document.querySelector('#faucetStatus')||{}).innerText||'')", 120000).catch(() => {})
