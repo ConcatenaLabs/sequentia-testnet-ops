@@ -55,14 +55,15 @@ now (take it out).
 
 ## The faucet token
 
-The testnet faucet pays each asset once per wallet, and each asset once a day to one network.
+The testnet faucet pays each asset once per wallet, and each asset to at most ten wallets a day
+from one network.
 Our own tooling is never refused: a request that carries the token the box keeps in
 `/root/sequentia/faucet-state/exempt.token`, as the header `X-Faucet-Exempt`, is neither
 checked nor recorded. The suite reads its copy from `FAUCET_EXEMPT_TOKEN_FILE`, else
 `~/.config/sequentia/faucet-exempt.token` (mode 600, never committed), and adds it to the web
 wallet page's requests to `/faucet` and to nothing else (`faucetPass` in `lib/suite.mjs`).
-Without it the suite runs as any tester does, and `WW-FAUCET-AT-ONCE` is SKIP on a second run
-the same day from one network. Copy it from the box once:
+Without it the suite runs as any tester does, and `WW-FAUCET-AT-ONCE` is SKIP once runs from one
+network have asked for ten wallets in a day. Copy it from the box once:
 
     (umask 077; ssh seq 'cat /root/sequentia/faucet-state/exempt.token' > ~/.config/sequentia/faucet-exempt.token)
 

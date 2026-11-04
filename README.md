@@ -949,6 +949,25 @@ and the SBTC peg service's state into `~/.local/share/sequentia/bridge-state`,
 dated and mode 600, sixty deep. The state records every deposit, redemption and
 peg; the keys are backed up separately.
 
+## The faucet's claims ledger off the box
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp backup/pull-faucet-ledger.service backup/pull-faucet-ledger.timer ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now pull-faucet-ledger.timer
+backup/pull-faucet-ledger.sh                 # the first copy now
+```
+
+The faucet pays each asset once per wallet by its claims ledger,
+`/root/sequentia/faucet-state/claims.jsonl` (sequentia-faucet, "Once per
+wallet"). Run on an operator's machine that can `ssh` to the box
+(`FAUCET_LEDGER_HOST`, default `seq`), every six hours this copies it into
+`~/.local/share/sequentia/faucet-ledger`, dated and mode 600, sixty deep. To
+restore it, stop the faucet, put the newest copy back at that path, and start
+the faucet again. The tooling token beside it (`exempt.token`) is never copied:
+it is a secret, and a lost one is replaced by making a new one on the box and
+copying it to the operators' machines again.
+
 ## The bridge units
 
 ```sh

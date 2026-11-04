@@ -245,7 +245,7 @@ export async function run ({ b, report, widths, funded, problems }) {
     if (!asset) return { skip: 'no faucet button for an asset this wallet has not received' }
     const said = await h.waitFor("/arriving|Received|already|error/i.test((document.querySelector('#faucetStatus')||{}).innerText||'')", 120000).then(() => true, () => false)
     const st = await h.text('#faucetStatus')
-    // Without the token, a run soon after another from this network is held back for a day.
+    // Without the token, a network the faucet has paid for ten wallets today is held back.
     if (/already paid .* on your network/i.test(st)) return { skip: (faucetExempt ? 'the faucet refused the suite\'s token: ' : 'no faucet token (README), and the faucet paid this network today: ') + st }
     if (!said || !/arriving|Received/.test(st)) return { ok: false, detail: 'faucet: ' + st }
     const shown = await h.waitFor(`[...document.querySelectorAll('section[data-panel=balance] .bt-tk .tk')].some(e=>e.innerText.trim()===${JSON.stringify(asset)})`, 2500).then(() => true, () => false)
