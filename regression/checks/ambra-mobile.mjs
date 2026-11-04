@@ -73,9 +73,11 @@ export async function run ({ report, cache }) {
   })
   // Ambra #162 to #169 (package AM5).
   const ark = src('data/ark_btc_service.dart'), stake = src('screens/stake_screen.dart'), swords = src('data/stake_words.dart'), main = readFileSync(join(dir, 'app/lib/main.dart'), 'utf8')
-  await R('TRD-BTC-ADDRESS', 'Trade: BTC at the address with too little on the ark is moved for the trade and said so, never "You have no BTC"; a board stops at the server\'s largest coin (#162)', () => {
-    const ok = /'btc-moving'/.test(engine) && /btcMove/.test(composer) && /boardFor\(BigInt sats\)/.test(ark) && /if \(amount > maxBoard\) amount = maxBoard/.test(ark)
-    return { ok, detail: ok ? '' : 'user_trade.dart btc-moving, ark_btc_service.dart boardFor / maxBoard' }
+  await R('TRD-BTC-ADDRESS', 'Trade: BTC at the address with too little on the ark is moved for the trade and said so, never "You have no BTC"; a board keeps to the limits the server publishes: at most its largest coin, none below its least or before it has said them (#162)', () => {
+    const ok = /'btc-moving'/.test(engine) && /btcMove/.test(composer) && /boardFor\(BigInt sats\)/.test(ark) &&
+      /static BigInt\? boardPlan\(/.test(ark) && /if \(max != null && amount > max\) amount = max/.test(ark) && /if \(min == null\) return null/.test(ark) &&
+      !/defaultMaxBoard|static const minBoard/.test(ark)
+    return { ok, detail: ok ? '' : 'user_trade.dart btc-moving, ark_btc_service.dart boardFor / boardPlan from the server\'s limits' }
   })
   await R('TRD-DEADLINE', 'Trade: every source asked at once, the quote takes what answered within 8 s (20 s for the BTC desk alone), a late answer let go of (#163, #165)', () => {
     const ok = /kQuoteFirmMs = 8000/.test(engine) && /kBtcOnlyFirmMs = 20000/.test(engine) && /_inTime\(/.test(engine) && /Future\.wait\(\s*worth\.map/.test(engine)
