@@ -37,6 +37,7 @@ How each surface is read:
 | WW-RCV-TIP | read what the code takes ("Any asset, any amount. …") | Receive |
 | WW-RCV-BUTTONS | copy the code, make a new one; no address-only controls | Receive |
 | WW-RCV-AMOUNT | ask for an amount of BTC: the code names it and carries an invoice | Receive |
+| WW-RCV-NAME | choose a payment name under the code ("Your payment name", "Choose a name"), in plain words | Receive |
 | WW-BTC-EXIT-QUIET | meet no line about BTC leaving the ark while the ark answers; the page carries the rule that moves it to the address when the ark stops renewing it | BTC |
 | WW-RCV-NO-INVOICE | not meet a BTC invoice card, or an empty framed box, while holding no BTC on the ark | BTC |
 | WW-RCV-WORDS | read Receive without a word default mode never says | Never in default mode |
@@ -267,6 +268,7 @@ is taken.
 | PP-LAND-START | read the network's one line on the front page and start with one step: open the web wallet, which is the first card |
 | PP-LAND-PUBLIC | meet on the front page only public products, in plain words (no hidden product's path or name, no rail or protocol word) |
 | PP-FCT-BTC-AMT | see what a BTC request to the faucet pays, more than nothing |
+| PP-LNADDR-NONE | pay a payment name from a Lightning wallet: `/.well-known/lnurlp/<name>` answers LNURL-pay, open to any origin, and says so in its own form when no wallet goes by the name |
 | PP-FCT-CODE | paste the web wallet's receive code into the faucet page, and ask for BTC there |
 | PP-CMP-CODE | paste a receive code where Compages asks for a Sequentia address, and see its address read and checked |
 | PP-EXP-LIGHT | read every figure on the explorer's dashboard in a light colour scheme (no white text on a light background) |

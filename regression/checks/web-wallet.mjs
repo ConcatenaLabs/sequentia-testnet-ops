@@ -97,6 +97,10 @@ export async function run ({ b, report, widths, funded, problems }) {
       const c = await h.text('#btnCopy'), n = await h.text('#btnNewAddr'), conf = await h.visible('#btnConf'), xpub = await h.visible('#btnXpub')
       return { ok: c === 'Copy receive code' && n === 'New code' && !conf && !xpub, detail: { copy: c, new: n, blindedButton: conf, xpub } }
     })
+    await R('RCV-NAME', w, 'Under the code, "Your payment name" with "Choose a name" (or the name, with Copy), no protocol word', h, async () => {
+      const shown = await h.visible('#nameBox'), lbl = await h.text('#nameLbl'), choose = await h.visible('#btnNameChoose'), copy = await h.visible('#btnNameCopy')
+      return { ok: shown && lbl === 'Your payment name' && (choose || copy), detail: { shown, label: lbl, choose, copy }, at: '#nameBox' }
+    })
     await R('RCV-AMOUNT', w, '"Amount in BTC (optional)": with an amount the code names it and carries an invoice', h, async () => {
       const ph = await h.eval("(document.querySelector('#recvAmt')||{}).placeholder||''")
       if (!/Amount in BTC/i.test(ph)) return { ok: false, detail: 'field: ' + JSON.stringify(ph) }
