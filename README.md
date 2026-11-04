@@ -14,6 +14,7 @@ put it in place and keep copies of it.
 | `caddy/caddy.env.example` | The secrets the Caddyfile reads as `{$NAME}` placeholders. The real file is `/etc/caddy/caddy.env`, mode 600, on the box and in the offline backups, never here. |
 | `caddy/caddy.service.d/env.conf` | The systemd drop-in that hands `caddy.service` that file. |
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
+| `bin/fronting-read.sh` | What the Arca operator fronts, why, and what fronting the market needs once fronted capital comes back promptly: in flight per asset and what holds it, refresh demand and return times, the steady state against the plan. Read-only. See "What the operator fronts". |
 | `bin/our-capital.py` | What the bots that stand for our own capital hold, at the feed's prices, against the mainnet plan: our makers' holdings and our LSP's channels and float. Read-only. See "The testnet's numbers". |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `bin/node-rpc-proxy.py` | The node JSON-RPC for browser wallets behind `/node-rpc`: the calls a wallet makes and no other, rate-limited, with the node's credential added on the box. Installed at `/usr/local/lib/node-rpc-proxy/`. |
@@ -290,6 +291,58 @@ Our makers and our LSP are kept at the plan this way:
   Its LSP figure counts the channels to wallets and to the arks' gateways at
   their balance on our side; those move only as their holders pay, so a
   figure above the plan made of channel balances comes down as they do.
+
+### What the operator fronts
+
+The Arca operator fronts capital for every refresh: the new coin is paid
+from the operator's wallet, and the value comes back once every coin on the
+lowest node the given-up coin rested on is released and the watcher reclaims
+that node. *In flight* is fronted capital not back yet: refresh demand times
+the time it takes to come back. A trade inside the Ark uses none of it, and
+neither does the refresh of a board, which the operator's forfeit of the
+board pays back at once. Each asset's in-flight cap (`in_flight_cap` in
+arcad's configuration) bounds it; a refresh that would pass the cap waits for
+a later round.
+
+Refresh demand comes from three places:
+
+- **received coins settled**: a coin paid out of round is refreshed by its
+  receiver, roughly the value paid in the Ark;
+- **order placements**: a resting order gives up coins in a round, and a
+  maker re-rests a level whenever it fills or reprices;
+- **merges**: a maker past `max_coins` merges coins of a round. It merges
+  boards first and never its own merge coin, so its merges front little
+  (`tooling/lsp/README.md` in sequentia-web-wallet).
+
+Capital stays out longer than a few minutes only while a coin rests on a node
+beside released ones (the operator names such coins and the wallet library
+refreshes them at its next sync), while a payment's coins are not all
+refreshed (the payee's and the payer's change), or in batches made before
+RECLAIM-D with a coin paid on without a delegation, which come back only at
+collection, 28 days after their round. Once a node's holders have released,
+it comes back in about the watcher's pace, minutes.
+
+So the plan's fronting carries the market when capital comes back fast:
+tSEQ's 5M carries all of its demand; the priced assets' $200k carries the
+market outside its busiest days, and on such a day about half the received
+flow settles on the chain instead, or is paid on out of round before it is
+refreshed. An instant counterparty may hold up to a tenth of the bond's value
+out of round; a maker that pays on what it receives before refreshing it
+refreshes only the rest, never less than one coin in five (the depth limit of
+5), so a budget that holds about an hour of the received flow brings the
+busiest day under the plan. If received coins came back in hours rather than
+minutes, the same day would need about a hundred times the plan: fast returns
+are what make it work.
+
+`bin/fronting-read.sh` measures all of this on the box (SELECTs only, in a
+read-only transaction, and GETs of arcad's `/v1/info` and `/v1/chain`): what
+is in flight per asset and what holds it; refresh demand per asset and cause
+per hour over a window (`SINCE`, default 72 hours); each cause's return time
+(value-weighted mean, p50, p90); the busiest day of in-Ark payments
+(`TRADES_SINCE`, default 7 days); the steady state, demand times mean return
+time; and the verdict against `PRICED_TARGET` (default 200000) and
+`TSEQ_TARGET` (default 5000000). Its dollar values use the operator node's
+rates, so they follow the price feed.
 
 ## The maker fleets
 
