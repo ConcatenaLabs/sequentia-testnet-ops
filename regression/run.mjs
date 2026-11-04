@@ -20,7 +20,7 @@ import { execFileSync } from 'node:child_process'
 import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { Report, chrome, clone } from './lib/suite.mjs'
+import { Report, chrome, clone, stopBrowsersOn } from './lib/suite.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
@@ -49,10 +49,22 @@ const { Browser } = await import(join(ext.dir, 'test/leaves/cdp.mjs'))
 report.note(`Live testnet, ${new Date().toISOString()}; widths ${widths.join(', ')}; funded test wallet: ${funded ? 'yes' : 'no'}; trader wallet: ${trader ? 'yes' : 'no'}; Lightning-to-Ark wallet: ${lnmove ? 'yes' : 'no'}`)
 report.note(`Ambra browser ${ext.rev}; browser ${CHROME}\n`)
 
+// The browsers this run started. Each is killed when the run ends, however it ends (a signal, a
+// crash, a closed SSH session that kills the run on its next write): a browser that outlives its
+// run keeps its wallets open and trading, and the next run would share them with it.
+const browsers = new Set()
+const killBrowsers = () => { for (const b of browsers) { try { if (b.proc && b.proc.exitCode == null) process.kill(b.proc.pid, 'SIGKILL') } catch {} } }
+process.on('exit', killBrowsers)
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGPIPE']) process.on(sig, () => { killBrowsers(); process.exit(128) })
+for (const s of [process.stdout, process.stderr]) s.on('error', () => { killBrowsers(); process.exit(1) })
+
 // One browser per surface, closed before the next opens. Every page's uncaught exceptions and
 // console errors are collected; problems(page) reads them.
 async function withBrowser (label, fn) {
   const profile = join(cache, 'profile-' + label)
+  // A browser an earlier run left on this profile is stopped first, and said so.
+  const left = await stopBrowsersOn(profile)
+  if (left.length) report.note(`(stopped ${left.length} browser process(es) an earlier run left on ${profile}: pid ${left.join(', ')})`)
   rmSync(profile, { recursive: true, force: true })
   // Chromium will not run as root with its sandbox: on the box, where the suite runs as root to be
   // near the services it checks, a headless browser that opens only this testnet's own pages runs
@@ -60,6 +72,7 @@ async function withBrowser (label, fn) {
   const root = typeof process.getuid === 'function' && process.getuid() === 0
   const b = new Browser({ chrome: CHROME, profile, ext: ext.dir, consoleLog: join(out, `console-${label}.log`), headless: true,
     extraArgs: ['--window-size=1440,1000', ...(root ? ['--no-sandbox'] : [])] })
+  browsers.add(b)
   await b.launch(label)
   const seen = new Map()
   b.on((m) => {
@@ -71,7 +84,7 @@ async function withBrowser (label, fn) {
   })
   const problems = (page) => seen.get(page.sessionId) || []
   try { await fn(b, problems) } catch (e) { report.record(label.toUpperCase(), null, 'FAIL', 'the surface\'s checks ran to the end', String(e && e.stack || e).split('\n').slice(0, 2).join(' ')) }
-  finally { await b.close().catch(() => {}); rmSync(profile, { recursive: true, force: true }) }
+  finally { await b.close().catch(() => {}); killBrowsers(); browsers.delete(b); rmSync(profile, { recursive: true, force: true }) }
 }
 
 for (const s of SURFACES.filter((x) => only.includes(x))) {

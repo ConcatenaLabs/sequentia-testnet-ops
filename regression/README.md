@@ -43,7 +43,11 @@ sandbox, which refuses root. Options:
   `tooling/live-proxy.mjs` (`WW_BASE=http://127.0.0.1:8791/wallet/`), before it is deployed.
 
 It prints one line per capability and width, `PASS`, `FAIL` or `SKIP`, with what it saw, and
-writes each failure's screenshot beside `results.txt`. It exits 0 only when nothing failed. A
+writes each failure's screenshot beside `results.txt`. It exits 0 only when nothing failed. Its
+browser never outlives it: the run kills the browser it started when it ends, whatever ends it (a
+signal, a crash, an SSH session closed under it), and a browser an earlier run left on the same
+profile is stopped before the profile is used, with a line in the results that says so. A browser
+left running would keep the trader wallet open and trading beside the next run's. A
 failing line listed in [`known.json`](known.json) prints what lost it, or that it was never
 built, and who is on it; it still fails the run. The summary names any failing line that is not
 in `known.json` (something new broke, or a check needs fixing) and any listed line that passes
