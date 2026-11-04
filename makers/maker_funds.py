@@ -592,11 +592,11 @@ def cmd_fund(a):
                 young = sum(onchain_at(dest["node"], ad, x["id"], newer_than=dest.get("pending_blocks", 60)) for ad in addrs_all)
                 old = sum(onchain_at(dest["node"], ad, x["id"]) for ad in addrs_all) - young
                 holds = arca_holdings(dest["info"]).get(x["id"])
-                in_flight = sum(flying(ad, x["id"]) for ad in addrs_all)
+                on_way = sum(flying(ad, x["id"]) for ad in addrs_all)
                 if holds is not None:
                     # what its wallet holds, final or not: a round's change is out of `fundable`
                     # until final, which is no reason to pay again
-                    held = max(fundable + young, holds) + in_flight
+                    held = max(fundable + young, holds) + on_way
                 else:
                     if fundable < old:
                         # coins paid an hour ago and more are still not the operator's to spend:
@@ -604,7 +604,7 @@ def cmd_fund(a):
                         print("  %s %s: OPERATOR FINALITY STALLED: %s atoms at its address are an hour old or more, and it can fund %s; not paid" % (
                             dest["name"], t, old, fundable))
                         short.append([dest["name"], t]); continue
-                    held = fundable + young + in_flight
+                    held = fundable + young + on_way
             elif dest["kind"] == "ocean":
                 held = ocean_balance(a.octl, a.ocean, dest["name"]).get(x["id"], {}).get("total", 0)
             elif dest["kind"] == "leaf":
