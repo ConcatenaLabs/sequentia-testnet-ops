@@ -14,6 +14,7 @@ put it in place and keep copies of it.
 | `caddy/caddy.env.example` | The secrets the Caddyfile reads as `{$NAME}` placeholders. The real file is `/etc/caddy/caddy.env`, mode 600, on the box and in the offline backups, never here. |
 | `caddy/caddy.service.d/env.conf` | The systemd drop-in that hands `caddy.service` that file. |
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
+| `bin/our-capital.py` | What the bots that stand for our own capital hold, at the feed's prices, against the mainnet plan: our makers' holdings and our LSP's channels and float. Read-only. See "The testnet's numbers". |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `bin/node-rpc-proxy.py` | The node JSON-RPC for browser wallets behind `/node-rpc`: the calls a wallet makes and no other, rate-limited, with the node's credential added on the box. Installed at `/usr/local/lib/node-rpc-proxy/`. |
 | `bin/node-rpc-proxy-limits-test.py` | The node route's limits in simulated time: a refused batch costs nothing, and a client asking every 2.2 s gets a 64-call batch through steadily. |
@@ -233,6 +234,63 @@ supervisors under `/root/seqob-test` append one file per maker to
 `/root/seqob-test/run` with a shell `>>` redirect, which rotates the same way.
 The system's daily logrotate timer applies both; nothing needs restarting.
 
+## The testnet's numbers
+
+The testnet runs on mainnet's numbers, with pretend value: 1 tSEQ stands for
+1 SEQ (the Sequence token) at its planned launch price, $0.175, and 1 USDX
+for $1. The market-data feed serves tSEQ at that price (`SEQ_DAY1` in the
+node repository's `contrib/price-server/mock-price-api.py`); every other
+asset takes its live market price. So the operator's bond, each
+counterparty's instant budget and every inventory a tester meets are worth
+what they will be worth on mainnet, and a limit that binds on mainnet binds
+here first: a refresh waits when the operator's cap for its asset is full,
+and a maker says it takes the rest after its next round when its instant
+budget is.
+
+| What | The mainnet plan, mirrored here | Where it is set |
+|---|---|---|
+| The operator's equivocation bond | 10,000,000 tSEQ, about $1.75M | the operator's `[bond]` (arca `server/README.md`) |
+| What each of our instant counterparties (makers, swap services, the LSP) holds out of round per round | a tenth of the bond at its market value, about $175k | each one's `instant_budget` |
+| The operator's fronting | 5,000,000 tSEQ, and about $200k across the priced assets | the operator's per-asset in-flight caps |
+| Our makers' inventory | about $275k across every pair | the BTC leaf maker (below), `HEALTH_LEAF_MAKERS` |
+| Our LSP's Lightning capital | about $100k, channels and the float that opens them | below |
+| The Bitcoin ark's limits | those of Second's mainnet Bark server | `bitcoin-ark/captaind.toml` ("The Bitcoin ark") |
+
+### Whose capital each bot stands for
+
+The bots simulate the whole market: other market makers and traders as well
+as us. Only what stands for our own capital follows the plan. The rest of
+the market keeps its size, so the books stay as deep and the trading as
+busy as a full market would make them; the plan is never met by shrinking
+it.
+
+| Bot | Stands for | Its capital |
+|---|---|---|
+| The Arca operator (`arcad`): its pool, bond and caps | us, the operator | the plan's bond and fronting |
+| The BTC leaf maker (`leaf-maker-btc`, `/leafmaker-btc`): BTC against each of the six non-supervised assets, and every pair of the six | us, our market maker | about $275k: its BTC desk's BTC, the rest split evenly over the six assets |
+| The LSP (`lsp-b5b1`) with its Lightning nodes `ln-asset` and `btc-maker`: their channels to wallets and to the arks' Lightning gateways, and their on-chain float | us, our LSP | about $100k |
+| The in-tree leaf maker (`leaf-maker`, `/leafmaker`), with its resting desk | another market maker in the tree | the market's |
+| The agents' leaf maker (`leaf-maker-agents`) | the in-tree counterparty of the simulated traders | the market's |
+| The covenant seeder, the interactive, confidential, cross-chain, submarine, sub-asset and mixed makers | other market makers | the market's |
+| The pure-Lightning fleet, and the channels between our LSP's nodes and `ln-asset-b` and `btc-taker` | other Lightning makers and their nodes | the market's |
+| The volume takers and volume wallets, the order crosser, the covenant settler | traders and arbitrageurs | the market's |
+
+Our makers and our LSP are kept at the plan this way:
+
+- **The health pass** refills the BTC leaf maker only to $34,000 of each asset
+  (`HEALTH_LEAF_MAKERS`), its share of the $275k beside its BTC.
+- **What is above the plan moves to the market**, never out of it. Our
+  maker's excess goes to the in-tree leaf maker in the tree (on the receiver,
+  `leaf-maker.mjs --receive ASSET ATOMS`, a receive request cut to its
+  instant budget's room; on our maker, `--pay FILE`), so it stays on the same
+  book. Our LSP's float above what opens its next channels goes on chain to
+  the covenant seeder (USDX) and to `seqdex-mm-btc` (BTC). Every such move
+  names its source and destination wallet.
+- **`bin/our-capital.py`** reads what ours holds against the plan, read-only.
+  Its LSP figure counts the channels to wallets and to the arks' gateways at
+  their balance on our side; those move only as their holders pay, so a
+  figure above the plan made of channel balances comes down as they do.
+
 ## The maker fleets
 
 Every SeqDEX book's depth comes from a maker that is there, or from coins
@@ -247,7 +305,7 @@ govern every transfer of them. Each rail, what keeps it deep, and whose coins:
 | Interactive same-chain | `/seqob` (9955) | `makers/samechain-fleet.sh`, `seqob-samechain-fleet.service` | every pair of the eight, both sides, ten levels | Ocean accounts `lq-sc-<BASE>-<QUOTE>` |
 | Orders resting in the Arca tree | `/seqob` (9955) | the leaf maker's resting desk (`leaf-maker.service`) | every directed pair of the six non-supervised assets, eight levels | the leaf maker's own wallet |
 | In-tree swaps (the wallets' user mode) | `/leafmaker` (9979) | `leaf-maker.service` (sequentia-web-wallet `tooling/lsp/leaf-maker.mjs`) | every directed pair of the eight, eight levels | the leaf maker's own wallet |
-| BTC in one hash-lock | `/leafmaker-btc` (9978) | `leaf-maker-btc.service`, the same maker with its BTC desk and its own testnet4 Lightning node | BTC against each of the six non-supervised assets, both ways, eight levels | its own wallet and node |
+| BTC in one hash-lock, and in-tree swaps | `/leafmaker-btc` (9978) | `leaf-maker-btc.service`, the same maker with its BTC desk and its own testnet4 Lightning node; ours (see "The testnet's numbers") | BTC against each of the six non-supervised assets, both ways, and every directed pair of the six, eight levels | its own wallet and node |
 | Lightning | `/seqob-pln` (9965) | `makers/pureln-fleet.sh` | BTC and every pair of the six non-supervised assets, eight levels | the `ln-asset` and `btc-maker` Lightning nodes |
 | Cross-chain BTC | `/seqob` (9955) | `supervise-xmakers.sh` on the box | BTC against each of the six, twelve levels | `xmm` (Sequentia), `seqdex-mm-btc` (testnet4) |
 | Confidential | `/seqob-conf` (9975) | `makers/supervise-conf.sh` | every directed pair of the six, twenty levels | Ocean accounts `conf2-<BASE>-<QUOTE>` |
@@ -625,7 +683,7 @@ the faucet assets.
 | each interactive fleet account | one and a half times its ten-level ladder ($390,000 a side) | half | `HEALTH_SC_USD` |
 | the in-tree leaf maker | $1M | half | `HEALTH_LEAF_MAKERS` |
 | the agents' leaf maker (`leaf-maker-agents`, the volume takers' in-tree counterparty) | $1M | half | `HEALTH_LEAF_MAKERS` |
-| the BTC leaf maker (its asset side) | $300,000 | half | `HEALTH_LEAF_MAKERS` |
+| the BTC leaf maker (its asset side; ours, at the plan) | $34,000 | half | `HEALTH_LEAF_MAKERS` |
 
 A consumer of the targets file is a node wallet (`kind: wallet`), paid at an
 address it draws itself, or an Arca operator (`kind: arca`), paid at the
