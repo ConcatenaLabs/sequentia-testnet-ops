@@ -1154,15 +1154,26 @@ and integration interfaces are never routed.
   incoming payment for three minutes (`receive_htlc_forward_timeout`) while
   the wallet claims it (`bark lightning claim`); unclaimed, the payment fails
   back to the payer.
-- **The settings** (`bitcoin-ark/captaind.toml`): a round every 30 seconds
-  (a round nobody joins makes no transaction); leaves live 2,016 blocks; an
-  exit waits 72 blocks at each step, the watchman checking every minute;
-  boards need two confirmations; boards, payments and Lightning amounts up to
-  0.05 tBTC (0.01 over Lightning); Bark's own fee schedule, in satoshis.
+- **The settings** (`bitcoin-ark/captaind.toml`): the limits a wallet meets
+  are those of Second's public Bark server on Bitcoin mainnet
+  (`ark.second.tech`), as its info call publishes them: leaves live 4,032
+  blocks, the largest coin is 0.1 tBTC, and a board carries 50,000 sat at
+  least and 0.1 tBTC at most. A wallet reads them from this server's info
+  call too, so it meets here what a mainnet Bark server asks of it. Payments
+  and moves on chain, which Second's info call does not cap, take up to
+  1 tBTC, so a coin larger than the largest coin still moves on chain whole;
+  Lightning amounts up to 0.01 tBTC. A round every 30 seconds (a round nobody
+  joins makes no transaction); boards need two confirmations; Bark's own fee
+  schedule, in satoshis. An exit waits 72 blocks at each step (Second's
+  server waits 144), the watchman checking every minute: a Lightning receive
+  into a Bark ark asks a final lock of twice that delay plus
+  `htlc_expiry_delta`, and the send delta of 258 blocks, which other arks'
+  payments and arcad's Lightning send timeout are sized for, routes that lock
+  only at 72.
 
 ### A coin past its expiry
 
-A leaf lives 2,016 blocks. The wallets renew each one before then: while they
+A leaf lives 4,032 blocks. The wallets renew each one before then: while they
 are open, and through a renewal they hand the server ahead of time, which it
 runs by itself shortly before the expiry. A leaf that expires anyway is swept
 by the watchman back to the server's wallet with the rest of its round's

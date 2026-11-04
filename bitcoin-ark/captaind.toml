@@ -7,14 +7,26 @@
 data_dir = "@LIB@/captaind"
 network = "@NETWORK@"
 
-# A leaf lives about two weeks at ten minutes a block (testnet4 is often
-# faster), and each exit step waits 72 blocks: the operator's window to
-# answer an exit it must contest.
-vtxo_lifetime = 2016
+# The limits a wallet meets are those of Second's public Bark server on
+# Bitcoin mainnet (ark.second.tech), read from its info call: a leaf lives
+# 4,032 blocks (about four weeks), the largest coin is 0.1 BTC and a board
+# carries at least 50,000 sat. So a wallet on this testnet meets what a
+# mainnet Bark server will ask of it. Its info call publishes no cap on a
+# payment or an offboard; here both stay at 1 BTC (Bark wants the offboard
+# cap no larger than the payment cap, since a move on chain splits its
+# inputs with a payment), so a coin larger than the largest coin still
+# moves on chain whole.
+#
+# Each exit step waits 72 blocks, the operator's window to answer an exit it
+# must contest. Second's server waits 144; here 72 stays, because a Lightning
+# receive into a Bark ark asks a final lock of twice this delta plus
+# htlc_expiry_delta, and the send delta below (258), which another ark's
+# payment and arcad's send timeout are sized for, routes that lock only at 72.
+vtxo_lifetime = 4032
 vtxo_exit_delta = 72
-max_vtxo_amount = "100000000 sat"
-min_board_amount = "10000 sat"
-max_board_amount = "100000000 sat"
+max_vtxo_amount = "10000000 sat"
+min_board_amount = "50000 sat"
+max_board_amount = "10000000 sat"
 max_offboard_amount = "100000000 sat"
 max_arkoor_amount = "100000000 sat"
 max_vtxo_exit_depth = 100
