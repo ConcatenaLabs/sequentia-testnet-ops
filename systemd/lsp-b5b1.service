@@ -1,0 +1,26 @@
+# The web wallet's backend (sell rail, order book, hosted Lightning provisioning), from the web
+# wallet checkout's tooling/lsp/lsp-server.mjs. Its settings, the credentials among them, are in
+# /etc/sequentia/lsp-b5b1.env on the box, never here.
+#
+# Restarting it stops everything in its control group: the LSP and its own work (seqob-cli runs,
+# node commands), so a new LSP never races an old run of the same swap. The hosted wallet nodes
+# and their ws relays are not in that group. The LSP starts each in a transient scope of its own in
+# seqln-hosted.slice (tooling/lsp/README.md, "Restarts leave the hosted nodes running"), so they
+# keep running, and the LSP re-attaches to them when it starts. List them with
+# `systemd-cgls seqln-hosted.slice`.
+[Unit]
+Description=SeqLN LSP :9981 (live web-wallet backend: sell rail, order book, provisioning)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/root
+EnvironmentFile=/etc/sequentia/lsp-b5b1.env
+ExecStart=/root/sequentia/downloads/node22/bin/node /root/sequentia/sequentia-web-wallet/tooling/lsp/lsp-server.mjs
+Restart=always
+RestartSec=2
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target
