@@ -748,7 +748,13 @@ Each run audits every book (`bin/seqdex-depth-audit.py`, kept as
 `/root/seqob-test/run/depth-audit.json` and `depth-audit.txt`; every crossed
 market goes to the log as a `CROSSED` line), keeps the treasury at its floors,
 and then refills every consumer that holds less than its floor of a target, back
-to the target. The targets are in the reference unit (USD on the testnet), sized
+to the target. A run holds `/run/lock/seqob-liquidity-health.lock` while it
+works, and a run that finds it held logs `a run is in progress` and leaves
+everything alone. A script that works on the makers itself (stops one, pays from
+one) takes the same lock with `flock -w` for each step that does, so that no
+run moves coins under it, and lets it go between steps; it waits up to one run
+for the lock, because a run lasts about as long as the timer's interval and the
+next one starts as soon as it ends. The targets are in the reference unit (USD on the testnet), sized
 for a busy public testnet: several million dollars a day traded in every pair of
 the faucet assets.
 
@@ -1013,10 +1019,22 @@ its repository, `ConcatenaLabs/arca`: `server/README.md` for the server,
 | `arca-watchtower-peer.service` | The watchtower this box runs for the users of the operator at `arca.albertodeluigi.com`, on `127.0.0.1:3538`, reached at `https://sequentiatestnet.com/watchtower-peer/`; its wallet in `/var/lib/arca-watchtower-peer`, made against that operator, whose `info` names it to its users |
 | `arca-watchtower-for-b.service` | The same for operator B's users (the box's stand-in second operator), on `127.0.0.1:3539`, reached at `https://sequentiatestnet.com/watchtower-for-b/`, named in B's `info`; its wallet in `/var/lib/arca-watchtower-for-b` |
 | `arca-btc-watchtower.service` | The watchtower for Bitcoin ark coins (`arca btc-watchtower serve`), on `127.0.0.1:3541`, reached at `https://sequentiatestnet.com/btc-watchtower/`; it takes deposits for any Bitcoin ark's coins and reads testnet4 through `bitcoin-ark-feeproxy` as `arktower`, a login of its own that the node limits to the calls a tower makes (`rpcwhitelist` in `bitcoin-ark/bitcoin.conf`), the password in `/etc/arca/btc-watchtower.env` (mode 640, group `arca`); its phrase and the BTC it pays fees with in `/var/lib/arca-btc-watchtower/btc-watchtower`. It runs the `arca` binary of `/opt/arca/target/release` |
-| `arca-b-watchtower.service` | Operator B's watchtower for this operator's users (its bundle's), on `127.0.0.1:23537`, reached at `https://sequentiatestnet.com/watchtower-b/` and listed in `arcad.toml`'s `[watcher] watchtowers` beside the box's own and `https://arca.albertodeluigi.com/watchtower` |
+| `arca-b-watchtower.service` | Operator B's watchtower for this operator's users (its bundle's), on `127.0.0.1:23537`, reached at `https://sequentiatestnet.com/watchtower-b/` and listed in `arcad.toml`'s `[watcher] watchtowers` beside the box's own and `https://arca.albertodeluigi.com/watchtower`. It runs the `arca` binary of `/opt/arca/target/release` too: the bundle's `/opt/arca-b/bin/arca` is a link to it |
 | Its node | The dexnode (`seq-dexnode`, RPC 18300), which runs with `-txindex` and `-validateanchor`, and with `flushwallet=0` in `/root/seq-testnet/dexnode/elements.conf`: its wallets are Berkeley DB files, the submarine makers' `xmm` over 700 MB, and the node's periodic wallet flush rewrites a whole file after every change to it, which saturates the disk the operator's database shares. Each write is still checkpointed when it is made; the files are made whole once, at shutdown |
 | Its database | PostgreSQL 16, cluster `16/main`, database `arca`, reached over the Unix socket as the `arca` role |
 | Its secrets | `/etc/arca/operator.key`, `/etc/arca/wallet.mnemonic` and `/etc/arca/arcad.toml` (which holds the node's RPC password), each mode 600, owned by the `arca` user |
+
+Every `arca` command line on the box is that one build,
+`/opt/arca/target/release/arca`, so a move to a new revision carries all of
+them: the watchtowers, operator B's watchtower, Emissio's wallet, the faucet's
+wallet (both its sides, `FAUCET_LEAF_ARCA` and `FAUCET_BTC_ARCA`), the Bitcoin
+ark refills of the health pass (`arca` in the targets file), and Compages' leaf
+wallet (`leafWallet.arca`). A path that used to hold a build of its own
+(`/root/sequentia/arca-cli`, `arca-cli-payouts`, `compages-leaf-deploy`) is a
+link to it, the old binary kept beside it as `arca.<revision>`. The ones that
+call it afresh each time follow a move at once; the servers among them (the
+watchtowers) are restarted by the move. An operator switch that refuses older
+clients lists every `arca` binary and running `arca` process on the box first.
 
 Both services run as the `arca` system user, read-only outside
 `/var/lib/arca` and `/run/arca`. `arcad` is stopped with SIGINT, which is what

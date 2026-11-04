@@ -88,7 +88,7 @@
     "faucet-btc": {
       "comment": "The faucet's arca wallet's Bitcoin side (Bark): the BTC (testnet4) the faucet hands out, to a receive code's Bitcoin ark address or on chain. Refilled on-chain from the testnet4 service wallet and boarded into the Bitcoin ark.",
       "kind": "bitcoin-ark",
-      "arca": "/root/sequentia/arca-cli/target/release/arca",
+      "arca": "/opt/arca/target/release/arca",
       "datadir": "/root/sequentia/faucet-leaves",
       "bark": "/opt/bitcoin-ark/bin/bark",
       "target_sats": 5000000,
