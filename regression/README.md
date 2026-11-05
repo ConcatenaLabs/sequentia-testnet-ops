@@ -94,6 +94,13 @@ answer. Each line also records how long the person waited for a price, from Revi
 to "Settled" with the wallet left open, for up to an hour after it was received
 (`WW-TRADE-BTC-ARK-SETTLED`), which makes the surface take up to an hour longer. One run spends about 60 USDX through the books, most of it bought back, plus fees.
 
+When the lines end, the wallet's page stays open until none of its refreshes waits for a round and
+no coin of it is on its way, for 15 minutes at most. A last line in the results says how it left:
+"nothing waits for a round", or what still waited when the page closed. The operator broadcasts a
+round only once every refresh in it has handed over its forfeits, and only an open page can hand
+them over. A page closed earlier voids its refreshes ten minutes later, holds back everyone else's
+refreshes in those rounds, and leaves the trader's coins unusable at the next run.
+
 The wallet holds USDX in its default mode; the rest it buys. Make it as the funded wallet is made,
 under the name `rgtrader`, and top it up with USDX from `treasury2026` (the faucet pays a
 wallet its USDX once; the drive's `faucet rgtrader USDX`, with the faucet token, pays it again). Its phrase stays on the laptop, mode 600, and is never committed.
