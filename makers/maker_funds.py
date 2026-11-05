@@ -815,15 +815,18 @@ TESTNET4_FEE_API = "https://mempool.space/testnet4/api/v1/fees"
 
 
 def btc_going_rate(cli, floor=30.0, cap=500.0, api=TESTNET4_FEE_API):
-    """The sat/vB a testnet4 payment pays now, and why: the most of a floor, the node's own
-    estimate, the rate that makes the next block of the node's mempool, and the public mempool's
-    going rate (its fastest rate, or the median rate of its next projected
-    block when higher); capped. testnet4 often mines empty blocks while its public mempool queues at
-    tens of sat/vB, so an estimate alone leaves a payment waiting for hours."""
+    """The sat/vB a testnet4 payment pays now, and why: the most of a floor, the rate that makes
+    the next block of the node's mempool, and the public mempool's going rate (its fastest rate,
+    or the median rate of its next projected block when higher); capped. A mempool counts only
+    when it holds more than a block: otherwise everything in it makes the next block at any rate,
+    and a handful of tiny transactions paying a fortune (testnet4 sees them) would set the rate.
+    The node's own estimate is not used, for the same reason: read from mined blocks, those
+    transactions make it hundreds of thousands of sat/vB. testnet4 often mines empty blocks while
+    its public mempool queues at tens of sat/vB, so the floor is well above the relay minimum
+    (the same rule as bitcoin-ark/fee-proxy.py)."""
     def run(*args):
         r = subprocess.run(cli.split() + list(args), capture_output=True, text=True, timeout=120)
         return json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else {}
-    est = (run("estimatesmartfee", "2", "CONSERVATIVE").get("feerate") or 0) * 1e5
     nb, cum = 0.0, 0
     txs = []
     for e in run("getrawmempool", "true").values():
@@ -840,13 +843,14 @@ def btc_going_rate(cli, floor=30.0, cap=500.0, api=TESTNET4_FEE_API):
         try:
             g = lambda p: json.loads(urllib.request.urlopen(api + p, timeout=10).read())
             blocks = g("/mempool-blocks")   # the median rate of the next projected block: what the queue in front pays
-            fr = (blocks[0].get("feeRange") or [0]) if blocks else [0]
-            pub = max(float(g("/recommended").get("fastestFee") or 0), float(blocks[0].get("medianFee") or 0) if blocks else 0, float(fr[len(fr) // 2]))
+            if blocks and float(blocks[0].get("blockVSize") or 0) >= 950000:
+                fr = blocks[0].get("feeRange") or [0]
+                pub = max(float(g("/recommended").get("fastestFee") or 0), float(blocks[0].get("medianFee") or 0), float(fr[len(fr) // 2]))
         except Exception:
             pass
-    r = max(floor, est, nb, pub)
-    return round(min(r, cap), 1), "the floor %g, the node estimates %.1f, its mempool next block %.1f, the public mempool %g%s" % (
-        floor, est, nb, pub, "; capped at %g" % cap if r > cap else "")
+    r = max(floor, nb, pub)
+    return round(min(r, cap), 1), "the floor %g, the node's mempool next block %.1f, the public mempool %g%s" % (
+        floor, nb, pub, "; capped at %g" % cap if r > cap else "")
 
 
 def btc_inflight(cli, wallet, label, min_conf=3):

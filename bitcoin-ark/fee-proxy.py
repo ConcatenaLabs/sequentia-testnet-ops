@@ -11,12 +11,20 @@ only when Core gives no estimate at all.
 
 This proxy sits between them and the ark's node. Every request is passed through
 unchanged, with its own credentials (the node's cookie, which the caller holds),
-except that an `estimatesmartfee` answer is raised to the going rate: the most of
-a floor, Core's own estimate, the rate that makes the next block of the node's
-mempool, and the public mempool's rate (mempool.space: its fastest rate, or the
-median of its next projected block), capped. The going rate is read every
-`--refresh` seconds in the background, with the node's cookie, so a request never
-waits on it.
+except that an `estimatesmartfee` answer, whatever its target, is the going rate:
+the most of a floor, the rate that makes the next block of the node's mempool,
+and the public mempool's rate (mempool.space: its fastest rate, or the median of
+its next projected block), capped. A mempool counts only when it holds more than
+a block, since otherwise everything in it makes the next block at any rate. The
+going rate is read every `--refresh` seconds in the background, with the node's
+cookie, so a request never waits on it.
+
+Every target gets the one rate. captaind quotes an offboard at its 3-block rate
+and refuses one under its 6-block rate, so a 6-block rate above the 3-block one
+refuses every offboard at the rate it was quoted. Core's own estimate is not
+used: read from mined blocks, a handful of tiny transactions paying a fortune
+(testnet4 sees them) makes it hundreds of thousands of sat/vB for one target
+and nothing for the next.
 
     fee-proxy.py --listen 127.0.0.1:18352 --upstream 127.0.0.1:18342 \\
         --cookie /var/lib/bitcoin-ark/bitcoind/testnet4/.cookie \\
@@ -52,6 +60,10 @@ def own_call(method, *params):
     return r["result"]
 
 
+# A mempool holding less than this (vbytes) all makes the next block.
+FULL_BLOCK = 950000
+
+
 def next_block_rate():
     txs = []
     for e in own_call("getrawmempool", True).values():
@@ -62,7 +74,7 @@ def next_block_rate():
     cum = 0
     for rate, size in sorted(txs, reverse=True):
         cum += size
-        if cum >= 950000:
+        if cum >= FULL_BLOCK:
             return rate + 1
     return 0.0
 
@@ -71,18 +83,16 @@ def public_rate():
     if not A.api:
         return 0.0
     g = lambda p: json.loads(urllib.request.urlopen(A.api + p, timeout=10).read())
-    r = float(g("/recommended").get("fastestFee") or 0)
     b = g("/mempool-blocks")
-    if b:
-        fr = b[0].get("feeRange") or [0]
-        r = max(r, float(b[0].get("medianFee") or 0), float(fr[len(fr) // 2]))
-    return r
+    if not b or float(b[0].get("blockVSize") or 0) < FULL_BLOCK:
+        return 0.0
+    fr = b[0].get("feeRange") or [0]
+    return max(float(g("/recommended").get("fastestFee") or 0), float(b[0].get("medianFee") or 0), float(fr[len(fr) // 2]))
 
 
 def refresh_once():
     parts = {}
-    for name, f in (("node estimate", lambda: (own_call("estimatesmartfee", 2, "CONSERVATIVE").get("feerate") or 0) * 1e5),
-                    ("node mempool next block", next_block_rate), ("public mempool", public_rate)):
+    for name, f in (("node mempool next block", next_block_rate), ("public mempool", public_rate)):
         try:
             parts[name] = float(f())
         except Exception as e:
@@ -107,22 +117,18 @@ def refresher():
         time.sleep(A.refresh)
 
 
-def raise_estimate(req, resp):
-    """resp: Core's answer to one estimatesmartfee request; raised to the going rate."""
+def going_estimate(req, resp):
+    """resp: Core's answer to one estimatesmartfee request; answered with the going rate,
+    the same for every target, in place of Core's own estimate."""
     rate = GOING["rate"] if GOING["rate"] is not None else A.floor
     if not isinstance(resp, dict) or resp.get("error"):
         return resp
-    res = resp.get("result") or {}
-    core = res.get("feerate") or 0
-    want = math.ceil(rate * 1000) / 1e8  # sat/vB to BTC/kvB, rounded up
-    if core < want:
-        params = req.get("params")
-        target = (params[0] if isinstance(params, list) and params else (params or {}).get("conf_target", 2)) if params else 2
-        res = {"feerate": want, "blocks": int(target) if str(target).isdigit() else 2}
-    else:
-        res = dict(res)
-    # written back as Core writes it, eight decimal places, never in exponent form
-    res["feerate"] = FEE_MARK + "%.8f" % res["feerate"]
+    params = req.get("params")
+    target = (params[0] if isinstance(params, list) and params else (params or {}).get("conf_target", 2)) if params else 2
+    # sat/vB to BTC/kvB, rounded up, written back as Core writes it: eight decimal places,
+    # never in exponent form
+    res = {"feerate": FEE_MARK + "%.8f" % (math.ceil(rate * 1000) / 1e8),
+           "blocks": int(target) if str(target).isdigit() else 2}
     return dict(resp, result=res)
 
 
@@ -154,10 +160,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 resp = json.loads(out)
                 if est:
-                    resp = raise_estimate(req, resp)
+                    resp = going_estimate(req, resp)
                 else:
                     by_id = {json.dumps(x.get("id")): x for x in req if isinstance(x, dict)}
-                    resp = [raise_estimate(by_id.get(json.dumps(r.get("id")), {}), r)
+                    resp = [going_estimate(by_id.get(json.dumps(r.get("id")), {}), r)
                             if by_id.get(json.dumps(r.get("id")), {}).get("method") == "estimatesmartfee" else r for r in resp]
                 out = dumps(resp)
             except (ValueError, AttributeError, TypeError):

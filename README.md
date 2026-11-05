@@ -30,7 +30,7 @@ put it in place and keep copies of it.
 | `journald/90-sequentia-retention.conf` | The journal's size cap, and so how far back every unit's log reaches. See "Log rotation". |
 | `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. `bitcoin-ark` covers the Bitcoin ark's Bitcoin Core and Lightning logs under `/var/log/bitcoin-ark`: daily or at 50 MB, seven kept. |
 | `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the makers below (`seqob-pureln-fleet`, `seqob-conf-maker`, `seqob-samechain-fleet`, the `seqob-liquidity-health` timer, `seqob-mixed-gold-eurx-buyer-side`, `seqob-mixed-gold-eurx-seller-side`, `seqob-xmakers`, the four `seqob-submarine-*`, `seqob-subasset-maker`, `seqob-subasset-sell-maker-usdx`), of the order crosser and the covenant settler (`seqob-crosser`, `seqob-settler`), of the volume takers and their Lightning nodes (`seqob-volume-takers`, `seqob-ln-asset-b`, `seqob-ln-btc-taker`, as the `takers` user), of the other Bitcoin-side Lightning node (`seqob-ln-btc-maker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key), of the status page's checker (`gatus`), and of the web wallet's backend (`lsp-b5b1`, whose hosted Lightning nodes run in `seqln-hosted.slice` and outlive its restarts); none holds a credential, each service reads its own mode-600 config. |
-| `bitcoin-ark/` | The Bitcoin ark's configuration templates (Bitcoin Core, the Lightning gateway, Bark's server and watchman) and the one patch its Bark client carries. |
+| `bitcoin-ark/` | The Bitcoin ark's configuration templates (Bitcoin Core, the Lightning gateway, Bark's server and watchman), its fee proxy (`fee-proxy.py`) with the test that runs it against a stand-in node (`fee-proxy.test.py`), and the patches its Bark client and hold plugin carry. |
 | `makers/` | The scripts that keep SeqOB makers running on the box: `pureln-fleet.sh` (pure-Lightning makers), `supervise-conf.sh` (confidential makers), `samechain-fleet.sh` (interactive same-chain makers), `mixed-maker.sh` (the two mixed GOLD/EURX makers), `supervise-xmakers.sh` (the cross-chain makers), `subasset-requote.sh` (which reprices a sub-asset or submarine maker from the feed), `covenant_seed_all.mjs` (the on-chain covenant ladder) and `covenant_reclaim.py` (which takes back the coins of its expired orders). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the secrets the shell scripts read; the seeder reads the node's `elements.conf`. |
 | `status/gatus.yaml`, `status/site/index.html` | The testnet status page at `sequentiatestnet.com/status/`: the checks [Gatus](https://github.com/TwiN/gatus) runs every minute against the public address (the chain, the explorer, the web wallet, the faucet, Compages, the staking pools, Emissio and the Sequentia Core download), and the page that shows them. See "The status page". |
 | `bin/apply-docs.sh` | Pulls [sequentia-docs](https://github.com/ConcatenaLabs/sequentia-docs), the tester guide, builds it with its own `build.sh` and installs it in `/srv/docs`, which the Caddyfile serves at `/docs/`. |
@@ -922,11 +922,12 @@ on-chain wallet into the ark, and when it holds less than half its target, ark
 and on-chain together, pays its on-chain address from the testnet4 service
 wallet it names, at most `max_sats` a pass (`maker_funds.py bark-refill`).
 It pays the going rate of the live testnet4 mempool, never less than 30 sat/vB:
-the most of the node's own estimate, the rate that makes the next block of the
-node's mempool, and the public mempool's going rate (mempool.space: its fastest
-rate, or the median rate of its next projected block when higher), capped at
-500. testnet4 often mines empty blocks while its public mempool queues at tens
-of sat/vB, so a payment at the node's estimate alone can wait for hours. The
+the most of the rate that makes the next block of the node's mempool and the
+public mempool's going rate (mempool.space: its fastest rate, or the median rate
+of its next projected block when higher), capped at 500, the way the Bitcoin
+ark's fee proxy reads it (see "Fees from the live mempool" under "The Bitcoin
+ark"). testnet4 often mines empty blocks while its public mempool queues at
+tens of sat/vB, so a payment at the node's estimate alone can wait for hours. The
 payment spends confirmed coins only, so it can always be bumped, and its address
 is labelled in the service wallet (`bark-refill <name>`); while a payment to a
 labelled address is unconfirmed, a pass pays nothing more and bumps it (RBF) to
@@ -1352,13 +1353,25 @@ and integration interfaces are never routed.
   configured fallback only when there is no estimate at all: a round paid
   that way waits for hours. So `captaind`, `watchmand`, the Lightning gateway
   and Bark wallets reach the node through `bitcoin-ark-feeproxy`, which passes every call through
-  unchanged, each with its caller's cookie, except that an `estimatesmartfee`
-  answer is raised to the going rate: the most of 30 sat/vB, Core's own
-  estimate, the rate that makes the next block of the node's mempool, and the
-  public mempool's rate (mempool.space: its fastest, or the median of its next
-  projected block), capped at 500 (Bark caps at its own `max_fee_rate`, 100).
-  It reads the going rate every 30 seconds and logs each change to the
-  journal. Bark's fallbacks are 30 sat/vB too.
+  unchanged, each with its caller's cookie, except that every
+  `estimatesmartfee` answer, whatever its target, is the going rate: the most
+  of 30 sat/vB, the rate that makes the next block of the node's mempool, and
+  the public mempool's rate (mempool.space: its fastest, or the median of its
+  next projected block), capped at 500 (Bark caps at its own `max_fee_rate`,
+  100). A mempool counts only when it holds more than a block; below that,
+  everything in it makes the next block at any rate. It reads the going rate
+  every 30 seconds and logs each change to the journal. Bark's fallbacks are
+  30 sat/vB too.
+- **One rate for every target.** captaind reads three estimates (1, 3 and 6
+  blocks), quotes an offboard at the 3-block rate and refuses one below the
+  6-block rate. A 6-block rate above the 3-block one would refuse every
+  offboard at the rate the server just quoted, so the proxy never gives two
+  targets different rates. And it never passes on Core's own estimate:
+  testnet4 sees handfuls of tiny transactions paying hundreds of thousands of
+  sat/vB, and Core, which reads the rate from mined blocks, then estimates
+  that for one target and nothing for the next. `bitcoin-ark/fee-proxy.test.py`
+  runs the proxy against such a node and such a public mempool, and checks
+  that captaind would accept an offboard at its own quote.
 - **Fee rates for the gateway.** The ark's own node can go hours or days with
   no fee estimate. Core Lightning then refuses to open or close a channel
   ("Cannot estimate fees (yet)"), and refuses every channel a peer opens to it
