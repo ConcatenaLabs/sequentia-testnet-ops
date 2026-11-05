@@ -102,10 +102,15 @@ async function openTrader (b, h, phrase) {
   await b.send('Page.navigate', { url: 'about:blank' }, h.page.sessionId); await sleep(1500)
   await b.send('Page.navigate', { url: WALLET }, h.page.sessionId)
   await h.waitFor("document.querySelector('#app') && getComputedStyle(document.querySelector('#app')).display !== 'none'", 240000)
-  // Joined: Receive gives a receive code.
+  // Joined: Receive gives a receive code. A fresh profile restores the leaf wallet first, which
+  // takes minutes (sequentia-web-wallet #365): up to RESTORE_MS, its time printed.
   await h.click('[data-tab=receive]')
-  await h.waitFor("/^bitcoin:/i.test((document.querySelector('#addr')||{}).textContent||'')", 240000)
+  const t0 = Date.now()
+  await h.waitFor("/^bitcoin:/i.test((document.querySelector('#addr')||{}).textContent||'')", RESTORE_MS)
+  console.log(`trader: receive code after ${Math.round((Date.now() - t0) / 1000)} s (the leaf wallet's restore)`)
 }
+// How long the trader's wallet may take to restore in a fresh profile before its first code.
+const RESTORE_MS = 15 * 60_000
 
 // One trade in the Trade tab. -> { ok, detail }
 async function tabTrade (h, pay, get, amount) {
