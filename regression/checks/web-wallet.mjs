@@ -99,7 +99,8 @@ export async function run ({ b, report, widths, funded, problems }) {
     })
     await R('RCV-NAME', w, 'Under the code, "Your payment name" with "Choose a name" (or the name, with Copy), no protocol word', h, async () => {
       const shown = await h.visible('#nameBox'), lbl = await h.text('#nameLbl'), choose = await h.visible('#btnNameChoose'), copy = await h.visible('#btnNameCopy')
-      return { ok: shown && lbl === 'Your payment name' && (choose || copy), detail: { shown, label: lbl, choose, copy }, at: '#nameBox' }
+      // innerText carries the label's text-transform (capitals), so it is compared without case.
+      return { ok: shown && /^your payment name$/i.test(lbl || '') && (choose || copy), detail: { shown, label: lbl, choose, copy }, at: '#nameBox' }
     })
     await R('RCV-AMOUNT', w, '"Amount in BTC (optional)": with an amount the code names it and carries an invoice', h, async () => {
       const ph = await h.eval("(document.querySelector('#recvAmt')||{}).placeholder||''")
@@ -121,9 +122,9 @@ export async function run ({ b, report, widths, funded, problems }) {
     })
 
     await tab(h, 'send')
-    await R('SND-RECIPIENT', w, 'Send: the field is "Recipient", hint "a receive code, an address or an invoice"', h, async () => {
+    await R('SND-RECIPIENT', w, 'Send: the field is "Recipient", hint "a receive code, a payment name, an address or an invoice"', h, async () => {
       const r = await h.eval("(()=>{const i=document.querySelector('section[data-panel=send] .raddr'); const l=i&&i.closest('.rec').querySelector('label'); return {label:l&&l.innerText.trim(), hint:i&&i.placeholder}})()")
-      return { at: 'section[data-panel=send] .raddr', ok: /^recipient$/i.test(r.label || '') && r.hint === 'a receive code, an address or an invoice', detail: r }
+      return { at: 'section[data-panel=send] .raddr', ok: /^recipient$/i.test(r.label || '') && r.hint === 'a receive code, a payment name, an address or an invoice', detail: r }
     })
     await R('SND-BALANCE', w, 'Send: next to the asset its one figure, "balance <amount>"', h, async () => {
       const t = await h.text('section[data-panel=send] .ravail'); return { at: 'section[data-panel=send] .ravail',  ok: /^balance /.test(t), detail: t }
