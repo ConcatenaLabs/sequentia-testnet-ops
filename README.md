@@ -14,6 +14,7 @@ put it in place and keep copies of it.
 | `caddy/caddy.env.example` | The secrets the Caddyfile reads as `{$NAME}` placeholders. The real file is `/etc/caddy/caddy.env`, mode 600, on the box and in the offline backups, never here. |
 | `caddy/caddy.service.d/env.conf` | The systemd drop-in that hands `caddy.service` that file. |
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
+| `bin/deploy-web-wallet.sh` | The one way the web wallet goes live: its page, the LSP that runs from the same checkout, and this checkout's Caddyfile, together. See "Deploying the web wallet". |
 | `bin/fronting-read.sh` | What the Arca operator fronts, why, and what fronting the market needs once fronted capital comes back promptly: in flight per asset and what holds it, refresh demand and return times, the steady state against the plan. Read-only. See "What the operator fronts". |
 | `bin/our-capital.py` | What the bots that stand for our own capital hold, at the feed's prices, against the mainnet plan: our makers' holdings and our LSP's channels and float. Read-only. See "The testnet's numbers". |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
@@ -100,6 +101,43 @@ bin/apply-status.sh
 ```
 
 A new route under `/status/` also needs `bin/apply-caddy.sh`.
+
+## Deploying the web wallet
+
+The web wallet's page goes live whenever its checkout on the box moves, and
+its LSP (`lsp-b5b1`) runs from that same checkout, importing several of the
+page's own modules. So the two move together, with the Caddyfile, through one
+script, run as root on the box from a laptop's checkout of this repository:
+
+```sh
+ssh seq 'DRY=1 bash -s' < bin/deploy-web-wallet.sh      # what it would do; changes nothing
+ssh seq 'bash -s' < bin/deploy-web-wallet.sh            # deploy the web wallet's origin/main
+ssh seq 'COMMIT=<sha> bash -s' < bin/deploy-web-wallet.sh
+```
+
+It moves this checkout to `origin/main` and applies its Caddyfile with
+`bin/apply-caddy.sh` only when it differs from the installed one. It then
+moves `/root/sequentia/sequentia-web-wallet` to the commit. It refuses
+modified tracked files, and a commit that does not contain what runs now,
+unless `ALLOW_BACK=1` is set.
+
+The LSP restarts only when the deploy changes a file it loads, or a file it
+loads is newer than its process: anything under `tooling/lsp/`, the page's
+modules it imports (followed import by import), and the leaf library. Every
+hosted wallet node running before is checked by pid after.
+
+Last, it checks through the public address that the page serves the
+checkout's `index.html` and every served file the deploy changed, and that
+the LSP answers.
+
+The commit it replaces goes into `/root/deploy-web-wallet/history` as the
+checkout moves, and the script prints the command that rolls back to it (the
+same command, with `COMMIT=<that sha> ALLOW_BACK=1`). A dry run fetches
+nothing: it asks the remote what `origin/main` is, and GitHub what that
+changes when the box has not fetched it yet.
+
+Other units that run from the same checkout are named in its first step, and
+are not restarted by it.
 
 ## Changing a route
 
