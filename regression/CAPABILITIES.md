@@ -203,7 +203,7 @@ Lightning channels, as one made before default mode held its coins in the Ark do
 | Id | A person can | Contract |
 |---|---|---|
 | WW-LNARK-WORDS | rely on the page to move such balances, in the contract's words | BTC |
-| WW-LNARK-MOVE | see what the channels held move by itself into what is sent in seconds, the figure held and "Moving <amount> <TICKER> so it can be sent in seconds." under it meanwhile | BTC |
+| WW-LNARK-MOVE | see what the channels held move by itself into what is sent in seconds, the figure held and nothing under it saying so (developer mode's "Moving …" line never shows in default mode) | BTC |
 | WW-LNARK-CLOSED | find each emptied channel closed, or read in developer mode why it stays | BTC |
 
 ## Trading, live

@@ -70,28 +70,30 @@ export async function run ({ b, report, lnmove }) {
       if (low.has(r.tk) && Number(r.fig) < low.get(r.tk)) low.set(r.tk, Number(r.fig))
       for (const l of r.lines) {
         const m = l.match(MOVING)
-        if (m) { if (!saw.has(r.tk)) saw.set(r.tk, Math.round((Date.now() - t0) / 1000)) } else if (/^Moving/.test(l)) wrong.push(l)
+        // Default mode says nothing under the figure while it moves (DEFAULT_MODE.md, "Moving
+        // <amount> <TICKER> …" is developer mode's): any such line there is wrong.
+        if (m) { if (!saw.has(r.tk)) saw.set(r.tk, Math.round((Date.now() - t0) / 1000)); wrong.push(l) } else if (/^Moving/.test(l)) wrong.push(l)
       }
     }
-    const moving = rows.some((r) => r.lines.some((l) => MOVING.test(l)))
-    if ((saw.size >= inChannels.length && !moving) || Date.now() - t0 > MOVE_MS) break
+    // Nothing on the page says when the move is done, so it is given MOVE_MS, then read.
+    if (Date.now() - t0 > MOVE_MS) break
     await sleep(SAMPLE_MS)
   }
   const tookS = Math.round((Date.now() - t0) / 1000)
   await mode(h, 'developer'); await sleep(30000)
   await h.eval(OPEN_ALL); await sleep(1500)
   const after = await h.eval(ROWS)
-  await R('LNARK-MOVE', 'A wallet from before moves its Lightning balances to the Ark by itself, the figure held, "Moving …" while it moves', h, async () => {
+  await R('LNARK-MOVE', 'A wallet from before moves its Lightning balances to the Ark by itself, the figure held, nothing under it saying so', h, async () => {
     const detail = {}
     let ok = !wrong.length
     for (const r of inChannels) {
       const a = after.find((x) => x.tk === r.tk) || {}
       // Held: never below the start by more than the move's fees (1% and a little).
       const held = low.get(r.tk) >= start.get(r.tk) * 0.985
-      const said = saw.has(r.tk)
+      const said = !saw.has(r.tk)
       const left = a.ln == null ? 0 : Number(a.ln)
       const emptied = left <= Number(r.ln) * 0.03
-      detail[r.tk] = { lightningBefore: r.ln, lightningAfter: a.ln, figureStart: start.get(r.tk), figureLowest: low.get(r.tk), movingSaidAtS: saw.get(r.tk) ?? null, held, emptied, stays: a.stays }
+      detail[r.tk] = { lightningBefore: r.ln, lightningAfter: a.ln, figureStart: start.get(r.tk), figureLowest: low.get(r.tk), movingShownAtS: saw.get(r.tk) ?? null, held, emptied, stays: a.stays }
       ok = ok && held && said && emptied
     }
     return { ok, detail: { ...detail, tookS, wrongLines: wrong.slice(0, 3) } }
