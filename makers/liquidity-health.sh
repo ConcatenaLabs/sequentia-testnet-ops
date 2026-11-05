@@ -155,6 +155,7 @@ for x in q:
     if t:
         held[t] = max(held.get(t, 0), int(x["max_give"]))
 json.dump(held, open(sys.argv[3], "w"))' "$q" "$STATE/assets-leaf.txt" "$W/$name-held.json" || continue
+  # shellcheck disable=SC2046  # the optional --skip pair is split into its two words on purpose
   tool plan-leaf --name "$name" --node dexnode --address "$addr" --assets "$STATE/assets-leaf.txt" --held "$W/$name-held.json" --usd "$usd" \
       $( [ "$name" = leaf-maker-btc ] && echo "--skip USDC.e,EURC.e" ) --out "$W/$name-plan.json" >/dev/null 2>&1 \
     && tool fund --sources "$SOURCES" --assets "$STATE/assets-leaf.txt" --prices "$FEED" --plan "$W/$name-plan.json" $MINT --budget "$TARGETS" --out "$W/$name-sent.json" 2>&1 \

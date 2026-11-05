@@ -195,13 +195,12 @@ fi
 
 STEP="the web wallet checkout"; step "$STEP"
 w_to=$(target "$WALLET" "$COMMIT")
-moved=0
 if may_move "$WALLET" "$w_to"; then
   changed "$w_now" "$w_to" > "$WORK/changed"
   say "${w_to:0:10} changes $(wc -l < "$WORK/changed") file(s)"
   if dry; then would "move $WALLET to ${w_to:0:10}, recording ${w_now:0:10} in $KEEP/history"
   else
-    g "$WALLET" checkout --quiet --detach "$w_to"; moved=1; say "moved to $(g "$WALLET" log -1 --format='%h %s')"
+    g "$WALLET" checkout --quiet --detach "$w_to"; say "moved to $(g "$WALLET" log -1 --format='%h %s')"
     # Recorded at once, so a step that stops later still leaves the way back.
     [ -d "$KEEP" ] || install -d -m 700 "$KEEP"
     printf '%s %s -> %s\n' "$(date -u +%FT%TZ)" "$w_now" "$w_to" >> "$KEEP/history"

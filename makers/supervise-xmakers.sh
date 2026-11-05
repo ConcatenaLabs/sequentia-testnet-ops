@@ -30,7 +30,8 @@ SPREADS=(0.004 0.009 0.016 0.025 0.036 0.05 0.067 0.087 0.11 0.14 0.175 0.22)
 BUY_ENABLED=${BUY_ENABLED:-1}        # 1 once seqdex-mm-btc is funded and confirmed
 KEYDIR=${KEYDIR:-/etc/sequentia/maker-keys}
 run(){  # $1 asset  $2 side(sell|buy)  $3 level
-  local t=$1 side=$2 lvl=$3 id=${ID[$t]}
+  local t=$1 side=$2 lvl=$3
+  local id=${ID[$t]}
   local bamt qsats sp=${SPREADS[$lvl]}
   local log=run/xmk-$t-$side-$lvl.log
   mkdir -p "$KEYDIR"; chmod 700 "$KEYDIR"
