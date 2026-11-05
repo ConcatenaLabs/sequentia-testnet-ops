@@ -163,9 +163,10 @@ max_connections = 10
 
 # The node through its fee proxy (bitcoin-ark/fee-proxy.py,
 # bitcoin-ark-feeproxy.service): every call passes through unchanged, except
-# that estimatesmartfee is raised to the live mempool's going rate, never
-# under 30 sat/vB. testnet4's own estimate, read from its often empty blocks,
-# says a sat or two while its public mempool queues at tens.
+# that estimatesmartfee answers the live mempool's going rate for every
+# target, never under 30 sat/vB. testnet4's own estimate, read from its
+# blocks, says a sat or two while its public mempool queues at tens, or
+# hundreds of thousands after a few tiny transactions paying a fortune.
 [bitcoind]
 url = "http://127.0.0.1:@FEE_RPC_PORT@"
 # By a fixed login, not the node's cookie: the node draws a new cookie each
