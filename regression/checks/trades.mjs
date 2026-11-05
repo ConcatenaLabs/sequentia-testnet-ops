@@ -34,6 +34,22 @@ export const TICKET_MS = 10000
 // that round's block is certified: minutes, with no Bitcoin block to wait for. SETTLE_MS is a wide
 // margin over that, so a purchase that never settles fails and one merely slow does not.
 export const SETTLE_MS = 60 * 60000
+// When the lines end, the trader's page stays open until none of its refreshes waits for a round,
+// for LEAVE_MS at most. The operator broadcasts a round only once every refresh in it has handed
+// over its forfeits, which only an open page can do: a page closed earlier voids its refreshes ten
+// minutes later, holds back everyone else's in those rounds, and leaves the trader's coins
+// unusable at the next run (sequentia-testnet-ops #191).
+export const LEAVE_MS = 15 * 60000
+// Whether the leaf wallet `state` (the page's `__leavesApi.state`) has a refresh or a coin still
+// moving: the web wallet's own test (leaves.js `inFlight`).
+const DONE_PARTICIPATION = ['released', 'void', 'expired', 'refused']
+const MOVING_COIN = ['pending', 'sending', 'offered', 'given', 'forfeited', 'exiting']
+export function stillMoving (state) {
+  if (!state) return null
+  const parts = (Array.isArray(state.participations) ? state.participations : []).filter((p) => p && !DONE_PARTICIPATION.includes(p.state) && !p.released)
+  const coins = (Array.isArray(state.coins) ? state.coins : []).filter((c) => c && MOVING_COIN.includes(c.state))
+  return { participations: parts.map((p) => `${String(p.participation || '').slice(0, 12)} ${p.state}`), coins: coins.length }
+}
 
 // The Trade tab: what is paid, what is received, the amount paid.
 const TAB_TRADES = [
@@ -78,6 +94,8 @@ const pick = (id, ticker) => `(async()=>{
   o.click(); return true })()`
 
 async function openTrader (b, h, phrase) {
+  // The page's test hooks: the leaf wallet's state, read when the lines end (LEAVE_MS).
+  await b.send('Page.addScriptToEvaluateOnNewDocument', { source: 'window.SEQ_TEST_HOOKS = true' }, h.page.sessionId)
   await b.send('Page.navigate', { url: WALLET }, h.page.sessionId)
   await h.waitFor("(()=>{const v=(id)=>{const e=document.getElementById(id); return e && getComputedStyle(e).display!=='none'}; return v('app')||v('welcome')})()", 240000)
   await h.eval(`localStorage.setItem('swk.sequentia.mnemonic', ${JSON.stringify(phrase)}), true`)
@@ -158,6 +176,25 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
   return { ok: false, detail: `${side} ${amount} of ${pair}: after ${secs} s the site says "${st ? st.slice(st.indexOf(' ') + 1) : await site.text('#fStatus') || 'nothing'}"`, at: '#fStatus' }
 }
 
+// The parts of the page's leaf wallet state that stillMoving reads, as plain data.
+const LEAF_STATE = `(()=>{ const s=window.__leavesApi && window.__leavesApi.state; if(!s) return null;
+  return { participations:(s.participations||[]).map(p=>({ participation:p.participation, state:p.state, released:!!p.released })),
+    coins:(s.coins||[]).map(c=>({ state:c.state })) } })()`
+// Keeps the trader's page open until nothing of it is moving, LEAVE_MS at most, and says how it left.
+async function leaveSettled (w, report) {
+  const t0 = Date.now()
+  let left = null
+  for (;;) {
+    left = stillMoving(await w.eval(LEAF_STATE).catch(() => null))
+    if (!left || (!left.participations.length && !left.coins) || Date.now() - t0 > LEAVE_MS) break
+    await sleep(15000)
+  }
+  const mins = ((Date.now() - t0) / 60000).toFixed(1)
+  if (!left) report.note(`trader: its leaf wallet could not be read; the page closes after ${mins} min`)
+  else if (!left.participations.length && !left.coins) report.note(`trader: nothing waits for a round; the page closes after ${mins} min`)
+  else report.note(`trader: after ${mins} min still waiting: ${left.participations.join(', ') || 'no refresh'}; ${left.coins} coin(s) moving. The page closes now`)
+}
+
 export async function run ({ b, report, trader }) {
   const lines = [...TAB_TRADES.map((t) => ['WW-TRADE-' + t[0], `The Trade tab prices ${t[3]} ${t[1]} for ${t[2]} within ${TICKET_MS / 1000} s and trades it within ${boundOf(t[1]) / 1000} s`]),
     ...DEX_TRADES.map((t) => ['DX-TRADE-' + t[0], `SeqDEX through the web wallet: a market ${t[2]} of ${t[3]} on ${t[1]}, priced within ${TICKET_MS / 1000} s and traded within ${BOUND_MS / 1000} s`])]
@@ -165,6 +202,10 @@ export async function run ({ b, report, trader }) {
   const wp = await b.page('about:blank')
   const w = helpers(wp)
   await openTrader(b, w, trader.phrase)
+  try { await tradeLines(b, report, w, wp) } finally { await leaveSettled(w, report) }
+}
+
+async function tradeLines (b, report, w, wp) {
   // A sale sells what the purchase before it bought: when that purchase did not trade and the
   // wallet holds none of it, the sale is SKIP with that reason rather than a second failure.
   const bought = new Map()
