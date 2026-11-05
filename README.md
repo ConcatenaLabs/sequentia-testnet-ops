@@ -39,6 +39,13 @@ put it in place and keep copies of it.
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
 | `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
 
+## Checks
+
+CI (`.github/workflows/checks.yml`) runs on every pull request and on `main`: `shellcheck -S
+warning` over every `*.sh`, a compile of every Python file, the proxy tests
+(`bin/node-rpc-proxy-limits-test.py`, `bitcoin-ark/fee-proxy.test.py`) and the regression suite's
+unit tests. The regression suite itself runs against the live testnet and is not part of it.
+
 ## The routes
 
 Read `caddy/Caddyfile`: each `handle_path` names a path and the port the

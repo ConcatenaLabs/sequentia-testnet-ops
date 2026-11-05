@@ -1,0 +1,38 @@
+# The repository's tests and a lint of its scripts, on every pull request and on main. Python 3.12
+# is the testnet server's; the regression suite's unit tests run on Node 22, the Node of the laptop
+# the suite runs from. shellcheck fails on warnings and errors (not on style notes).
+#
+# Not run here, by design:
+# - SKIPPED (needs the live testnet and browsers): the regression suite itself
+#   (`regression/run.mjs`); only its unit tests run.
+name: checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: shellcheck
+        run: |
+          shellcheck --version | head -2
+          git ls-files -z '*.sh' | xargs -0 shellcheck -S warning
+      - name: every Python file compiles
+        run: git ls-files -z '*.py' | xargs -0 python3 -m py_compile
+      - name: node RPC proxy limits
+        run: python3 bin/node-rpc-proxy-limits-test.py
+      - name: fee proxy
+        run: python3 -I bitcoin-ark/fee-proxy.test.py
+      - name: regression suite unit tests
+        run: node --test regression/checks/trades.test.mjs regression/lib/browsers.test.mjs

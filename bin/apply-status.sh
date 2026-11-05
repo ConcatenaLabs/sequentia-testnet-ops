@@ -28,7 +28,7 @@ systemctl restart gatus.service
 # The checker answers, and has run every check once (the first round starts
 # at once and takes a few seconds).
 n=0
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   body=$(curl -s --max-time 5 "http://127.0.0.1:$PORT/api/v1/endpoints/statuses?pageSize=1" || true)
   n=$(printf '%s' "$body" | python3 -c 'import json,sys
 try: print(sum(1 for e in json.load(sys.stdin) if e.get("results")))
