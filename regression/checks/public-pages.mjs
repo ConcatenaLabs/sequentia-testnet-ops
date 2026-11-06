@@ -138,10 +138,24 @@ export async function run ({ b, report, widths }) {
     })
 
     await go(SITE + '/download/core/', "document.querySelector('.card')")
-    await R('CORE-MAC', w, 'The Core download page gives a Mac user a path: the web wallet, or a build from source', async () => {
+    await R('CORE-MAC', w, 'The Core download page gives a Mac user a path within Sequentia Core: a build from source', async () => {
       const links = await h.eval("[...document.querySelectorAll('#mac a')].map(a=>a.getAttribute('href'))")
+      const card = await h.eval("[...document.querySelectorAll('.card a')].map(a=>a.getAttribute('href'))")
       const t = await h.bodyText()
-      return { ok: links.includes('/wallet/') && links.some((l) => /build-osx/.test(l)) && !/rather than/.test(t), detail: links, at: '#mac' }
+      return { ok: links.some((l) => /build-osx/.test(l)) && !card.includes('/wallet/') && !/rather than/.test(t), detail: { mac: links, card }, at: '#mac' }
+    })
+    await R('CORE-GET', w, 'The Core download page offers Linux and Windows with their sizes, and one signed checksum list with its key', async () => {
+      await h.waitFor("document.querySelectorAll('a.dl[download] .size span').length >= 2", 15000).catch(() => {})
+      const d = await h.eval(`(()=>{const dl=[...document.querySelectorAll('a.dl[download]')], c=document.querySelector('#check');
+        const has=(end)=>!!(c && [...c.querySelectorAll('a')].some(a=>a.getAttribute('href').endsWith(end)));
+        return { files: dl.map(a=>a.getAttribute('href')), sized: dl.filter(a=>/\\d (kB|MB|GB)/.test((a.querySelector('.size') || { innerText: '' }).innerText)).length,
+          sums: has('/SHA256SUMS'), sig: has('/SHA256SUMS.asc'), key: has('/sequentia-release-signing-key.asc'),
+          fpr: ((c && c.querySelector('.fpr')) || {}).textContent || '' }})()`)
+      const t = await h.bodyText(), html = await h.eval('document.documentElement.outerHTML'), over = await h.overflow()
+      const ok = d.files.some((f) => /linux-x86_64\.tar\.gz$/.test(f)) && d.files.some((f) => /win64-setup\.exe$/.test(f)) &&
+        d.sized === d.files.length && d.sums && d.sig && d.key && d.fpr === 'B4F5 7796 7E32 25D5 8FF6 3DFC 5974 FD59 E609 F11F' &&
+        !HIDDEN_NAMES.test(t) && !HIDDEN_PATHS.test(html) && over <= 1
+      return { ok, detail: { ...d, hidden: (t.match(HIDDEN_NAMES) || [])[0] || null, overflow: over }, at: '#check' }
     })
   }
 
