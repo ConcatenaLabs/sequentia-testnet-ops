@@ -1,14 +1,14 @@
 #!/bin/sh
 # Install this checkout's download pages, point their cards at the newest files, and check every file they link exists.
-# Usage: bin/apply-downloads.sh            (run on the box, from the checkout)
+# Usage: bin/apply-downloads.sh            (run on the box, from the checkout; SEQ_DOWNLOAD_DIR and SEQ_PUBLISHER move it elsewhere)
 set -eu
 case "${1:-}" in -h|--help) sed -n 2,3p "$0" | sed 's/^# //'; exit 0 ;; esac
 HERE=$(cd "$(dirname "$0")/.." && pwd)
-ROOT=/root/sequentia/downloads
+ROOT="${SEQ_DOWNLOAD_DIR:-/root/sequentia/downloads}"
 # The release publisher's own clone. Its run rewrites every card to the newest
 # file present, so the pages installed here never offer an older version than
 # the box holds, whatever version this checkout's copy names.
-PUBLISHER=/root/sequentia/release-build/publisher/contrib/sequentia/release-publisher/publish-release.sh
+PUBLISHER="${SEQ_PUBLISHER:-/root/sequentia/release-build/publisher/contrib/sequentia/release-publisher/publish-release.sh}"
 missing=0
 # Two pages: the full one at /download/ and the Sequentia Core one at
 # /download/core/, whose links reach the same files through "../".
