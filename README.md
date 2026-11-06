@@ -1353,6 +1353,17 @@ and integration interfaces are never routed.
   with the wallet's, which refuses every testnet4 invoice (the `tb` currency
   is shared with testnet3 and reads as testnet3). The patch adds `--testnet4`
   and compares currencies instead.
+- **Emissio's client also repairs its chain after a reorg.** Bark's on-chain
+  sync from a Bitcoin Core node stops for good when a testnet4 reorg orphans
+  the wallet's newest checkpoints: every sync then fails with "introduced
+  chain cannot connect with the original chain, try include height N", the
+  on-chain balance reads 0 and a board is refused (ConcatenaLabs/arca#440).
+  `bitcoin-ark/bark-reorg-repair.patch` is the repair arca carries in
+  `bark/src/onchain/bdk.rs` (arca#442 and #453): it finds where the wallet's
+  chain and the node's agree, rescans from there, and applies the result at
+  once. Emissio's wallet runs the client with both patches, built at
+  `/opt/bitcoin-ark-reorgfix/bin/bark` and named by `ARCA_BARK_EXEC` in its
+  unit; the ark's other clients keep the one above.
 - **Boltz's hold plugin with one line.** The gateway's hold-invoice plugin is
   hold v0.3.3, the release Bark tests with, plus `bitcoin-ark/hold-testnet4.patch`:
   hold maps Core Lightning's network name to an invoice currency and knows no
