@@ -282,5 +282,6 @@ is taken.
 | PP-EXP-CONTRACT-UNITS | read a contract's amounts in the asset's units, not in atoms |
 | PP-POOLS | read stakes in tSEQ on the pools page and delegate from the web wallet (More → Stake) |
 | PP-CORE-MAC | find a path on a Mac from the Core download page: the web wallet, or a build from source |
+| PP-CORE-GET | download Sequentia Core for Linux or Windows from its download page, seeing each file's size, and check the file against one signed checksum list, its signing key and the key's fingerprint; the page names no hidden product and scrolls no wider than the screen |
 | PP-EMI-BUGS | read that Emissio's bug reports cover the web wallet |
 | PP-EMI-SECURITY | read that Emissio's security reports cover the web wallet |

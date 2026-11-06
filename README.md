@@ -36,8 +36,9 @@ put it in place and keep copies of it.
 | `bin/apply-docs.sh` | Pulls [sequentia-docs](https://github.com/ConcatenaLabs/sequentia-docs), the tester guide, builds it with its own `build.sh` and installs it in `/srv/docs`, which the Caddyfile serves at `/docs/`. |
 | `bin/apply-status.sh` | Builds Gatus at the pinned version if it is not there, installs its config, its unit (`systemd/gatus.service`) and the page, restarts it and checks every check has run. |
 | `regression/` | The regression suite: every capability a person relies on in the web wallet, SeqDEX, Ambra browser and Ambra mobile, checked on the live testnet from a laptop in headless Chromium after each deploy, `node regression/run.mjs`. See `regression/README.md`. |
-| `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. A release edits the product's card here, merges, pulls on the box and runs `bin/apply-downloads.sh`. |
-| `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet only, reaching the same files through `../`. Installed by the same script. |
+| `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, a card for every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. See "The download pages". |
+| `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet, the web wallet for a Mac, reaching the same files through `../`. It names no hidden product. |
+| `bin/apply-downloads.sh` | Installs both download pages, has the release publisher point every card at the newest file present, and checks every file the pages link is on the box. |
 
 ## Checks
 
@@ -238,20 +239,36 @@ Add the placeholder to the Caddyfile as `{$NAME}`, the name to
 `/etc/caddy/caddy.env` on the box, in single quotes. `apply-caddy.sh` reads
 the file the way systemd does, so a `$` inside a value is safe.
 
-## A release on the download pages
+## The download pages
 
-Each page names each product's current file. After the release file is on
-the box under `/root/sequentia/downloads/`, edit the product's card here (the
-`data-ver` span, the file name, the link) on the full page, and on the Core
-page too when the product is Sequentia Core, open a pull request, merge, and
-on the box:
+Both pages share one stylesheet and one script, copied into each: a card per
+product with a button per platform, each file's size read from the server, the
+visitor's own platform's button in gold, what the product does and how to
+install and update it folded under the buttons, and one "Check your download"
+section with the signed checksum list, its signing key and the key's
+fingerprint. Change the two copies together.
+
+A release changes nothing here. The release publisher (`seq-release-publisher`
+on the box, its code in the node repository under
+`contrib/sequentia/release-publisher/`) builds each new version, puts its files
+in `/root/sequentia/downloads/`, and rewrites both pages to the newest file
+present on every run: each link and file name it matches by its recipe's file
+pattern, and each version chip, a `<span class="ver" data-ver="RECIPE">version
+X</span>` keyed by the recipe's name. A card keeps that span and those file
+names in that form, or the publisher stops updating it.
+
+A change to the pages themselves merges here, then goes live on the box:
 
 ```sh
-cd /root/sequentia/sequentia-testnet-ops && git pull --ff-only
+cd /root/sequentia/sequentia-testnet-ops
+git fetch origin && git checkout --detach origin/main
 bin/apply-downloads.sh
 ```
 
-which installs both pages and checks every file they link is there.
+which installs both pages, runs the publisher once with no product to build so
+every card names the newest file present, and checks every file the pages link
+is there. While a release build holds the publisher's lock, that build
+repoints the pages as it ends.
 
 ## Backups
 
