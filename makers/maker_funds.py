@@ -811,7 +811,8 @@ def arca_flow_words(f):
     return words
 
 
-TESTNET4_FEE_API = "https://mempool.space/testnet4/api/v1/fees"
+# MAKERS_FEE_API="" leaves the public mempool out (the tests, on regtest).
+TESTNET4_FEE_API = os.environ.get("MAKERS_FEE_API", "https://mempool.space/testnet4/api/v1/fees")
 
 
 def btc_going_rate(cli, floor=30.0, cap=500.0, api=TESTNET4_FEE_API):
@@ -884,16 +885,95 @@ def btc_inflight(cli, wallet, label, min_conf=3):
     return res
 
 
+SYNC_ERROR = re.compile(r"sync error|cannot connect|failed to sync|sync failed|chain cannot connect", re.I)
+
+
+def btc_call(cli, *args, timeout=120):
+    r = subprocess.run(cli.split() + list(args), capture_output=True, text=True, timeout=timeout)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout).strip()[-300:])
+    out = r.stdout.strip()
+    try:
+        return json.loads(out)
+    except ValueError:
+        return out
+
+
+def btc_sent_unspent(cli, wallet, label):
+    """What the payments to `label` left unspent: (sats, coins, addresses), read from the node's
+    UTXO set at every address the service wallet labelled `label` (each payment labels the address
+    it pays). Confirmed coins only (scantxoutset reads the chainstate). A coin the target boarded is
+    spent, and counts in its ark balance instead. (None, 0, n) when the scan cannot run now."""
+    try:
+        addrs = sorted(btc_call(cli, "-rpcwallet=" + wallet, "getaddressesbylabel", label) or {})
+    except RuntimeError:
+        return 0, 0, []                      # no payment was ever labelled: nothing sent
+    if not addrs:
+        return 0, 0, []
+    for _ in range(3):
+        try:
+            r = btc_call(cli, "scantxoutset", "start", json.dumps(["addr(%s)" % x for x in addrs]), timeout=300)
+            return round(float(r.get("total_amount", 0)) * 1e8), len(r.get("unspents") or []), addrs
+        except RuntimeError as e:
+            if "already in progress" not in str(e).lower():
+                print("  (the UTXO scan of its addresses failed: %s)" % e)
+                return None, 0, addrs
+            time.sleep(5)
+    return None, 0, addrs
+
+
+def btc_height_at(cli, when):
+    """The lowest height whose block time is at or after `when` (unix seconds), by bisection
+    over the headers: testnet4's pace is too uneven to count back a fixed number of blocks."""
+    lo, hi = 0, int(btc_call(cli, "getblockcount"))
+    while lo < hi:
+        mid = (lo + hi) // 2
+        t = btc_call(cli, "getblockheader", btc_call(cli, "getblockhash", str(mid)))["time"]
+        if t < when:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+
+
+def btc_paid_since(cli, wallet, label, since_unix):
+    """Sats the service wallet paid to addresses labelled `label` since `since_unix`, in the
+    mempool or in blocks: what counts against a target's daily cap. A replaced payment counts
+    once, by its replacement; an abandoned one not at all."""
+    h = btc_height_at(cli, since_unix - 7200)       # block times may run two hours early
+    since = btc_call(cli, "getblockhash", str(max(0, h - 1)))
+    r = btc_call(cli, "-rpcwallet=" + wallet, "listsinceblock", since)
+    total = 0
+    for t in r.get("transactions", []):
+        if (t.get("category") == "send" and t.get("label") == label and not t.get("abandoned")
+                and not t.get("replaced_by_txid") and int(t.get("time", 0)) >= since_unix
+                and t.get("confirmations", 0) >= 0):
+            total += round(-t["amount"] * 1e8)
+    return total
+
+
 def cmd_bark_refill(a):
     """A wallet's Bitcoin ark side (an `arca` wallet's `bitcoin`, run by Bark) kept at its target:
     coins confirmed in its on-chain wallet are boarded into the ark; below `floor` of its target
     (ark and on-chain together) it is paid on-chain from the testnet4 service wallet, at most
-    `max_sats` a pass. BTC cannot be minted: this moves only what the service wallet holds."""
+    `max_sats` a pass and `max_sats_day` in any 24 hours. BTC cannot be minted: this moves only
+    what the service wallet holds.
+
+    What the target's own wallet says is not trusted alone: a Bark wallet that has stopped
+    following testnet4 reads 0 while its coins sit on the chain (arca#440), and a refill that
+    believed it paid 5,000,000 sats on every pass (sequentia-testnet-ops#212). So:
+      - the coins the service wallet already sent to the target's addresses and the target has
+        not spent are read from the node's UTXO set, and count as held;
+      - a target that reads less on chain than those coins, or whose Bark reports a sync error,
+        is not following the chain: nothing is paid, and the pass says so (`CANNOT SYNC`);
+      - what was paid to it in the last 24 hours counts against `max_sats_day`."""
     if re.search(r"reserve|sbtc|bridge|treasury", a.btc_wallet, re.I):
         die("%s backs something else: name a service liquidity wallet" % a.btc_wallet)
     env = dict(os.environ, ARCA_BARK_EXEC=a.bark)
-    def arca(*args):
+    def arca(*args, logs=None):
         r = subprocess.run([a.arca, "--datadir", a.datadir, "bitcoin"] + list(args), capture_output=True, text=True, timeout=600, env=env)
+        if logs is not None:
+            logs.append(r.stderr or "")
         if r.returncode != 0:
             raise RuntimeError((r.stderr or r.stdout).strip()[-300:])
         out = r.stdout.strip()
@@ -905,9 +985,14 @@ def cmd_bark_refill(a):
     # "pending_board_sat", …}) and `onchain balance` the on-chain side ({"total_sat",
     # "confirmed_sat", …}). (`arca balance` nests both under "bitcoin" as {"wallet", "ark",
     # "onchain"}; that shape is read too.) No Bitcoin side yet: Bark finds no wallet and fails.
+    # Read without --quiet: Bark logs a failed sync (`Onchain sync error: …`) and still prints a
+    # balance, the stale one.
+    logs = []
     try:
-        b = arca("--quiet", "balance")
+        b = arca("balance", logs=logs)
     except RuntimeError as e:
+        if SYNC_ERROR.search(str(e)):
+            print("  %s: CANNOT SYNC: its wallet does not follow the chain (%s); nothing paid" % (a.name, str(e)[-200:])); return
         print("  %s: no Bitcoin ark wallet yet (made by its owner script): %s" % (a.name, e)); return
     if not isinstance(b, dict):
         print("  %s: Bark's balance is not JSON: %s" % (a.name, str(b)[:120])); return
@@ -916,12 +1001,23 @@ def cmd_bark_refill(a):
     else:
         ark_b = b
         try:
-            oc = arca("--quiet", "onchain", "balance")
+            oc = arca("onchain", "balance", logs=logs)
         except RuntimeError as e:
             print("  %s: Bark's on-chain balance does not read: %s" % (a.name, e)); return
         oc = oc if isinstance(oc, dict) else {}
+    said = [ln.strip() for ln in "\n".join(logs).splitlines() if SYNC_ERROR.search(ln)]
+    if said:
+        print("  %s: CANNOT SYNC: its wallet says %s; nothing paid" % (a.name, said[-1][-200:])); return
     ark = sum(v for k, v in ark_b.items() if k.endswith("_sat") and isinstance(v, int))
-    total = ark + int(oc.get("total_sat") or 0)
+    onchain = int(oc.get("total_sat") or 0)
+    tag = "bark-refill " + a.name
+    sent, coins, addrs = btc_sent_unspent(a.btc_cli, a.btc_wallet, tag)
+    if sent is None:
+        print("  %s: the coins already sent to its %d address(es) cannot be read now; nothing paid" % (a.name, len(addrs))); return
+    if sent > onchain:
+        print("  %s: CANNOT SYNC: %d sats in %d coin(s) paid from %s sit unspent at its addresses, and its wallet reads %d on chain: it is not following the chain; nothing paid until it does" % (
+            a.name, sent, coins, a.btc_wallet, onchain)); return
+    total = ark + onchain
     confirmed = int(oc.get("confirmed_sat", oc.get("trusted_spendable_sat", 0)) or 0)
     if confirmed >= a.min_board_sats:
         n = confirmed - a.fee_reserve_sats
@@ -931,7 +1027,6 @@ def cmd_bark_refill(a):
         except RuntimeError as e:
             print("  %s: board of %d sats refused: %s" % (a.name, n, e))
         return
-    tag = "bark-refill " + a.name
     w = btc_inflight(a.btc_cli, a.btc_wallet, tag)
     if w:
         going, why = btc_going_rate(a.btc_cli, floor=a.fee_floor)
@@ -950,7 +1045,15 @@ def cmd_bark_refill(a):
         return
     if total >= a.target_sats * a.floor:
         print("  %s: holds %d of %d sats, enough" % (a.name, total, a.target_sats)); return
-    want = min(a.target_sats - total, a.max_sats)
+    day = a.max_sats_day if a.max_sats_day is not None else a.target_sats
+    try:
+        paid = btc_paid_since(a.btc_cli, a.btc_wallet, tag, int(time.time()) - 86400)
+    except RuntimeError as e:
+        print("  %s: what it was paid in the last day cannot be read (%s); nothing paid" % (a.name, e)); return
+    want = min(a.target_sats - total, a.max_sats, day - paid)
+    if want <= 0:
+        print("  %s: DAILY CAP: holds %d of %d sats, and was paid %d sats in the last 24 hours, its cap of %d; nothing more until that window moves" % (
+            a.name, total, a.target_sats, paid, day)); return
     addr = arca("onchain", "address")
     addr = addr.get("address") if isinstance(addr, dict) else str(addr).strip().strip('"')
     going, why = btc_going_rate(a.btc_cli, floor=a.fee_floor)
@@ -964,8 +1067,8 @@ def cmd_bark_refill(a):
         r.stdout = json.loads(r.stdout)["txid"]
     if r.returncode != 0:
         print("  %s: %s could not pay %d sats: %s" % (a.name, a.btc_wallet, want, (r.stderr or r.stdout).strip()[-200:])); return
-    print("  %s: holds %d of %d sats: %d sats from %s to its on-chain address %s at %s sat/vB (%s; boarded once confirmed): %s" % (
-        a.name, total, a.target_sats, want, a.btc_wallet, addr, going, why, r.stdout))
+    print("  %s: holds %d of %d sats (%d in the ark, %d on chain): %d sats from %s to its on-chain address %s at %s sat/vB (%s; boarded once confirmed; %d of its %d a day paid before): %s" % (
+        a.name, total, a.target_sats, ark, onchain, want, a.btc_wallet, addr, going, why, paid, day, r.stdout))
 
 
 def arca_waits(info_url):
@@ -1285,6 +1388,7 @@ def main():
     c.add_argument("--bark", required=True); c.add_argument("--target-sats", type=int, required=True); c.add_argument("--floor", type=float, default=0.5)
     c.add_argument("--max-sats", type=int, default=10000000); c.add_argument("--min-board-sats", type=int, default=100000); c.add_argument("--fee-reserve-sats", type=int, default=3000)
     c.add_argument("--btc-wallet", required=True); c.add_argument("--btc-cli", required=True); c.add_argument("--fee-floor", type=float, default=30)
+    c.add_argument("--max-sats-day", type=int, default=None, help="at most this many sats to the target in any 24 hours (default: its target)")
     c = sp.add_parser("plan-sc"); c.add_argument("--accounts"); c.add_argument("--assets"); c.add_argument("--usd", type=float, default=390000); c.add_argument("--coins", type=int, default=4); c.add_argument("--out")
     c = sp.add_parser("leafcfg"); c.add_argument("--config"); c.add_argument("--assets"); c.add_argument("--prices"); c.add_argument("--feed-url")
     c.add_argument("--out"); c.add_argument("--btc", action="store_true"); c.add_argument("--small", default="USDC.e,EURC.e")
