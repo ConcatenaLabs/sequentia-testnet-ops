@@ -9,7 +9,7 @@
      The release publisher rewrites every file name on this page, and the number
      in each version chip: a span of class "ver" whose data-ver attribute names
      the publisher's recipe and whose text is "version" and the number. Keep each
-     chip in exactly that form. -->
+     chip in exactly that form. A card links only to its own product. -->
 <style>
   :root{ --ground:#101317; --panel:#161a20; --raise:#1c2129; --line:#2a3039; --txt:#eef1f4; --dim:#9aa3ad;
          --gold:#ffc629; --gold-ink:#1d1600; }
@@ -87,7 +87,7 @@
   .solo ul.feat{margin:4px 0 0;padding:0 0 0 18px;color:var(--dim);font-size:15px}
   .solo ul.feat li{margin:0 0 6px}
   .solo ul.feat b{color:var(--txt);font-weight:600}
-  .solo .get .dl:first-child{margin-top:0}
+  .solo .get > .dl:first-child{margin-top:0}
   @media (max-width:860px){.solo{grid-template-columns:1fr;grid-template-areas:"info" "get" "feat";grid-template-rows:auto;gap:14px}}
   .jump{display:none}
   .card{scroll-margin-top:12px}
@@ -137,8 +137,8 @@
         <span class="what"><b>Linux</b><small>x86-64, tarball</small></span><span class="size"></span></a>
       <a class="dl" data-os="windows" href="sequentia-core-25.2.6-win64-setup.exe" download>
         <span class="what"><b>Windows</b><small>64-bit installer</small></span><span class="size"></span></a>
-      <a class="dl alt" data-os="mac" href="/wallet/">
-        <span class="what"><b>macOS</b><small>Use the web wallet, or build from source</small></span><span class="size"></span></a>
+      <a class="dl alt" data-os="mac" href="https://github.com/ConcatenaLabs/Sequentia/blob/master/doc/build-osx.md" target="_blank" rel="noopener">
+        <span class="what"><b>macOS</b><small>Build from source</small></span><span class="size"></span></a>
       <details class="more">
         <summary>What it does, install and update</summary>
         <ul>
@@ -150,8 +150,7 @@
         <p><b>Install</b>: on Linux, extract the tarball and run <code>bin/sequentia-qt</code>. On Windows, run the
           installer, then launch <b>Sequentia Core</b>. It connects to the testnet on its own.</p>
         <p><b>Update</b>: install the newer release the same way. The wallet and the chain data stay where they are.</p>
-        <p><b>On a Mac</b>: the <a href="/wallet/">web wallet</a> holds BTC and every Sequentia asset, with the faucet
-          built in. To run the full node on a Mac, <a href="https://github.com/ConcatenaLabs/Sequentia/blob/master/doc/build-osx.md" target="_blank" rel="noopener">build Sequentia Core from source</a>.</p>
+        <p><b>On a Mac</b>: <a href="https://github.com/ConcatenaLabs/Sequentia/blob/master/doc/build-osx.md" target="_blank" rel="noopener">build Sequentia Core from source</a>.</p>
         <p class="files"><b>Files</b>: <code>sequentia-core-25.2.6-linux-x86_64.tar.gz</code>, <code>sequentia-core-25.2.6-win64-setup.exe</code></p>
       </details>
     </section>
@@ -219,8 +218,6 @@
       <p class="desc">A self-custody Android wallet for Bitcoin testnet4 and Sequentia, from one recovery phrase.</p>
       <a class="dl" data-os="android" href="ambra-0.17.29.apk" download>
         <span class="what"><b>Android</b><small>arm64 and x86-64, APK</small></span><span class="size"></span></a>
-      <a class="dl alt" data-os="ios" href="/wallet/">
-        <span class="what"><b>iPhone</b><small>Use the web wallet</small></span><span class="size"></span></a>
       <details class="more">
         <summary>What it does, install and update</summary>
         <ul>
@@ -233,7 +230,6 @@
         </ul>
         <p><b>Install</b>: allow &ldquo;install unknown apps&rdquo; for your browser, then open the <code>.apk</code>.</p>
         <p><b>Update</b>: open the newer <code>.apk</code> the same way. It installs over the old one and keeps the wallet.</p>
-        <p><b>iPhone</b>: Ambra mobile runs on Android; on an iPhone, the <a href="/wallet/">web wallet</a> holds the same assets.</p>
         <p><a href="https://github.com/ConcatenaLabs/ambra" target="_blank" rel="noopener">Source on GitHub</a></p>
         <p class="files"><b>File</b>: <code>ambra-0.17.29.apk</code></p>
       </details>
@@ -269,7 +265,7 @@
     <section class="card" id="pignus">
       <div class="head"><h2>Pignus CLI</h2><span class="ver" data-ver="pignus">version 0.3.0</span></div>
       <p class="desc">Collateralised lending from the command line, against your own node: everything
-        <a href="/lending/">the lending site</a> does, and a check of every vault before you sign.</p>
+        <a href="/lending/">Pignus's lending site</a> does, and a check of every vault before you sign.</p>
       <a class="dl" data-os="linux mac" href="pignus-cli-0.3.0.tar.gz" download>
         <span class="what"><b>Linux and macOS</b><small>Python 3, source archive</small></span><span class="size"></span></a>
       <details class="more">

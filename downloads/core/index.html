@@ -9,8 +9,8 @@
      The release publisher rewrites every file name on this page, and the number
      in the version chip: a span of class "ver" whose data-ver attribute names
      the publisher's recipe and whose text is "version" and the number. Keep the
-     chip in exactly that form. This page names Sequentia Core and the web wallet
-     only. -->
+     chip in exactly that form. This page names Sequentia Core only, and its card
+     links only to Sequentia Core. -->
 <style>
   :root{ --ground:#101317; --panel:#161a20; --raise:#1c2129; --line:#2a3039; --txt:#eef1f4; --dim:#9aa3ad;
          --gold:#ffc629; --gold-ink:#1d1600; }
@@ -88,7 +88,7 @@
   .solo ul.feat{margin:4px 0 0;padding:0 0 0 18px;color:var(--dim);font-size:15px}
   .solo ul.feat li{margin:0 0 6px}
   .solo ul.feat b{color:var(--txt);font-weight:600}
-  .solo .get .dl:first-child{margin-top:0}
+  .solo .get > .dl:first-child{margin-top:0}
   @media (max-width:860px){.solo{grid-template-columns:1fr;grid-template-areas:"info" "get" "feat";grid-template-rows:auto;gap:14px}}
   .jump{display:none}
   .card{scroll-margin-top:12px}
@@ -136,10 +136,8 @@
         <a class="dl" data-os="windows" href="../sequentia-core-25.2.6-win64-setup.exe" download>
           <span class="what"><b>Windows</b><small>64-bit installer</small></span><span class="size"></span></a>
         <div id="mac">
-        <a class="dl alt" data-os="mac" href="/wallet/">
-          <span class="what"><b>macOS</b><small>Open the web wallet, with BTC, every Sequentia asset and the faucet</small></span><span class="size"></span></a>
-        <a class="dl alt" href="https://github.com/ConcatenaLabs/Sequentia/blob/master/doc/build-osx.md" target="_blank" rel="noopener">
-          <span class="what"><b>macOS</b><small>Build the full node from source</small></span><span class="size"></span></a>
+        <a class="dl alt" data-os="mac" href="https://github.com/ConcatenaLabs/Sequentia/blob/master/doc/build-osx.md" target="_blank" rel="noopener">
+          <span class="what"><b>macOS</b><small>Build from source</small></span><span class="size"></span></a>
         </div>
         <details class="more">
           <summary>Install and update</summary>

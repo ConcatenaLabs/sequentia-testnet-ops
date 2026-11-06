@@ -37,7 +37,7 @@ put it in place and keep copies of it.
 | `bin/apply-status.sh` | Builds Gatus at the pinned version if it is not there, installs its config, its unit (`systemd/gatus.service`) and the page, restarts it and checks every check has run. |
 | `regression/` | The regression suite: every capability a person relies on in the web wallet, SeqDEX, Ambra browser and Ambra mobile, checked on the live testnet from a laptop in headless Chromium after each deploy, `node regression/run.mjs`. See `regression/README.md`. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, a card for every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. See "The download pages". |
-| `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet, the web wallet for a Mac, reaching the same files through `../`. It names no hidden product. |
+| `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet, reaching the same files through `../`. It names no product but Sequentia Core. |
 | `bin/apply-downloads.sh` | Installs both download pages, has the release publisher point every card at the newest file present, and checks every file the pages link is on the box. |
 
 ## Checks
@@ -247,6 +247,10 @@ visitor's own platform's button in gold, what the product does and how to
 install and update it folded under the buttons, and one "Check your download"
 section with the signed checksum list, its signing key and the key's
 fingerprint. Change the two copies together.
+
+A product's card links only to that product: its files, its source, its build
+instructions, its own site. Where a platform has no build, the card leaves the
+platform out rather than sending the visitor to another product.
 
 A release changes nothing here. The release publisher (`seq-release-publisher`
 on the box, its code in the node repository under

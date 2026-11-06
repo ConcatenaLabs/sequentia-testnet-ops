@@ -138,10 +138,11 @@ export async function run ({ b, report, widths }) {
     })
 
     await go(SITE + '/download/core/', "document.querySelector('.card')")
-    await R('CORE-MAC', w, 'The Core download page gives a Mac user a path: the web wallet, or a build from source', async () => {
+    await R('CORE-MAC', w, 'The Core download page gives a Mac user a path within Sequentia Core: a build from source', async () => {
       const links = await h.eval("[...document.querySelectorAll('#mac a')].map(a=>a.getAttribute('href'))")
+      const card = await h.eval("[...document.querySelectorAll('.card a')].map(a=>a.getAttribute('href'))")
       const t = await h.bodyText()
-      return { ok: links.includes('/wallet/') && links.some((l) => /build-osx/.test(l)) && !/rather than/.test(t), detail: links, at: '#mac' }
+      return { ok: links.some((l) => /build-osx/.test(l)) && !card.includes('/wallet/') && !/rather than/.test(t), detail: { mac: links, card }, at: '#mac' }
     })
     await R('CORE-GET', w, 'The Core download page offers Linux and Windows with their sizes, and one signed checksum list with its key', async () => {
       await h.waitFor("document.querySelectorAll('a.dl[download] .size span').length >= 2", 15000).catch(() => {})
