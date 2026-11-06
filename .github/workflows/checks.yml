@@ -34,5 +34,13 @@ jobs:
         run: python3 bin/node-rpc-proxy-limits-test.py
       - name: fee proxy
         run: python3 -I bitcoin-ark/fee-proxy.test.py
+      - name: Bitcoin ark refill guards (regtest Bitcoin Core)
+        run: |
+          v=28.1; f=bitcoin-$v-x86_64-linux-gnu.tar.gz
+          curl -fsSLO https://bitcoincore.org/bin/bitcoin-core-$v/$f
+          curl -fsSLO https://bitcoincore.org/bin/bitcoin-core-$v/SHA256SUMS
+          sha256sum --ignore-missing -c SHA256SUMS
+          tar xzf $f
+          BITCOIND=$PWD/bitcoin-$v/bin/bitcoind python3 -I makers/bark_refill_test.py
       - name: regression suite unit tests
         run: node --test regression/checks/trades.test.mjs regression/lib/browsers.test.mjs

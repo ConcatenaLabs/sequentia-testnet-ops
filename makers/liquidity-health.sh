@@ -118,7 +118,8 @@ for p in sorted(glob.glob(sys.argv[1] + "/target-*.json")):
     for d in json.load(open(p)):
         if d.get("kind") == "bitcoin-ark":
             print(" ".join(shlex.quote(x) for x in ["--name", d["name"], "--arca", d["arca"], "--datadir", d["datadir"], "--bark", d["bark"],
-                "--target-sats", str(d["target_sats"]), "--max-sats", str(d.get("max_sats", 10000000)), "--btc-wallet", d["btc_wallet"], "--btc-cli", d["btc_cli"]]))' "$W" \
+                "--target-sats", str(d["target_sats"]), "--max-sats", str(d.get("max_sats", 10000000)), "--btc-wallet", d["btc_wallet"], "--btc-cli", d["btc_cli"]]
+                + (["--max-sats-day", str(d["max_sats_day"])] if "max_sats_day" in d else [])))' "$W" \
   | while read -r line; do eval "tool bark-refill $line" 2>&1 | while read -r l; do log "bitcoin ark: $l"; done; done
 
 # 3b. the interactive fleet's accounts

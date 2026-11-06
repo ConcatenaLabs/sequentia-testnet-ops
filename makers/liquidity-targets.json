@@ -81,6 +81,7 @@
       "bark": "/opt/bitcoin-ark/bin/bark",
       "target_sats": 5000000,
       "max_sats": 5000000,
+      "max_sats_day": 5000000,
       "btc_wallet": "seqdex-mm-btc",
       "btc_cli": "/root/bitcoin-28.1/bin/bitcoin-cli -datadir=/root/.bitcoin -testnet4",
       "need": {}

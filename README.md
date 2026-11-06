@@ -44,7 +44,8 @@ put it in place and keep copies of it.
 
 CI (`.github/workflows/checks.yml`) runs on every pull request and on `main`: `shellcheck -S
 warning` over every `*.sh`, a compile of every Python file, the proxy tests
-(`bin/node-rpc-proxy-limits-test.py`, `bitcoin-ark/fee-proxy.test.py`) and the regression suite's
+(`bin/node-rpc-proxy-limits-test.py`, `bitcoin-ark/fee-proxy.test.py`), the Bitcoin ark refill's
+guards against a regtest Bitcoin Core (`makers/bark_refill_test.py`) and the regression suite's
 unit tests. The regression suite itself runs against the live testnet and is not part of it.
 
 ## The routes
@@ -947,7 +948,15 @@ A consumer of `kind: bitcoin-ark` is an `arca` wallet's Bitcoin side (Bark's
 wallet for the Bitcoin ark): each pass boards the coins confirmed in its
 on-chain wallet into the ark, and when it holds less than half its target, ark
 and on-chain together, pays its on-chain address from the testnet4 service
-wallet it names, at most `max_sats` a pass (`maker_funds.py bark-refill`).
+wallet it names, at most `max_sats` a pass and `max_sats_day` (its target
+when unset) in any 24 hours (`maker_funds.py bark-refill`). The refill does not
+take the wallet's word alone: the coins the service wallet paid to the wallet's
+addresses and the wallet has not spent are read from the node's UTXO set and
+count as held, and a wallet that reads less on chain than those coins, or whose
+Bark logs a sync error, is not following the chain. It is paid nothing, and the
+pass logs `CANNOT SYNC` until it follows the chain again; a cap reached is
+logged `DAILY CAP`. `makers/bark_refill_test.py` drives these cases against a
+regtest Bitcoin Core.
 It pays the going rate of the live testnet4 mempool, never less than 30 sat/vB:
 the most of the rate that makes the next block of the node's mempool and the
 public mempool's going rate (mempool.space: its fastest rate, or the median rate
