@@ -68,6 +68,7 @@ How each surface is read:
 | WW-MKT-BTC-QUOTE | read BTC priced in a fiat stablecoin ("BTC / USDX") | Market |
 | WW-HIS-OPEN | open History | History |
 | WW-HIS-NO-RESCUE | not meet Bump fee, Replace or Speed up in History: a payment that waits two blocks is sped up by itself | History |
+| WW-SEND-NOT-MADE-SAID | be told once, on Balance with OK, of a payment to an address that was never made ("nothing left your wallet"), and read it as "Not sent" in History (the wallet's record of it is placed in the page; nothing is sent) | Send, History |
 | WW-SPEED-REFRESH-BUILT | have what waits on the chain sped up by the page itself, in words default mode may say, and received coins refreshed by itself with a library that takes a waiting refresh back (arca#492) | History |
 | WW-APP-WORDS | use every tab without meeting a forbidden word | Never in default mode |
 | WW-MORE-WORDS | use Mix, Issuance, Stake, Sign, Help and Settings without a forbidden word, a hidden product's name or a dash in a sentence | Never in default mode |
