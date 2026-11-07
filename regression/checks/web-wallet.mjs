@@ -221,6 +221,29 @@ export async function run ({ b, report, widths, funded, problems }) {
       await tab(h, 'balance')
       return { ok: !found.length, detail: found }
     })
+    // A payment to an address that was never made (its page closed before the operator's
+    // settlement) is said once on Balance and as "Not sent" in History. Nothing is sent here: the
+    // wallet's own record of such a payment is written into the page, as the page writes it when
+    // the leaf library lists the payment `not_made`, and the page is read and its OK pressed.
+    await R('SEND-NOT-MADE-SAID', w, 'A payment to an address that was never made is said once on Balance, with OK, and reads "Not sent" in History', h, async () => {
+      const seeded = await h.eval(`(()=>{ const k=Object.keys(localStorage).find(k=>k.startsWith('swk.leaves.code.')); if(!k) return null; const tag=k.slice('swk.leaves.code.'.length);
+        const key='swk.instantHist.'+tag; const l=JSON.parse(localStorage.getItem(key)||'[]'); const id='${'0'.repeat(56)}'+String(Date.now()).slice(-8);
+        l.push({ kind:'out', at:Date.now()-60000, later:true, legs:[{ asset:'4dfe69c334a9cdf4005ddf3889bba1bc397703fa8da669254877f3209caf7c8f', atoms:'100000000' }], offboard:id, stage:'not_made', address:'tb1q68apqvgwpsnewuwvtjy2xra4g3phq23quqzedu' });
+        localStorage.setItem(key, JSON.stringify(l)); return id })()`)
+      if (!seeded) return { ok: false, detail: 'no receive code kept for this wallet: the record could not be placed' }
+      await tab(h, 'history'); await tab(h, 'balance')
+      const CARD = "(()=>{ const c=document.getElementById('newsCard'); return c && !c.classList.contains('hide') ? c.innerText.replace(/\\s+/g,' ').trim() : '' })()"
+      await h.waitFor(CARD, 20000).catch(() => {})
+      const card = await h.eval(CARD)
+      await tab(h, 'history')
+      const row = await h.eval("(()=>{ const r=[...document.querySelectorAll('.item.instant')].find(i=>/Not sent/.test(i.innerText)); return r ? r.innerText.replace(/\\s+/g,' ').trim() : '' })()")
+      await tab(h, 'balance')
+      await h.eval(`(()=>{ const l=document.querySelector('#newsCard [data-offboard="${seeded}"] button'); if(l) l.click(); return !!l })()`)
+      await sleep(800)
+      const gone = await h.eval(`!document.querySelector('#newsCard [data-offboard="${seeded}"]')`)
+      const ok = /Your payment of 1 OILX to tb1q68apqvgwps…zedu was not made: nothing left your wallet\. Send it again\./.test(card) && /Nothing left your wallet/.test(row) && gone
+      return { ok, detail: { card, row, gone } }
+    })
     if (words) await R('APP-WORDS', w, 'No tab in default mode says a word default mode never says', h, async () => {
       const found = {}
       for (const t of ['balance', 'send', 'receive', 'swap', 'history']) { await tab(h, t); const f = forbiddenIn(await h.text('#app'), words); if (f.length) found[t] = f }
