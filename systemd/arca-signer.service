@@ -8,7 +8,9 @@ User=arca
 Group=arca
 # ARCA_GENESIS, the chain's genesis hash (not a secret).
 EnvironmentFile=/etc/arca/signer.env
-ExecStart=/opt/arca/target/release/arca-signer --key-file /etc/arca/operator.key --genesis ${ARCA_GENESIS} --socket /run/arca/signer.sock --record /var/lib/arca/signer.record
+# Freezes of supervised assets are read from a node other than arcad's;
+# /etc/arca/signer-node.auth (mode 600, owner arca) holds its user:password.
+ExecStart=/opt/arca/target/release/arca-signer --key-file /etc/arca/operator.key --genesis ${ARCA_GENESIS} --socket /run/arca/signer.sock --record /var/lib/arca/signer.record --supervision-node http://127.0.0.1:18401/ --supervision-cookie /etc/arca/signer-node.auth
 RuntimeDirectory=arca
 RuntimeDirectoryMode=0750
 RuntimeDirectoryPreserve=yes
