@@ -1119,7 +1119,7 @@ its repository, `ConcatenaLabs/arca`: `server/README.md` for the server,
 | What | Where |
 |---|---|
 | The checkout and its build | `/opt/arca`, at the commit the binaries in `/opt/arca/target/release` are built from (`BUILT_FROM` beside them); a new revision is built in a clone of its own, `/opt/arca-head`, and its three binaries installed there |
-| `arca-signer.service` | Holds the operator key (`/etc/arca/operator.key`) and signs on `/run/arca/signer.sock`; its append-only record is `/var/lib/arca/signer.record` |
+| `arca-signer.service` | Holds the operator key (`/etc/arca/operator.key`) and signs on `/run/arca/signer.sock`; its append-only record is `/var/lib/arca/signer.record`. It reads the freezes of supervised assets (USDC.e, EURC.e) from a node of its own, the explorer node (`seq-explorer-node`, RPC 18401), not the server's, so that a fault in either node alone cannot let a frozen VTXO move; its login to that node, as `user:password`, is `/etc/arca/signer-node.auth` |
 | `arcad.service` | The server, its rounds and its watcher, on `127.0.0.1:3535`; metrics on `127.0.0.1:3536`; configuration `/etc/arca/arcad.toml` |
 | `arca-watchtower.service` | The operator's watchtower (`arca watchtower serve`), on `127.0.0.1:3537`, reached at `https://sequentiatestnet.com/watchtower/` and listed in `arcad.toml`'s `[watcher] watchtowers`, so wallets that name none deposit their coins with it; its wallet (and the fee coins it may pay with) in `/var/lib/arca-watchtower`. It runs the `arca` binary of `/opt/arca/target/release`, so a move to a new revision restarts it too |
 | `arca-watchtower-peer.service` | The watchtower this box runs for the users of the operator at `arca.albertodeluigi.com`, on `127.0.0.1:3538`, reached at `https://sequentiatestnet.com/watchtower-peer/`; its wallet in `/var/lib/arca-watchtower-peer`, made against that operator, whose `info` names it to its users |
@@ -1128,7 +1128,7 @@ its repository, `ConcatenaLabs/arca`: `server/README.md` for the server,
 | `arca-b-watchtower.service` | Operator B's watchtower for this operator's users (its bundle's), on `127.0.0.1:23537`, reached at `https://sequentiatestnet.com/watchtower-b/` and listed in `arcad.toml`'s `[watcher] watchtowers` beside the box's own and `https://arca.albertodeluigi.com/watchtower`. It runs the `arca` binary of `/opt/arca/target/release` too: the bundle's `/opt/arca-b/bin/arca` is a link to it |
 | Its node | The dexnode (`seq-dexnode`, RPC 18300), which runs with `-txindex` and `-validateanchor`, and with `flushwallet=0` in `/root/seq-testnet/dexnode/elements.conf`: its wallets are Berkeley DB files, the submarine makers' `xmm` over 700 MB, and the node's periodic wallet flush rewrites a whole file after every change to it, which saturates the disk the operator's database shares. Each write is still checkpointed when it is made; the files are made whole once, at shutdown |
 | Its database | PostgreSQL 16, cluster `16/main`, database `arca`, reached over the Unix socket as the `arca` role |
-| Its secrets | `/etc/arca/operator.key`, `/etc/arca/wallet.mnemonic` and `/etc/arca/arcad.toml` (which holds the node's RPC password), each mode 600, owned by the `arca` user |
+| Its secrets | `/etc/arca/operator.key`, `/etc/arca/wallet.mnemonic`, `/etc/arca/arcad.toml` (which holds the node's RPC password) and `/etc/arca/signer-node.auth` (the signer's login to its own node), each mode 600, owned by the `arca` user |
 
 Every `arca` command line on the box is that one build,
 `/opt/arca/target/release/arca`, so a move to a new revision carries all of
@@ -1157,6 +1157,19 @@ signer started on its record and `arcad` after it, which moves the database
 to the new schema at its start. The schema only moves forward: going back
 means the dump, and the server then forgets whatever it did after the dump,
 while the signer's record, which is never rolled back, keeps it.
+
+The signer co-signs a move of a supervised asset's VTXO (a `landing-1`
+leaf) only after asking its own node whether that VTXO's holder is frozen.
+Started without a node it signs none of them, and every transfer, swap or
+refresh of USDC.e and EURC.e in the tree fails with `frozen: this signer
+reads freezes from no node`. Its login to the node is a file, so that no
+password reaches its command line; write it before the first start, from the
+explorer node's `rpcuser` and `rpcpassword`:
+
+```sh
+install -m 600 -o arca -g arca /dev/null /etc/arca/signer-node.auth
+sed -n 's/^rpcuser=//p; s/^rpcpassword=//p' /root/sequentia/explorer-node/elements.conf | paste -sd: | tr -d '\n' > /etc/arca/signer-node.auth
+```
 
 The signer starts only on its record, which it never makes by itself: a
 record that is lost is never silently replaced by an empty one. A new
