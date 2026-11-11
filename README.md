@@ -22,13 +22,14 @@ put it in place and keep copies of it.
 | `bin/node-rpc-proxy-limits-test.py` | The node route's limits in simulated time: a refused batch costs nothing, and a client asking every 2.2 s gets a 64-call batch through steadily. |
 | `makers/liquidity-health.sh`, `makers/maker_funds.py`, `makers/liquidity-targets.json` | The makers' and the Arca operator's health, every ten minutes: the depth audit, treasury2026 kept at its floors (minting the faucet assets it runs short of), and every consumer refilled below its floor from `treasury2026` and `maker-bridged` only. See "The makers' health". |
 | `makers/volume-takers.mjs` | Traders that trade against the makers on every rail and pair, both ways, at a daily volume target, ramped under load, health and wallet-latency rules. See "Trading volume: the volume takers". |
+| `bin/load-record.py`, `systemd/box-load-record.service`, `systemd/box-load-record.timer`, `logrotate/box-load` | The box's load history: every five minutes, one line of the load average, the kernel's pressure, the CPU split and each busy unit's CPU, memory and processes, kept eight weeks. See "The box's load history". |
 | `bin/dex-health-probe.sh`, `systemd/seq-health-probe.service`, `systemd/seq-health-probe.timer` | The DEX's health on the box every five minutes, to the journal: the ports, the chain, the nodes' wallets, the relay's markets and every DEX unit. See "The DEX health probe". |
 | `bin/seqdex-depth-audit.py` | How deep every SeqDEX market is on every rail, and whether its best level can be taken now: one table and a verdict per directed market. See "How deep the books are". |
 | `bin/arca-pg-restore-drill.sh` | Restores the Arca operator's database from its newest base backup and every WAL segment after it into a scratch cluster, and checks the last commit is there. |
 | `postgres/arca.conf` | PostgreSQL's settings for the Arca operator's database: durability on, and every commit waits until the WAL receiver has it. |
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep; the Arca operator's daily PostgreSQL base backup; and the user timers that pull the bridge state and the Arca backups off the box. |
 | `journald/90-sequentia-retention.conf` | The journal's size cap, and so how far back every unit's log reaches. See "Log rotation". |
-| `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. `bitcoin-ark` covers the Bitcoin ark's Bitcoin Core and Lightning logs under `/var/log/bitcoin-ark`: daily or at 50 MB, seven kept. |
+| `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. `bitcoin-ark` covers the Bitcoin ark's Bitcoin Core and Lightning logs under `/var/log/bitcoin-ark`: daily or at 50 MB, seven kept. `box-load` covers the load history: weekly, eight kept. |
 | `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the makers below (`seqob-pureln-fleet`, `seqob-conf-maker`, `seqob-samechain-fleet`, the `seqob-liquidity-health` timer, `seqob-mixed-gold-eurx-buyer-side`, `seqob-mixed-gold-eurx-seller-side`, `seqob-xmakers`, the four `seqob-submarine-*`, `seqob-subasset-maker`, `seqob-subasset-sell-maker-usdx`), of the order crosser and the covenant settler (`seqob-crosser`, `seqob-settler`), of the volume takers and their Lightning nodes (`seqob-volume-takers`, `seqob-ln-asset-b`, `seqob-ln-btc-taker`, as the `takers` user), of the other Bitcoin-side Lightning node (`seqob-ln-btc-maker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key), of the status page's checker (`gatus`), and of the web wallet's backend (`lsp-b5b1`, whose hosted Lightning nodes run in `seqln-hosted.slice` and outlive its restarts); none holds a credential, each service reads its own mode-600 config. |
 | `bitcoin-ark/` | The Bitcoin ark's configuration templates (Bitcoin Core, the Lightning gateway, Bark's server and watchman), its fee proxy (`fee-proxy.py`) with the test that runs it against a stand-in node (`fee-proxy.test.py`), and the patches its Bark client and hold plugin carry. |
 | `makers/` | The scripts that keep SeqOB makers running on the box: `pureln-fleet.sh` (pure-Lightning makers), `supervise-conf.sh` (confidential makers), `samechain-fleet.sh` (interactive same-chain makers), `mixed-maker.sh` (the two mixed GOLD/EURX makers), `supervise-xmakers.sh` (the cross-chain makers), `subasset-requote.sh` (which reprices a sub-asset or submarine maker from the feed), `covenant_seed_all.mjs` (the on-chain covenant ladder) and `covenant_reclaim.py` (which takes back the coins of its expired orders). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the secrets the shell scripts read; the seeder reads the node's `elements.conf`. |
@@ -995,6 +996,36 @@ fixed. Install or update it from this checkout:
 
     install -m 644 systemd/seq-health-probe.service systemd/seq-health-probe.timer /etc/systemd/system/
     systemctl daemon-reload && systemctl enable --now seq-health-probe.timer
+
+## The box's load history
+
+`bin/load-record.py` writes one line every five minutes (`box-load-record.timer`)
+to `/var/log/box-load/load.jsonl`: the load average, the kernel's CPU, I/O and
+memory pressure, how the CPU time since the previous line divided (user, system,
+I/O wait, steal, idle), the processes started a second, the memory available and
+the swap used, and every systemd unit that used at least half a percent of one
+core since the previous line, with its CPU, memory and process count. A unit's
+CPU is read from its own cgroup, so the CPU of the short-lived programs it starts
+(a `curl`, a `python3`, a node CLI call) counts as that unit's. Processes started
+outside any unit, such as the committee nodes started by a script from a login,
+count under their session's `session-<n>.scope`. The record grows about half a
+megabyte a day; `logrotate/box-load` keeps eight weeks.
+
+    python3 -I /usr/local/lib/box-load/load-record.py --report 24             # the last day, an hour a line
+    python3 -I /usr/local/lib/box-load/load-record.py --report 6 --units 10   # with each hour's ten busiest units
+
+The report's `busy` column is the cores in use, `cpu psi` the share of the time some
+task waited for a CPU (what the volume takers' ramp reads), and `load1` the load
+average the trade checks gate on (75% of the cores). The box's sysstat keeps the
+system-wide figures beside it, every ten minutes for a week (`sar -q` the load and
+run queue, `sar -u` the CPU, `sar -r` and `sar -S` memory and swap), with its
+collection switched on (`ENABLED="true"` in `/etc/default/sysstat`). Install or
+update the record from this checkout:
+
+    install -D -m 755 bin/load-record.py /usr/local/lib/box-load/load-record.py
+    install -m 644 systemd/box-load-record.service systemd/box-load-record.timer /etc/systemd/system/
+    install -m 644 logrotate/box-load /etc/logrotate.d/box-load
+    systemctl daemon-reload && systemctl enable --now box-load-record.timer
 
 ## The SeqLN nodes' channel options
 

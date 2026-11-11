@@ -1,0 +1,10 @@
+# The box's load history (bin/load-record.py, box-load-record.timer): about half a megabyte a
+# day. Kept for eight weeks; load-record.py --report reads the current file and the one before.
+/var/log/box-load/load.jsonl {
+    weekly
+    rotate 8
+    delaycompress
+    compress
+    missingok
+    notifempty
+}
