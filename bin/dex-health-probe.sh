@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The DEX's health on the box, every five minutes (seq-health-probe.timer): one line a check, to
+# The DEX's health on the box, and the Arca operator's watcher, every five minutes (seq-health-probe.timer): one line a check, to
 # the journal, then the verdict. Exits 0 when every check passes; otherwise exits 1, and its last
 # line names each check that failed and what it read, so `systemctl status seq-health-probe`
 # and `journalctl -u seq-health-probe` say why.
@@ -17,6 +17,11 @@ RELAY=${RELAY:-http://127.0.0.1:9955}
 UNITS=${UNITS:-seqobd leaf-maker leaf-maker-btc leaf-maker-agents seqob-xmakers seqob-conf-maker seqob-samechain-fleet seqob-pureln-fleet lsp-b5b1 seqob-ln-asset seqob-ln-asset-b}
 PORTS=${PORTS:-9955 9965 9966 9971 9975 9977 9978 9979 9981 9987 18200 18300 9740 9741}
 MIN_MARKETS=${MIN_MARKETS:-20}
+# The Arca operator's metrics (arcad's metrics_listen). Its watcher answers a coin's checkpoint
+# published early within the coin's exit delay (36 hours at least), on every block and every 30 s
+# without one: a watcher that has not passed for ARCA_WATCHER_MAX seconds is stuck long before that.
+ARCA_METRICS=${ARCA_METRICS:-http://127.0.0.1:3536/metrics}
+ARCA_WATCHER_MAX=${ARCA_WATCHER_MAX:-900}
 
 failed=()
 line() { printf '%-24s %s\n' "$1" "$2"; }
@@ -46,6 +51,16 @@ try:
     m = json.load(sys.stdin)["markets"]; print(len(m), sum(1 for x in m if x.get("last_price")))
 except Exception: print("0 0")')
 check relay_markets "${m% *} markets, ${m#* } with a last price" "$([ "${m% *}" -ge "$MIN_MARKETS" ] && echo 0 || echo 1)"
+
+metrics=$(curl -s --max-time 10 "$ARCA_METRICS")
+age=$(awk '$1 == "arca_watcher_last_pass_age_seconds" {print int($2)}' <<<"$metrics")
+if [ -z "$metrics" ]; then
+  check arca_watcher "no answer from $ARCA_METRICS" 1
+elif [ -z "$age" ]; then
+  check arca_watcher "not published by this arcad" 0
+else
+  check arca_watcher "last pass ${age}s ago" "$([ "$age" -le "$ARCA_WATCHER_MAX" ] && echo 0 || echo 1)"
+fi
 
 for u in $UNITS; do
   s=$(systemctl is-active "$u" 2>/dev/null); s=${s:-unknown}
