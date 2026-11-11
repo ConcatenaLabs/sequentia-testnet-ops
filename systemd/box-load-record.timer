@@ -1,0 +1,11 @@
+[Unit]
+Description=The box's load history every five minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=10s
+Unit=box-load-record.service
+
+[Install]
+WantedBy=timers.target

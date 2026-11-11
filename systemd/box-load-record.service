@@ -1,0 +1,7 @@
+[Unit]
+Description=The box's load history: one line of load, CPU and per-unit CPU (bin/load-record.py)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/local/lib/box-load/load-record.py
+Nice=10
