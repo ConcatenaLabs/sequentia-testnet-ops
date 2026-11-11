@@ -10,9 +10,12 @@
 // (its Receive tab) or from treasury2026.
 //
 // A line passes when, within BOUND_MS of the person's confirmation (BTC_PAID_BOUND_MS for a
-// purchase paid with BTC), the Trade tab says what was
-// bought is received ("Received, settling" or "Settled"), or SeqDEX
-// says "Traded with … order". Otherwise it fails with what the page says at that moment.
+// purchase paid with BTC), the Trade tab says what was bought is received ("Received, settling"
+// or "Settled"), or SeqDEX says "Traded with … order". A trade of two assets in the tree is done
+// for its person once what it brought can be spent: "Settled". The wallet says "Received,
+// settling" only while the next spend needs the operator's round (a coin one payment short of
+// the operator's limit), so such a line must also read "Settled" within SETTLE_ROUND_MS of
+// reading "Received" (settledInTime). Otherwise it fails with what the page says at that moment.
 import { sleep, helpers } from '../lib/suite.mjs'
 
 const WALLET = 'https://sequentiatestnet.com/wallet/'
@@ -24,6 +27,21 @@ export const BOUND_MS = 60000
 // and a half minutes after the confirmation, never within BOUND_MS (92 s measured, 31 October).
 export const BTC_PAID_BOUND_MS = 180000
 const boundOf = (pay) => (pay === 'BTC' ? BTC_PAID_BOUND_MS : BOUND_MS)
+// A round takes about 64 s from built to credited on the testnet (a 60 s round and a 60 s block):
+// a trade that says it is settling reads "Settled" within two of them.
+export const SETTLE_ROUND_MS = 150000
+// Whether a Trade tab line must read "Settled" too, not only "Received": a trade of two assets in
+// the tree. A trade with BTC settles on the Bitcoin side's own terms (the BTC ark's line below).
+export const inTree = (pay, get) => pay !== 'BTC' && get !== 'BTC'
+// What a Trade tab line reads in the end: what it read within its bound (`done`), and, for a trade
+// in the tree that read "Received", what it read within SETTLE_ROUND_MS after (`later`, null when
+// nothing changed). -> { ok, word }
+export function settledInTime (pay, get, done, later) {
+  if (!done || /^Returned/.test(done)) return { ok: false, word: done || null }
+  if (!inTree(pay, get) || /^Settled/.test(done)) return { ok: true, word: done }
+  if (later && /^Settled/.test(later)) return { ok: true, word: later }
+  return { ok: false, word: later || done }
+}
 const REVIEW_MS = 60000
 // A person waits this long at most for a price: from Review to the ticket in the Trade tab, from
 // the button to the wallet's dialog on SeqDEX (#363: about 3 s is typical, 10 s the most). A trade
@@ -138,7 +156,18 @@ async function tabTrade (h, pay, get, amount) {
   const ticketS = ((tC - t0) / 1000).toFixed(1)
   if (done && !/^Returned/.test(done)) {
     const slow = tC - t0 > TICKET_MS
-    return { ok: !slow, trade, detail: `${amount} ${pay} → ${get}: ${done} after ${secs} s (ticket in ${ticketS} s${slow ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''})` }
+    // In the tree, "Received" means a round is still needed before its coins can be spent: the
+    // line waits for "Settled", SETTLE_ROUND_MS at most.
+    let later = null, laterS = null
+    if (inTree(pay, get) && !/^Settled/.test(done)) {
+      const tR = Date.now()
+      later = await waitValue(h, `(()=>{ const r=document.querySelector('#userComposerRoot #ucTrades .uc-trade'); const s=((r||{}).querySelector ? (r.querySelector('.uc-state')||{}).textContent : '')||''; return /^(Settled|Returned)/.test(s) ? s : false })()`, SETTLE_ROUND_MS).catch(() => null)
+      if (!later) later = await h.eval("(document.querySelector('#userComposerRoot #ucTrades .uc-trade .uc-state')||{}).textContent||null")
+      laterS = ((Date.now() - tR) / 1000).toFixed(1)
+    }
+    const v = settledInTime(pay, get, done, later)
+    const tail = laterS == null ? '' : v.ok ? `, then ${v.word} ${laterS} s later` : `; ${SETTLE_ROUND_MS / 1000} s later it still reads "${v.word}", so what it brought cannot be spent yet`
+    return { ok: !slow && v.ok, trade, detail: `${amount} ${pay} → ${get}: ${done} after ${secs} s${tail} (ticket in ${ticketS} s${slow ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''})` }
   }
   // No row of its own yet: the top row is an earlier trade's, and is not reported as this one's.
   const rows1 = await h.eval("document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade').length")
