@@ -121,14 +121,20 @@ async function openTrader (b, h, phrase) {
   await b.send('Page.navigate', { url: WALLET }, h.page.sessionId)
   await h.waitFor("document.querySelector('#app') && getComputedStyle(document.querySelector('#app')).display !== 'none'", 240000)
   // Joined: Receive gives a receive code. A fresh profile restores the leaf wallet first, which
-  // takes minutes (sequentia-web-wallet #365): up to RESTORE_MS, its time printed.
+  // takes minutes for a wallet with weeks of trades (sequentia-web-wallet #365, #694): up to
+  // RESTORE_MS, its time printed. -> seconds to the receive code
   await h.click('[data-tab=receive]')
   const t0 = Date.now()
   await h.waitFor("/^bitcoin:/i.test((document.querySelector('#addr')||{}).textContent||'')", RESTORE_MS)
-  console.log(`trader: receive code after ${Math.round((Date.now() - t0) / 1000)} s (the leaf wallet's restore)`)
+  const s = Math.round((Date.now() - t0) / 1000)
+  console.log(`trader: receive code after ${s} s (the leaf wallet's restore)`)
+  return s
 }
-// How long the trader's wallet may take to restore in a fresh profile before its first code.
+// How long the trader's wallet may take to restore in a fresh profile before its first code: the
+// wait. A restore past RESTORE_BOUND_MS fails its own line (WW-RESTORE-LONG) and the trades still
+// run; one past RESTORE_MS skips them.
 const RESTORE_MS = 15 * 60_000
+export const RESTORE_BOUND_MS = 5 * 60_000
 
 // One trade in the Trade tab. -> { ok, detail }
 async function tabTrade (h, pay, get, amount) {
@@ -235,7 +241,15 @@ export async function run ({ b, report, trader }) {
   if (!trader) { for (const [id, line] of lines) report.skip(id, 'desktop', line, 'no trader wallet (--trader)'); return }
   const wp = await b.page('about:blank')
   const w = helpers(wp)
-  await openTrader(b, w, trader.phrase)
+  // The trader holds weeks of trades: its restore in a fresh profile is the long-history restore a
+  // person meets on a new device, bounded on a line of its own.
+  let opened = false
+  await report.line('WW-RESTORE-LONG', 'desktop', `A wallet with weeks of trades, restored from its phrase in a fresh profile, shows its receive code within ${RESTORE_BOUND_MS / 1000} s`, wp, async () => {
+    const s = await openTrader(b, w, trader.phrase)
+    opened = true
+    return { ok: s * 1000 <= RESTORE_BOUND_MS, detail: `receive code after ${s} s`, at: '#addr' }
+  })
+  if (!opened) { for (const [id, line] of lines) report.skip(id, 'desktop', line, `the trader wallet did not open within ${RESTORE_MS / 60000} min (WW-RESTORE-LONG)`); return }
   try { await tradeLines(b, report, w, wp) } finally { await leaveSettled(w, report) }
 }
 

@@ -217,6 +217,7 @@ for it is final, in the operator's next round and that round's certified block.
 
 | Id | Can | Contract |
 |---|---|---|
+| WW-RESTORE-LONG | restore a wallet with weeks of trades from its phrase in a fresh profile and see its receive code within 300 s | Receive |
 | WW-TRADE-USDX-GOLD-BUY, WW-TRADE-USDX-GOLD-SELL | buy GOLD with USDX and sell it back in the Trade tab | Trade |
 | WW-TRADE-TSEQ-USDX-BUY, WW-TRADE-TSEQ-USDX-SELL | buy tSEQ with USDX and sell it back in the Trade tab | Trade |
 | WW-TRADE-BTC-USDX-BUY, WW-TRADE-BTC-USDX-SELL | buy BTC with USDX and sell it back in the Trade tab | Trade |
