@@ -31,6 +31,21 @@ The node's configuration is read for rpcuser and rpcpassword (the last of
 each, in any section). Requests are counted against the address in
 X-Forwarded-For, the address Caddy appends, since only Caddy reaches this
 loopback port; an IPv6 address counts as its /48.
+
+Each source has two budgets, and so do all sources together: calls, and the
+bytes of the node's answers. What a call costs the node is a small fixed part
+and a part that grows with its answer: on a regtest node, a getblockhash takes
+about 8 microseconds of a core, a getblock of an empty block about 0.1 ms, and
+a getblock of a 66 kB block or a getrawtransaction of a 45 kB transaction
+about 1.8 ms. A wallet restored from its phrase reads its chain from its oldest
+coin's block up, two calls a block, mostly small answers: tens of thousands of
+calls and a few hundred megabytes for a wallet with weeks of history, at a
+few hundred calls and a few megabytes a second. The call budget bounds the
+fixed part and the byte budget the rest, so such a restore is never refused,
+while a source asking again and again for the largest answers gets no more
+of them, once its burst is spent, than its byte budget a second. A call is admitted while the
+source's byte budget is not overdrawn, and its answer's bytes are taken from
+the budget once it is sent.
 """
 
 import argparse
@@ -172,10 +187,19 @@ class Limits:
     def __init__(self, a):
         self.a = a
         self.lock = threading.Lock()
-        self.sources = {}  # source -> (calls, scans, last seen)
+        self.sources = {}  # source -> (calls, scans, answer bytes, last seen)
         self.all_calls = Bucket(a.all_per_second, a.all_burst)
         self.all_scans = Bucket(a.scan_all_per_second, a.scan_all_burst)
+        self.all_bytes = Bucket(a.all_bytes_per_second, a.all_bytes_burst)
         self.scanning = threading.Lock()
+
+    def source(self, source, now):
+        b = self.sources.get(source) or (
+            Bucket(self.a.source_per_second, self.a.source_burst), Bucket(self.a.scan_per_second, self.a.scan_burst),
+            Bucket(self.a.source_bytes_per_second, self.a.source_bytes_burst), now)
+        b = b[:3] + (now,)
+        self.sources[source] = b
+        return b
 
     def take(self, source, heavy, n=1):
         """Admits `n` calls from `source` (a batch counts each of its calls), all of them or none:
@@ -183,18 +207,28 @@ class Limits:
         with self.lock:
             now = time.monotonic()
             if len(self.sources) > 100000:  # forget sources idle for ten minutes
-                self.sources = {k: v for k, v in self.sources.items() if now - v[2] < 600}
-            calls, scans, _ = self.sources.get(source) or (
-                Bucket(self.a.source_per_second, self.a.source_burst), Bucket(self.a.scan_per_second, self.a.scan_burst), now)
-            self.sources[source] = (calls, scans, now)
+                self.sources = {k: v for k, v in self.sources.items() if now - v[3] < 600}
+            calls, scans, answered, _ = self.source(source, now)
             if not calls.has(n) or not self.all_calls.has(n):
                 return "too many calls from one source or in all; slow down"
+            if not answered.has(0) or not self.all_bytes.has(0):
+                return "too many bytes answered to one source or in all; slow down"
             calls.take(n)
             self.all_calls.take(n)
             if heavy and (not scans.take() or not self.all_scans.take()):
                 return "scantxoutset reads the whole UTXO set: %d in a row, then %g a second from one source; try again later" % (
                     self.a.scan_burst, self.a.scan_per_second)
         return None
+
+    def answered(self, source, n):
+        """Takes the `n` bytes of an answer sent to `source` from its byte budget and from all
+        sources' budget. A budget may be overdrawn by one answer; the next call waits until it
+        has refilled."""
+        with self.lock:
+            answered = self.source(source, time.monotonic())[2]
+            for b in (answered, self.all_bytes):
+                b.refill()
+                b.tokens -= n
 
 
 def source_of(handler):
@@ -310,7 +344,8 @@ def make_handler(a, auth, limits, counts, upstream_slots):
             if len(c) == 4:
                 return self.refuse(*c)
             method, params, rid = c
-            why = limits.take(source_of(self), method in HEAVY)
+            source = source_of(self)
+            why = limits.take(source, method in HEAVY)
             if why:
                 return self.refuse(429, -32000, why, rid)
             if method in HEAVY and not limits.scanning.acquire(timeout=a.scan_wait):
@@ -341,6 +376,7 @@ def make_handler(a, auth, limits, counts, upstream_slots):
                 counts.add("node refused the credential")
                 return self.refuse(502, -32000, "the node refused this proxy's credential", rid)
             counts.add(method)
+            limits.answered(source, len(data))
             self.answer(status if status in (200, 400, 404, 500) else 502, data)
 
         def batch(self, reqs):
@@ -354,7 +390,8 @@ def make_handler(a, auth, limits, counts, upstream_slots):
                 if c[0] in NOT_IN_BATCH:
                     return self.refuse(403, -32601, "in a batch: %s is taken one call at a time" % c[0], c[2])
                 calls.append(c)
-            why = limits.take(source_of(self), False, len(calls))
+            source = source_of(self)
+            why = limits.take(source, False, len(calls))
             if why:
                 return self.refuse(429, -32000, why)
             if not upstream_slots.acquire(blocking=False):
@@ -380,20 +417,25 @@ def make_handler(a, auth, limits, counts, upstream_slots):
             counts.add("batch")
             for m, _, _ in calls:
                 counts.add(m)
+            limits.answered(source, len(data))
             self.answer(status if status in (200, 400, 404, 500) else 502, data)
 
     return Handler
 
 
-def main():
+def parser():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--listen", default="127.0.0.1:18940")
     p.add_argument("--node-url", required=True)
     p.add_argument("--node-conf", required=True)
-    p.add_argument("--source-per-second", type=float, default=60)
-    p.add_argument("--source-burst", type=float, default=1200)
-    p.add_argument("--all-per-second", type=float, default=600)
-    p.add_argument("--all-burst", type=float, default=6000)
+    p.add_argument("--source-per-second", type=float, default=1000, help="calls a second from one source")
+    p.add_argument("--source-burst", type=float, default=30000)
+    p.add_argument("--all-per-second", type=float, default=5000, help="calls a second from all sources")
+    p.add_argument("--all-burst", type=float, default=100000)
+    p.add_argument("--source-bytes-per-second", type=float, default=16e6, help="bytes of answers a second to one source")
+    p.add_argument("--source-bytes-burst", type=float, default=300e6)
+    p.add_argument("--all-bytes-per-second", type=float, default=64e6, help="bytes of answers a second to all sources")
+    p.add_argument("--all-bytes-burst", type=float, default=600e6)
     p.add_argument("--scan-per-second", type=float, default=1)
     p.add_argument("--scan-burst", type=float, default=30)
     p.add_argument("--scan-all-per-second", type=float, default=4)
@@ -402,7 +444,11 @@ def main():
     p.add_argument("--timeout", type=float, default=30)
     p.add_argument("--scan-timeout", type=float, default=180)
     p.add_argument("--upstream", type=int, default=16, help="calls to the node at once")
-    a = p.parse_args()
+    return p
+
+
+def main():
+    a = parser().parse_args()
     auth = read_conf(a.node_conf)
     host, port = a.listen.rsplit(":", 1)
     counts = Counts()

@@ -19,7 +19,7 @@ put it in place and keep copies of it.
 | `bin/our-capital.py` | What the bots that stand for our own capital hold, at the feed's prices, against the mainnet plan: our makers' holdings and our LSP's channels and float. Read-only. See "The testnet's numbers". |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `bin/node-rpc-proxy.py` | The node JSON-RPC for browser wallets behind `/node-rpc`: the calls a wallet makes and no other, rate-limited, with the node's credential added on the box. Installed at `/usr/local/lib/node-rpc-proxy/`. |
-| `bin/node-rpc-proxy-limits-test.py` | The node route's limits in simulated time: a refused batch costs nothing, and a client asking every 2.2 s gets a 64-call batch through steadily. |
+| `bin/node-rpc-proxy-limits-test.py` | The node route's limits in simulated time: a refused batch costs nothing, a client asking every 2.2 s gets a 64-call batch through steadily, and at the shipped limits a wallet's restore is never refused while a source asking for the largest blocks gets its byte budget and no more. |
 | `makers/liquidity-health.sh`, `makers/maker_funds.py`, `makers/liquidity-targets.json` | The makers' and the Arca operator's health, every ten minutes: the depth audit, treasury2026 kept at its floors (minting the faucet assets it runs short of), and every consumer refilled below its floor from `treasury2026` and `maker-bridged` only. See "The makers' health". |
 | `makers/volume-takers.mjs` | Traders that trade against the makers on every rail and pair, both ways, at a daily volume target, ramped under load, health and wallet-latency rules. See "Trading volume: the volume takers". |
 | `bin/load-record.py`, `systemd/box-load-record.service`, `systemd/box-load-record.timer`, `logrotate/box-load` | The box's load history: every five minutes, one line of the load average, the kernel's pressure, the CPU split and each busy unit's CPU, memory and processes, kept eight weeks. See "The box's load history". |
@@ -190,15 +190,26 @@ credential itself. Nothing links to the path.
   `scantxoutset`, which go one at a time; a batch carrying any other call is
   refused whole. The leaf wallet asks for what one check reads of all its
   coins in a batch, and makes the calls one by one where a batch is refused.
-- **Rate.** Each source (the address Caddy saw; an IPv6 /48) may make 60
-  calls a second, in bursts of 1,200, and all sources together 600 a second;
-  a leaf wallet reads two calls a block when it catches up with the chain, so
-  one that was away for hours catches up within the burst and one away for
-  days at what its own round trips allow;
+- **Rate.** Each source (the address Caddy saw; an IPv6 /48) has two
+  budgets: 1,000 calls a second in bursts of 30,000, and 16 MB a second of
+  the node's answers in bursts of 300 MB; all sources together have 5,000
+  calls and 64 MB a second, in bursts of 100,000 and 600 MB. A call costs the
+  node a small fixed part and a part that grows with its answer (on a
+  regtest node, a `getblockhash` about 8 µs of a core, a `getblock` of a
+  66 kB block or a `getrawtransaction` of a 45 kB one about 1.8 ms), so the
+  call budget bounds the first and the byte budget the second. A wallet
+  restored from its phrase reads its chain two calls a block from its oldest
+  coin's block up, mostly small blocks: the trade checks' wallet, weeks of
+  history, reads about 24,000 calls and a few hundred megabytes at a few
+  hundred calls and a few megabytes a second, inside both budgets, so it is
+  never refused; a source asking for the largest blocks again and again gets
+  16 MB a second once its burst is spent;
   each call in a batch counts as one, and a batch is admitted whole or refused
   whole, taking nothing when it is refused, so a wallet that asks again gets
-  through once the tokens it needs have gathered (`bin/node-rpc-proxy-limits-test.py`
-  holds that, in simulated time). `scantxoutset` reads the whole UTXO
+  through once the tokens it needs have gathered. A call is admitted while
+  the source's byte budget is not overdrawn, and its answer's bytes are taken
+  once it is sent (`bin/node-rpc-proxy-limits-test.py` holds all of this, in
+  simulated time, at the limits the proxy ships with). `scantxoutset` reads the whole UTXO
   set, and a wallet makes a few after each new block (one per window of its
   on-chain scripts and per output it looks for), none while the chain has not
   moved since its last command: thirty in a row from a
