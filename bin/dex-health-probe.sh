@@ -17,6 +17,11 @@ RELAY=${RELAY:-http://127.0.0.1:9955}
 UNITS=${UNITS:-seqobd leaf-maker leaf-maker-btc leaf-maker-agents seqob-xmakers seqob-conf-maker seqob-samechain-fleet seqob-pureln-fleet lsp-b5b1 seqob-ln-asset seqob-ln-asset-b}
 PORTS=${PORTS:-9955 9965 9966 9971 9975 9977 9978 9979 9981 9987 18200 18300 9740 9741}
 MIN_MARKETS=${MIN_MARKETS:-20}
+# The DEX wallet daemon (Ocean), read with its own command line from a configuration of the
+# probe's (it holds no credential: the daemon listens on localhost without TLS).
+OCEAN=${OCEAN:-/root/seqdex-bin/ocean}
+WALLET_RPC=${WALLET_RPC:-localhost:19500}
+PROBE_STATE=${PROBE_STATE:-/var/lib/seq-health-probe}
 
 failed=()
 line() { printf '%-24s %s\n' "$1" "$2"; }
@@ -31,6 +36,25 @@ check ports "$(( $(wc -w <<<"$PORTS") - ${#missing[@]} ))/$(wc -w <<<"$PORTS") l
 
 h=$("$CLI" -datadir="$NODES/node000" getblockcount </dev/null 2>/dev/null)
 check chain_height "${h:-no answer from node000}" "$([ -n "$h" ] && echo 0 || echo 1)"
+
+# A wallet daemon can accept connections and answer none (stalled at its memory limit), which
+# the port check passes: a status read with a ten-second deadline does not.
+wallet_answers() {
+  local d=$PROBE_STATE/ocean-cli t0 s ms
+  [ -x "$OCEAN" ] || { echo "no $OCEAN"; return; }
+  if [ ! -s "$d/state.json" ]; then
+    mkdir -p "$d" && OCEAN_CLI_DATADIR=$d "$OCEAN" config init --rpcserver "$WALLET_RPC" --no-tls </dev/null >/dev/null 2>&1
+  fi
+  t0=$(date +%s%N)
+  s=$(OCEAN_CLI_DATADIR=$d timeout 10 "$OCEAN" wallet status </dev/null 2>/dev/null)
+  ms=$(( ($(date +%s%N) - t0) / 1000000 ))
+  python3 -I -c 'import json, sys
+try: d = json.loads(sys.argv[1])
+except ValueError: print("no answer within 10 s"); sys.exit()
+print("answered in %s ms, %s" % (sys.argv[2], "unlocked" if d.get("unlocked") else "locked"))' "$s" "$ms"
+}
+w=$(wallet_answers)
+check wallet_answers "$w" "$(case "$w" in *unlocked) echo 0;; *) echo 1;; esac)"
 
 wallets() { "$CLI" -datadir="$NODES/$1" listwallets </dev/null 2>/dev/null; }
 w=$(wallets node000)
