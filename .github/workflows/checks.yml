@@ -34,6 +34,8 @@ jobs:
         run: python3 bin/node-rpc-proxy-limits-test.py
       - name: node RPC proxy hold
         run: python3 bin/node-rpc-proxy-hold-test.py
+      - name: sub-asset maker wrapper quotes again when its maker ends
+        run: python3 -I makers/subasset_requote_test.py
       - name: fee proxy
         run: python3 -I bitcoin-ark/fee-proxy.test.py
       - name: Bitcoin ark refill guards (regtest Bitcoin Core)
