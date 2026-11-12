@@ -94,8 +94,9 @@ export const TICKET_MS = 10000
 // that round's block is certified: minutes, with no Bitcoin block to wait for. SETTLE_MS is a wide
 // margin over that, so a purchase that never settles fails and one merely slow does not.
 export const SETTLE_MS = 60 * 60000
-// When the lines end, the trader's page stays open until none of its refreshes waits for a round,
-// for LEAVE_MS at most. The operator broadcasts a round only once every refresh in it has handed
+// When the lines end, the trader's page stays open until none of its refreshes waits for a round
+// and every purchase paid with BTC is paid and collected (only an open page pays the BTC), for
+// LEAVE_MS at most. The operator broadcasts a round only once every refresh in it has handed
 // over its forfeits, which only an open page can do: a page closed earlier voids its refreshes ten
 // minutes later, holds back everyone else's in those rounds, and leaves the trader's coins
 // unusable at the next run (sequentia-testnet-ops #191).
@@ -110,6 +111,18 @@ export function stillMoving (state) {
   const coins = (Array.isArray(state.coins) ? state.coins : []).filter((c) => c && MOVING_COIN.includes(c.state))
   return { participations: parts.map((p) => `${String(p.participation || '').slice(0, 12)} ${p.state}`), coins: coins.length }
 }
+
+// The wallet's BTC purchases not yet done, from its trade records (the page's `swk.usertrade.*`):
+// `unpaid`, whose BTC only an open page pays (closed, nothing is traded), and `unclaimed`, whose BTC
+// is paid and whose asset is not yet collected. The page stays open while either is left.
+export function btcPurchasesOpen (records) {
+  const open = (records || []).filter((r) => r && r.source === 'btc-gateway' && r.dir === 'buy' && ['confirming', 'waiting', 'sent'].includes(r.state))
+  return { unpaid: open.filter((r) => !r.preimage).length, unclaimed: open.filter((r) => r.preimage && r.receiveState !== 'received').length }
+}
+// The trade records the page keeps, read from its storage.
+const TRADE_RECORDS = `(()=>{ const out=[]; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i);
+  if(!/^swk\.usertrade\.[^.]+$/.test(k)) continue; try{ const v=JSON.parse(localStorage.getItem(k)); if(Array.isArray(v)) out.push(...v.map(r=>({ source:r.source, dir:r.dir, state:r.state, preimage:!!r.preimage, receiveState:r.receiveState||null }))) }catch{} }
+  return out })()`
 
 // The Trade tab: what is paid, what is received, the amount paid.
 const TAB_TRADES = [
@@ -158,24 +171,28 @@ async function openTrader (b, h, phrase) {
   await b.send('Page.addScriptToEvaluateOnNewDocument', { source: 'window.SEQ_TEST_HOOKS = true' }, h.page.sessionId)
   await b.send('Page.navigate', { url: WALLET }, h.page.sessionId)
   await h.waitFor("(()=>{const v=(id)=>{const e=document.getElementById(id); return e && getComputedStyle(e).display!=='none'}; return v('app')||v('welcome')})()", 240000)
-  await h.eval(`localStorage.setItem('swk.sequentia.mnemonic', ${JSON.stringify(phrase)}), true`)
-  await b.send('Page.navigate', { url: 'about:blank' }, h.page.sessionId); await sleep(1500)
-  await b.send('Page.navigate', { url: WALLET }, h.page.sessionId)
+  // The trader's profile is kept between runs: a page that opens its wallet already is the
+  // trader's, restored by an earlier run; a fresh profile is given the phrase.
+  const fresh = !(await h.eval("localStorage.getItem('swk.sequentia.mnemonic') ? true : false"))
+  if (fresh) {
+    await h.eval(`localStorage.setItem('swk.sequentia.mnemonic', ${JSON.stringify(phrase)}), true`)
+    await b.send('Page.navigate', { url: 'about:blank' }, h.page.sessionId); await sleep(1500)
+    await b.send('Page.navigate', { url: WALLET }, h.page.sessionId)
+  }
   await h.waitFor("document.querySelector('#app') && getComputedStyle(document.querySelector('#app')).display !== 'none'", 240000)
-  // Joined: Receive gives a receive code. A fresh profile restores the leaf wallet first, which
-  // takes minutes for a wallet with weeks of trades (sequentia-web-wallet #365, #694): up to
-  // RESTORE_MS, its time printed. -> seconds to the receive code
-  await h.click('[data-tab=receive]')
+  // Open only once the leaf wallet is: joined, and its restore run to its end. A wallet still
+  // restoring shows part of what it holds, and a trade from it tests a half-restored wallet. Up to
+  // RESTORE_MS, its time printed. -> { s, fresh }
   const t0 = Date.now()
-  await h.waitFor("/^bitcoin:/i.test((document.querySelector('#addr')||{}).textContent||'')", RESTORE_MS)
+  await h.waitFor("!!(window.__leavesApi && window.__leavesApi.isOpen() && !window.__leavesApi.restoring())", RESTORE_MS)
   const s = Math.round((Date.now() - t0) / 1000)
-  console.log(`trader: receive code after ${s} s (the leaf wallet's restore)`)
-  return s
+  console.log(`trader: the leaf wallet open after ${s} s (${fresh ? 'restored from the phrase in a fresh profile' : 'reopened from the kept profile'})`)
+  return { s, fresh }
 }
-// How long the trader's wallet may take to restore in a fresh profile before its first code: the
-// wait. A restore past RESTORE_BOUND_MS fails its own line (WW-RESTORE-LONG) and the trades still
-// run; one past RESTORE_MS skips them.
-const RESTORE_MS = 15 * 60_000
+// How long the trader's wallet may take to open before the trades are SKIP: a restore of weeks of
+// trades in a fresh profile has taken 20 minutes (sequentia-web-wallet #767). A restore past
+// RESTORE_BOUND_MS fails its own line (WW-RESTORE-LONG) and the trades still run.
+const RESTORE_MS = 40 * 60_000
 export const RESTORE_BOUND_MS = 5 * 60_000
 
 // One trade in the Trade tab. -> { ok, detail }
@@ -287,6 +304,7 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
   const stated = ((await wallet.eval("((document.querySelector('#pageApiApproval')||{}).innerText||'')").catch(() => '')).match(/Goes through (in about a minute|within about \d+ minutes)/) || [''])[0]
   const statedMs = statedWaitMs(stated)
   const ids0 = statedMs != null ? (await wallet.eval(TRADE_IDS).catch(() => [])) || [] : []
+  const ids0Btc = pay === 'BTC' && statedMs == null ? (await wallet.eval(TRADE_IDS).catch(() => [])) || [] : []
   await wallet.click('#pageApiApprove')
   if (statedMs != null) {
     const st = await waitValue(site, "(()=>{const s=document.querySelector('#fStatus'); return s && (s.classList.contains('ok')||s.classList.contains('err')) ? (s.classList.contains('ok')?'ok ':'err ')+s.textContent : false})()", BOUND_MS).catch(() => null)
@@ -298,6 +316,15 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
   // The site draws its form again after a trade, so #fStatus can be missing for a moment.
   const st = await waitValue(site, "(()=>{const s=document.querySelector('#fStatus'); return s && (s.classList.contains('ok')||s.classList.contains('err')) ? (s.classList.contains('ok')?'ok ':'err ')+s.textContent : false})()", BOUND_MS).catch(() => null)
   const secs = ((Date.now() - tC) / 1000).toFixed(1)
+  // Paid with BTC: done only once the BTC is paid and what it bought is collected, which the
+  // wallet's Trade tab row says ("Received" or "Settled"), within BTC_PAID_BOUND_MS. The site's own
+  // word (it said "Traded" before the BTC was paid) is reported, never taken for it.
+  if (pay === 'BTC' && st && st.startsWith('ok ')) {
+    const r = await followWaited(wallet, pay, get, BTC_PAID_BOUND_MS / OVERRUN, tC, ids0Btc)
+    const done = r.end === 'done'
+    const took = ((r.endedMs ?? (Date.now() - tC)) / 1000).toFixed(1)
+    return { ok: done && !slowDialog, trade: r.trade, detail: `${side} ${amount} of ${pair}: dialog in ${dialogS} s; the site said "${st.slice(3)}"; the wallet's row ${done ? `reads "${r.word}" after ${took} s` : `reads "${r.word}" after ${took} s, not Received`}`, at: '#fStatus' }
+  }
   if (st && st.startsWith('ok ') && /Traded with/.test(st)) return { ok: !slowDialog, detail: `${side} ${amount} of ${pair}: firm ticket, dialog in ${dialogS} s${slowDialog ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; ${st.slice(3)} after ${secs} s` }
   return { ok: false, detail: `${side} ${amount} of ${pair}: after ${secs} s the site says "${st ? st.slice(st.indexOf(' ') + 1) : await site.text('#fStatus') || 'nothing'}"`, at: '#fStatus' }
 }
@@ -309,13 +336,17 @@ const LEAF_STATE = `(()=>{ const s=window.__leavesApi && window.__leavesApi.stat
 // Keeps the trader's page open until nothing of it is moving, LEAVE_MS at most, and says how it left.
 async function leaveSettled (w, report) {
   const t0 = Date.now()
-  let left = null
+  let left = null, btc = { unpaid: 0, unclaimed: 0 }
   for (;;) {
     left = stillMoving(await w.eval(LEAF_STATE).catch(() => null))
-    if (!left || (!left.participations.length && !left.coins) || Date.now() - t0 > LEAVE_MS) break
+    btc = btcPurchasesOpen(await w.eval(TRADE_RECORDS).catch(() => []))
+    const quiet = (!left || (!left.participations.length && !left.coins)) && !btc.unpaid && !btc.unclaimed
+    if (quiet || Date.now() - t0 > LEAVE_MS) break
     await sleep(15000)
   }
   const mins = ((Date.now() - t0) / 60000).toFixed(1)
+  if (btc.unpaid || btc.unclaimed) report.note(`trader: after ${mins} min, BTC purchases not done: ${btc.unpaid} not yet paid (nothing traded if the page closes), ${btc.unclaimed} paid and not yet collected`)
+  else report.note('trader: every BTC purchase is paid and collected')
   if (!left) report.note(`trader: its leaf wallet could not be read; the page closes after ${mins} min`)
   else if (!left.participations.length && !left.coins) report.note(`trader: nothing waits for a round; the page closes after ${mins} min`)
   else report.note(`trader: after ${mins} min still waiting: ${left.participations.join(', ') || 'no refresh'}; ${left.coins} coin(s) moving. The page closes now`)
@@ -333,12 +364,17 @@ export async function run ({ b, report, trader }) {
   const w = helpers(wp)
   // The trader holds weeks of trades: its restore in a fresh profile is the long-history restore a
   // person meets on a new device, bounded on a line of its own.
+  // Its profile is kept between runs (run.mjs), so it restores once; the line is measured when the
+  // restore is made afresh, and otherwise says how long the wallet took to open again.
   let opened = false
-  await report.line('WW-RESTORE-LONG', 'desktop', `A wallet with weeks of trades, restored from its phrase in a fresh profile, shows its receive code within ${RESTORE_BOUND_MS / 1000} s`, wp, async () => {
-    const s = await openTrader(b, w, trader.phrase)
-    opened = true
-    return { ok: s * 1000 <= RESTORE_BOUND_MS, detail: `receive code after ${s} s`, at: '#addr' }
-  })
+  const restoreLine = `A wallet with weeks of trades, restored from its phrase in a fresh profile, finishes its restore within ${RESTORE_BOUND_MS / 1000} s`
+  let o = null
+  try { o = await openTrader(b, w, trader.phrase); opened = true } catch (e) { o = { error: String(e && e.message || e) } }
+  if (o.error || o.fresh) {
+    await report.line('WW-RESTORE-LONG', 'desktop', restoreLine, wp, async () => (o.error
+      ? { ok: false, detail: `not open after ${RESTORE_MS / 60000} min: ${o.error}`, at: '#app' }
+      : { ok: o.s * 1000 <= RESTORE_BOUND_MS, detail: `the restore ended after ${o.s} s`, at: '#app' }))
+  } else report.skip('WW-RESTORE-LONG', 'desktop', restoreLine, `the trader's profile is kept between runs: no restore this run (the wallet opened again in ${o.s} s); --fresh-trader restores afresh`)
   if (!opened) { for (const [id, line] of lines) report.skip(id, 'desktop', line, `the trader wallet did not open within ${RESTORE_MS / 60000} min (WW-RESTORE-LONG)`); return }
   try { await tradeLines(b, report, w, wp) } finally { await leaveSettled(w, report) }
 }

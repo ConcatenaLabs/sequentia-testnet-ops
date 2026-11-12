@@ -217,14 +217,14 @@ for it is final, in the operator's next round and that round's certified block.
 
 | Id | Can | Contract |
 |---|---|---|
-| WW-RESTORE-LONG | restore a wallet with weeks of trades from its phrase in a fresh profile and see its receive code within 300 s | Receive |
+| WW-RESTORE-LONG | restore a wallet with weeks of trades from its phrase in a fresh profile, and its restore ends within 300 s (SKIP while the trader's profile is kept) | Receive |
 | WW-TRADE-USDX-GOLD-BUY, WW-TRADE-USDX-GOLD-SELL | buy GOLD with USDX and sell it back in the Trade tab | Trade |
 | WW-TRADE-TSEQ-USDX-BUY, WW-TRADE-TSEQ-USDX-SELL | buy tSEQ with USDX and sell it back in the Trade tab | Trade |
 | WW-TRADE-BTC-USDX-BUY, WW-TRADE-BTC-USDX-SELL | buy BTC with USDX and sell it back in the Trade tab | Trade |
 | WW-TRADE-BTC-ARK-SETTLED | see the sale of BTC above, paid from the Bitcoin ark, reach Settled within an hour with the wallet open | Trade |
 | DX-TRADE-USDX-GOLD-BUY, DX-TRADE-USDX-GOLD-SELL | buy and sell GOLD on SeqDEX's market page through the web wallet | SeqDEX |
 | DX-TRADE-TSEQ-USDX-BUY, DX-TRADE-TSEQ-USDX-SELL | buy and sell tSEQ on SeqDEX through the web wallet | SeqDEX |
-| DX-TRADE-BTC-USDX-BUY, DX-TRADE-BTC-USDX-SELL | buy and sell BTC against USDX on SeqDEX through the web wallet | SeqDEX |
+| DX-TRADE-BTC-USDX-BUY, DX-TRADE-BTC-USDX-SELL | buy and sell BTC against USDX on SeqDEX through the web wallet; a purchase paid with BTC passes once the wallet's row reads Received | SeqDEX |
 
 ## Capabilities lost, and where
 

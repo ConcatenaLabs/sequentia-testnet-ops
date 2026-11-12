@@ -84,17 +84,28 @@ Its phrase stays on the laptop, mode 600, and is never committed. The suite only
 
 ## The trader wallet
 
-The trades surface first restores that wallet from its phrase in a fresh profile, as a person
-does on a new device. It holds weeks of trades, so this is the long-history restore, bounded on a
-line of its own (`WW-RESTORE-LONG`): the receive code must show within 300 seconds. A restore that
-has not shown it after 15 minutes skips the trade lines with that reason.
+The trades surface opens that wallet in a browser profile kept between runs
+(`~/.cache/sequentia-regression/profile-trades-kept`), as a person's own browser keeps it. The
+first run, or one started with `--fresh-trader`, restores it from its phrase in a fresh profile.
+It holds weeks of trades, so this is the long-history restore, bounded on a line of its own
+(`WW-RESTORE-LONG`): the restore must end within 300 seconds. Every later run reopens the wallet
+from the kept profile; the line is then SKIP, with how long the wallet took to open. A run trades
+only once the leaf wallet is open and its restore has ended, never on a half-restored wallet, and
+the run prints how long that took. A wallet not open after 40 minutes skips the trade lines with
+that reason. The kept profile also keeps the wallet's trade records, so a trade an earlier run
+left under way is picked up and completed.
 
 The trades surface buys and sells from one web wallet: on USDX / GOLD, tSEQ / USDX and BTC / USDX,
 a small market purchase then the sale of what it bought, first in the web wallet's Trade tab, then
 on SeqDEX's market page through the same wallet open in another tab. Each must be done within 60
 seconds of the confirmation (the Trade tab saying what was bought is received, SeqDEX saying it
 traded), or the line fails with what the page says then: a refusal, a trade still waiting, or no
-answer. A Trade tab trade of two assets in the tree is done once what it brought can be spent:
+answer. A purchase paid with BTC is done only once the BTC is paid and what it bought is
+collected: the wallet's Trade tab row reads "Received" or "Settled", within 180 seconds of the
+confirmation, on SeqDEX as well as in the Trade tab. Whatever the site said meanwhile is reported
+beside it, never taken for it. When the lines end, the page stays open until every such purchase
+is paid and collected, as well as until no refresh waits for a round (15 minutes at most). The
+summary says how many were left unpaid or uncollected. A Trade tab trade of two assets in the tree is done once what it brought can be spent:
 "Settled". The wallet says "Received, settling" only while a round is still needed first, so such a
 line must also read "Settled" within 150 seconds (two rounds) of reading "Received". Each line also records how long the person waited for a price, from Review to the ticket
 (on SeqDEX, from the button to the wallet's dialog), and fails when that was over 10 seconds.
