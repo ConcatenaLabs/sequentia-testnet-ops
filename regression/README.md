@@ -84,6 +84,11 @@ Its phrase stays on the laptop, mode 600, and is never committed. The suite only
 
 ## The trader wallet
 
+The trades surface first restores that wallet from its phrase in a fresh profile, as a person
+does on a new device. It holds weeks of trades, so this is the long-history restore, bounded on a
+line of its own (`WW-RESTORE-LONG`): the receive code must show within 300 seconds. A restore that
+has not shown it after 15 minutes skips the trade lines with that reason.
+
 The trades surface buys and sells from one web wallet: on USDX / GOLD, tSEQ / USDX and BTC / USDX,
 a small market purchase then the sale of what it bought, first in the web wallet's Trade tab, then
 on SeqDEX's market page through the same wallet open in another tab. Each must be done within 60

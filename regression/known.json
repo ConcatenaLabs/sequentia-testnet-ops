@@ -1,4 +1,5 @@
 {
   "_": "Lines known to fail, each with what lost it (or that it was never built) and who is on it. A known line still fails the run; this only says why. Remove an entry when its line passes.",
-  "PP-EXP-CONTRACT-UNITS": "On a phone the contract's parameters table never shows (sequentia-explorer #52); the desktop line passes. Owner: the explorer."
+  "PP-EXP-CONTRACT-UNITS": "On a phone the contract's parameters table never shows (sequentia-explorer #52); the desktop line passes. Owner: the explorer.",
+  "WW-RESTORE-LONG": "sequentia-web-wallet #694: a wallet with weeks of trades restores for tens of minutes; fixed by arca #829 once the web wallet carries it"
 }
