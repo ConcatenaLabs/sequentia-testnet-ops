@@ -93,7 +93,11 @@ export class Report {
     this.out = out; this.known = known; mkdirSync(out, { recursive: true })
     this.log = join(out, 'results.txt')
     this.rows = []
+    // Counts the summary prints, each with the lines it counts: `tally('…', id)`.
+    this.counts = {}
   }
+
+  tally (key, id) { (this.counts[key] = this.counts[key] || []).push(id) }
 
   note (s) { console.log(s); appendFileSync(this.log, s + '\n') }
 
@@ -126,6 +130,7 @@ export class Report {
   summary () {
     const n = (s) => this.rows.filter((r) => r.status === s).length
     this.note(`\n${n('PASS')} passed, ${n('FAIL')} failed, ${n('SKIP')} skipped. Screenshots and this list: ${this.out}`)
+    for (const [k, ids] of Object.entries(this.counts)) this.note(`${k}: ${ids.length}${ids.length ? ' (' + ids.join(' ') + ')' : ''}`)
     const failed = this.rows.filter((r) => r.status === 'FAIL')
     const ids = [...new Set(failed.map((r) => r.id))]
     const fresh = ids.filter((i) => !this.known[i])

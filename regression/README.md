@@ -97,7 +97,17 @@ traded), or the line fails with what the page says then: a refusal, a trade stil
 answer. A Trade tab trade of two assets in the tree is done once what it brought can be spent:
 "Settled". The wallet says "Received, settling" only while a round is still needed first, so such a
 line must also read "Settled" within 150 seconds (two rounds) of reading "Received". Each line also records how long the person waited for a price, from Review to the ticket
-(on SeqDEX, from the button to the wallet's dialog), and fails when that was over 10 seconds. The Trade tab's sale of BTC, paid from the Bitcoin ark, is also followed
+(on SeqDEX, from the button to the wallet's dialog), and fails when that was over 10 seconds.
+
+A trade paid from coins that first wait for the wallet's own round gets an indicative ticket
+instead of a firm one: a price "about", the least it goes for, and the wait in words ("Goes through
+within about 6 minutes"). Once confirmed, it goes by itself when the round is through; SeqDEX says
+it is under way, and the line follows it in the wallet's Trade tab. Such a line keeps the 10-second
+bar for its ticket, and passes when the trade reads "Settled" (for a trade with BTC, "Received")
+within the wait its ticket stated. It is watched for up to three times that wait, so that it says
+when the trade really ended, against the wait stated. Each trade line names its kind of ticket
+(firm, or "waited for a round") with both times, and the summary counts the trades of each kind
+with their lines, so a run that passes because every trade waited for a round is seen as such. The Trade tab's sale of BTC, paid from the Bitcoin ark, is also followed
 to "Settled" with the wallet left open, for up to an hour after it was received
 (`WW-TRADE-BTC-ARK-SETTLED`), which makes the surface take up to an hour longer. One run spends about 60 USDX through the books, most of it bought back, plus fees.
 
