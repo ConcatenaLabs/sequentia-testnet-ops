@@ -805,13 +805,13 @@ read.
 `seqdex-wallet.service` (Ocean, the wallet daemon the interactive and
 confidential makers hold their coins in) runs under the limits in
 `systemd/seqdex-wallet.service.d/limits.conf`: slowed at 14 GB, restarted at
-18 GB, never in swap, at most two cores at half the default CPU weight (each of
-its accounts scans the chain on its own, so a catch-up after a restart would
-otherwise take six cores and the box's load with it). Ocean's scan of its accounts after a
-start was measured above 6.5 GB, and above `MemoryHigh` the kernel throttles a
-process hard enough that its calls hang, so the limits sit well above that peak;
-they keep a runaway (29-45 GB were seen) from starving the nodes and the Arca
-operator that share the box. The health pass says when it is throttled
+18 GB, never in swap, at most two cores at half the default CPU weight. Its
+accounts scan the chain each on its own, a few at a time while they catch up.
+The Go runtime gets `GOMAXPROCS=2`, the quota's cores, and `GOMEMLIMIT=12GiB`,
+under `MemoryHigh`: above `MemoryHigh` the kernel stalls the process until its
+calls hang, and the collector should work first. The daemon stops within
+seconds on SIGTERM (it ends its clients' notification streams and saves where
+each account's scan has got to); `TimeoutStopSec=90` is room for that. The health pass says when it is throttled
 (`MEMORY THROTTLED`), when it holds more than half its file-descriptor limit
 open (`FILE DESCRIPTORS HIGH`), and when it is resident past 8 GB (`MEMORY
 HIGH`): either is a leak, hours before it stops answering (`HEALTH_LEAK_UNITS`
