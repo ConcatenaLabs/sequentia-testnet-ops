@@ -32,6 +32,8 @@ jobs:
         run: git ls-files -z '*.py' | xargs -0 python3 -m py_compile
       - name: node RPC proxy limits
         run: python3 bin/node-rpc-proxy-limits-test.py
+      - name: node RPC proxy hold
+        run: python3 bin/node-rpc-proxy-hold-test.py
       - name: fee proxy
         run: python3 -I bitcoin-ark/fee-proxy.test.py
       - name: Bitcoin ark refill guards (regtest Bitcoin Core)
