@@ -19,6 +19,7 @@ put it in place and keep copies of it.
 | `bin/our-capital.py` | What the bots that stand for our own capital hold, at the feed's prices, against the mainnet plan: our makers' holdings and our LSP's channels and float. Read-only. See "The testnet's numbers". |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
 | `bin/node-rpc-proxy.py` | The node JSON-RPC for browser wallets behind `/node-rpc`: the calls a wallet makes and no other, rate-limited, with the node's credential added on the box. Installed at `/usr/local/lib/node-rpc-proxy/`. |
+| `bin/node-rpc-proxy-hold-test.py` | The node route's hold over HTTP: a hold kept for what it asks up to its bound, the per-source and overall bounds refused at once, anything else on `/hold` refused. |
 | `bin/node-rpc-proxy-limits-test.py` | The node route's limits in simulated time: a refused batch costs nothing, a client asking every 2.2 s gets a 64-call batch through steadily, and at the shipped limits a wallet's restore is never refused while a source asking for the largest blocks gets its byte budget and no more. |
 | `makers/liquidity-health.sh`, `makers/maker_funds.py`, `makers/liquidity-targets.json` | The makers' and the Arca operator's health, every ten minutes: the depth audit, treasury2026 kept at its floors (minting the faucet assets it runs short of), and every consumer refilled below its floor from `treasury2026` and `maker-bridged` only. See "The makers' health". |
 | `makers/volume-takers.mjs` | Traders that trade against the makers on every rail and pair, both ways, at a daily volume target, ramped under load, health and wallet-latency rules. See "Trading volume: the volume takers". |
@@ -216,6 +217,15 @@ credential itself. Nothing links to the path.
   source, then one a second, and four a second in all, bursts of sixty; they
   run one at a time, each waiting up to a minute for the one before it. A call past a limit is refused with 429.
   Caddy refuses a body over 1 MB.
+- **The hold.** `GET /node-rpc/hold?ms=N` answers 204 after `N` milliseconds,
+  30 seconds at most, and does nothing else. The leaf wallet's library blocks
+  in a browser worker, and a pause between two tries (after a 429, say) could
+  only spin a processor core there; the web wallet's worker gives the library
+  a wait that is a synchronous request to this path instead, which costs the
+  browser nothing. A hold counts as one call; a source holds at most four at
+  once and all sources 256, and past either a hold is refused 429 at once (the
+  wallet then waits on its clock). `ms` outside 1 to 600,000, any other query
+  and any body are refused with 400.
 - **The credential.** The unit runs as a dynamic user with nothing of its own
   to read. A drop-in, `/etc/systemd/system/node-rpc-proxy.service.d/node.conf`,
   names the node's address and hands the process the node's `elements.conf`

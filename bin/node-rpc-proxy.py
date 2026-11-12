@@ -46,6 +46,15 @@ while a source asking again and again for the largest answers gets no more
 of them, once its burst is spent, than its byte budget a second. A call is admitted while the
 source's byte budget is not overdrawn, and its answer's bytes are taken from
 the budget once it is sent.
+
+One more path serves the same wallets: GET /hold?ms=N answers 204 after N
+milliseconds (at most --hold-most-ms) and does nothing else. A wallet's
+library in a browser worker blocks on synchronous requests, and its pause
+between two tries (after a 429 here, say) has no way to wait there without
+spinning a processor core; a synchronous request held open here is that
+wait, at no cost to the browser. A hold counts as one call, and each source
+may hold --hold-per-source requests at once, all sources --hold-all: past
+either a hold is refused 429 at once, and the wallet waits on its clock.
 """
 
 import argparse
@@ -231,6 +240,36 @@ class Limits:
                 b.tokens -= n
 
 
+class Holds:
+    """The requests held open for a wallet's pause: at most `per_source` from one source and
+    `most` from all at once."""
+
+    def __init__(self, per_source, most):
+        self.lock = threading.Lock()
+        self.per_source, self.most = per_source, most
+        self.held, self.by_source = 0, {}
+
+    def enter(self, source):
+        with self.lock:
+            if self.held >= self.most or self.by_source.get(source, 0) >= self.per_source:
+                return False
+            self.held += 1
+            self.by_source[source] = self.by_source.get(source, 0) + 1
+            return True
+
+    def leave(self, source):
+        with self.lock:
+            self.held -= 1
+            n = self.by_source[source] - 1
+            if n:
+                self.by_source[source] = n
+            else:
+                del self.by_source[source]
+
+
+HOLD_MS = re.compile(r"^[0-9]{1,7}$")
+
+
 def source_of(handler):
     peer = handler.client_address[0]
     fwd = handler.headers.get_all("X-Forwarded-For") or []
@@ -276,7 +315,7 @@ class Counts:
         return c
 
 
-def make_handler(a, auth, limits, counts, upstream_slots):
+def make_handler(a, auth, limits, counts, upstream_slots, holds):
     node = urllib.parse.urlsplit(a.node_url)
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -312,11 +351,36 @@ def make_handler(a, auth, limits, counts, upstream_slots):
             n = self.headers.get("Content-Length")
             if n and n.isdigit() and int(n) <= MAX_BODY:
                 self.rfile.read(int(n))
-                self.refuse(405, -32600, "only POST of a JSON-RPC call or batch")
+                self.refuse(405, -32600, "only POST of a JSON-RPC call or batch, or GET /hold")
             else:
-                self.refuse(405, -32600, "only POST of a JSON-RPC call or batch", close=True)
+                self.refuse(405, -32600, "only POST of a JSON-RPC call or batch, or GET /hold", close=True)
 
-        do_GET = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = other
+        do_PUT = do_DELETE = do_PATCH = do_OPTIONS = other
+
+        def do_GET(self):
+            u = urllib.parse.urlsplit(self.path)
+            if u.path != "/hold":
+                return self.other()
+            if self.headers.get("Transfer-Encoding") or self.headers.get("Content-Length", "0") != "0":
+                return self.refuse(400, -32600, "a hold has no body", close=True)
+            q = urllib.parse.parse_qs(u.query, keep_blank_values=True)
+            ms = q.get("ms", [])
+            if set(q) != {"ms"} or len(ms) != 1 or not HOLD_MS.match(ms[0]) or not 1 <= int(ms[0]) <= 600000:
+                return self.refuse(400, -32600, "a hold takes ms, 1 to 600000, and nothing else")
+            source = source_of(self)
+            why = limits.take(source, False)
+            if why:
+                return self.refuse(429, -32000, why)
+            if not holds.enter(source):
+                return self.refuse(429, -32000, "too many held requests from one source or in all; slow down")
+            try:
+                time.sleep(min(int(ms[0]), a.hold_most_ms) / 1000.0)
+            finally:
+                holds.leave(source)
+            counts.add("hold")
+            self.send_response(204)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
 
         def do_HEAD(self):
             self.send_response(405)
@@ -444,6 +508,9 @@ def parser():
     p.add_argument("--timeout", type=float, default=30)
     p.add_argument("--scan-timeout", type=float, default=180)
     p.add_argument("--upstream", type=int, default=16, help="calls to the node at once")
+    p.add_argument("--hold-most-ms", type=int, default=30000, help="the longest a hold is kept open")
+    p.add_argument("--hold-per-source", type=int, default=4, help="holds one source may keep open at once")
+    p.add_argument("--hold-all", type=int, default=256, help="holds all sources may keep open at once")
     return p
 
 
@@ -452,8 +519,12 @@ def main():
     auth = read_conf(a.node_conf)
     host, port = a.listen.rsplit(":", 1)
     counts = Counts()
+    # Connections waiting to be accepted: Python's default of 5 drops a burst of new ones, and a
+    # held request keeps its connection from Caddy busy, so Caddy opens more of them.
+    http.server.ThreadingHTTPServer.request_queue_size = 256
     srv = http.server.ThreadingHTTPServer((host.strip("[]"), int(port)),
-                                          make_handler(a, auth, Limits(a), counts, threading.BoundedSemaphore(a.upstream)))
+                                          make_handler(a, auth, Limits(a), counts, threading.BoundedSemaphore(a.upstream),
+                                                       Holds(a.hold_per_source, a.hold_all)))
     srv.daemon_threads = True
 
     def report():
