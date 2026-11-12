@@ -4,7 +4,7 @@
 //   node --test regression/checks/trades.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { stillMoving, settledInTime, inTree, SETTLE_ROUND_MS, statedWaitMs, endWord, waitedInTime, TICKET_MS, OVERRUN } from './trades.mjs'
+import { btcPurchasesOpen, stillMoving, settledInTime, inTree, SETTLE_ROUND_MS, statedWaitMs, endWord, waitedInTime, TICKET_MS, OVERRUN } from './trades.mjs'
 
 test('a refresh not done, or a coin moving, keeps the page open', () => {
   assert.deepEqual(stillMoving({ participations: [{ participation: '8e671547088b0000', state: 'pending' }], coins: [{ state: 'live' }] }),
@@ -73,4 +73,19 @@ test('a trade that waited passes only with its ticket within the bar and its end
   assert.equal(waitedInTime({ ticketMs: 2_500, statedMs: stated, endedMs: 200_000, end: 'returned' }), false)
   assert.equal(waitedInTime({ ticketMs: 2_500, statedMs: stated, endedMs: null, end: null }), false)
   assert.ok(OVERRUN >= 2, 'watched long enough past the stated wait to say when it ended')
+})
+
+test('a purchase paid with BTC keeps the page open until its BTC is paid and its asset collected', () => {
+  const recs = [
+    { source: 'btc-gateway', dir: 'buy', state: 'waiting', preimage: false },
+    { source: 'btc-gateway', dir: 'buy', state: 'sent', preimage: true, receiveState: 'claiming' },
+    { source: 'btc-gateway', dir: 'buy', state: 'sent', preimage: true, receiveState: 'received' },
+    { source: 'btc-gateway', dir: 'buy', state: 'settled', preimage: true, receiveState: 'received' },
+    { source: 'btc-gateway', dir: 'buy', state: 'returned', preimage: false },
+    { source: 'btc-gateway', dir: 'sell', state: 'sent' },
+    { source: 'leaf-maker', state: 'sent' },
+  ]
+  assert.deepEqual(btcPurchasesOpen(recs), { unpaid: 1, unclaimed: 1 })
+  assert.deepEqual(btcPurchasesOpen([]), { unpaid: 0, unclaimed: 0 })
+  assert.deepEqual(btcPurchasesOpen(null), { unpaid: 0, unclaimed: 0 })
 })

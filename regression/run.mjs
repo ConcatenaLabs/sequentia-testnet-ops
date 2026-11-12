@@ -3,10 +3,12 @@
 //
 //   node regression/run.mjs [--only web-wallet,seqdex,ambra-browser,ambra-mobile,trades,levo,public-pages,ln-to-ark]
 //                           [--widths desktop,phone] [--funded <phrase file>]
-//                           [--trader <phrase file>] [--lnmove <phrase file>] [--out <dir>]
+//                           [--trader <phrase file>] [--fresh-trader] [--lnmove <phrase file>] [--out <dir>]
 //
 // One line per capability and width: PASS, FAIL (with a screenshot) or SKIP (with why). Exit 0
-// only when nothing failed. One headless Chromium at a time, in a fresh profile under the cache;
+// only when nothing failed. One headless Chromium at a time, in a fresh profile under the cache
+// (the trader's excepted: its profile is kept between runs, so its wallet restores once and every
+// later run reopens it as a person's browser would; --fresh-trader starts it afresh);
 // the extension and Ambra mobile are fresh shallow clones of their default branches. The funded
 // test wallet (--funded, default ~/.local/share/sequentia-regression/wallets/rgfunded.phrase when
 // present) is only opened: nothing is sent, traded or signed from it. The trades surface alone
@@ -32,6 +34,8 @@ const fundedFile = flag('--funded', join(homedir(), '.local/share/sequentia-regr
 const funded = existsSync(fundedFile) ? { phrase: readFileSync(fundedFile, 'utf8').trim() } : null
 const traderFile = flag('--trader', join(homedir(), '.local/share/sequentia-regression/wallets/rgtrader.phrase'))
 const trader = existsSync(traderFile) ? { phrase: readFileSync(traderFile, 'utf8').trim() } : null
+// The trader's kept profile, removed so this run restores its wallet afresh.
+if (argv.includes('--fresh-trader')) rmSync(join(homedir(), '.cache/sequentia-regression/profile-trades-kept'), { recursive: true, force: true })
 const lnmoveFile = flag('--lnmove', join(homedir(), '.local/share/sequentia-regression/wallets/rglnmove.phrase'))
 const lnmove = existsSync(lnmoveFile) ? { phrase: readFileSync(lnmoveFile, 'utf8').trim() } : null
 const cache = join(homedir(), '.cache/sequentia-regression')
@@ -60,12 +64,12 @@ for (const s of [process.stdout, process.stderr]) s.on('error', () => { killBrow
 
 // One browser per surface, closed before the next opens. Every page's uncaught exceptions and
 // console errors are collected; problems(page) reads them.
-async function withBrowser (label, fn) {
-  const profile = join(cache, 'profile-' + label)
+async function withBrowser (label, fn, { keep = false } = {}) {
+  const profile = join(cache, 'profile-' + label + (keep ? '-kept' : ''))
   // A browser an earlier run left on this profile is stopped first, and said so.
   const left = await stopBrowsersOn(profile)
   if (left.length) report.note(`(stopped ${left.length} browser process(es) an earlier run left on ${profile}: pid ${left.join(', ')})`)
-  rmSync(profile, { recursive: true, force: true })
+  if (!keep) rmSync(profile, { recursive: true, force: true })
   // Chromium will not run as root with its sandbox: on the box, where the suite runs as root to be
   // near the services it checks, a headless browser that opens only this testnet's own pages runs
   // without it. Anywhere else nothing changes.
@@ -84,13 +88,13 @@ async function withBrowser (label, fn) {
   })
   const problems = (page) => seen.get(page.sessionId) || []
   try { await fn(b, problems) } catch (e) { report.record(label.toUpperCase(), null, 'FAIL', 'the surface\'s checks ran to the end', String(e && e.stack || e).split('\n').slice(0, 2).join(' ')) }
-  finally { await b.close().catch(() => {}); killBrowsers(); browsers.delete(b); rmSync(profile, { recursive: true, force: true }) }
+  finally { await b.close().catch(() => {}); killBrowsers(); browsers.delete(b); if (!keep) rmSync(profile, { recursive: true, force: true }) }
 }
 
 for (const s of SURFACES.filter((x) => only.includes(x))) {
   report.note(`=== ${s}`)
   const mod = await import(join(here, 'checks', s + '.mjs'))
   if (s === 'ambra-mobile') { await mod.run({ report, cache }); continue }
-  await withBrowser(s, (b, problems) => mod.run({ b, report, widths, funded, trader, lnmove, problems, ext }))
+  await withBrowser(s, (b, problems) => mod.run({ b, report, widths, funded, trader, lnmove, problems, ext }), { keep: s === 'trades' })
 }
 process.exit(report.summary() ? 1 : 0)
