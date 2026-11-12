@@ -823,6 +823,15 @@ install -D -m 644 systemd/seqdex-wallet.service.d/limits.conf /etc/systemd/syste
 systemctl daemon-reload && systemctl restart seqdex-wallet.service
 ```
 
+The wallet daemon unlocks itself at start: `systemd/seqdex-wallet.service.d/unlock.conf`
+names `/root/seqdex-data/wallet-unlock.env` (mode 600, kept only on the box), which holds
+`OCEAN_PASSWORD`, the same password seqdexd reads from its
+`SEQDEX_WALLET_UNLOCK_PASSWORD_FILE`. So the makers that sign from it keep working whether
+seqdexd runs or not. seqdexd still unlocks the wallet at its own start (a no-op when it is
+already unlocked), so it never reads a transaction from a locked wallet, and a seqdexd stop
+leaves the wallet unlocked. The environment file quotes the password, escaping `\` and `"`;
+`bx4_1_bringup.sh` (the owner's bring-up script) writes it from seqdexd's password file.
+
 ## The makers' health
 
 `seqob-liquidity-health.timer` runs `makers/liquidity-health.sh` every ten
