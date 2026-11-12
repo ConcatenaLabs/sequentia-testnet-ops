@@ -519,6 +519,9 @@ def main():
     auth = read_conf(a.node_conf)
     host, port = a.listen.rsplit(":", 1)
     counts = Counts()
+    # Connections waiting to be accepted: Python's default of 5 drops a burst of new ones, and a
+    # held request keeps its connection from Caddy busy, so Caddy opens more of them.
+    http.server.ThreadingHTTPServer.request_queue_size = 256
     srv = http.server.ThreadingHTTPServer((host.strip("[]"), int(port)),
                                           make_handler(a, auth, Limits(a), counts, threading.BoundedSemaphore(a.upstream),
                                                        Holds(a.hold_per_source, a.hold_all)))
