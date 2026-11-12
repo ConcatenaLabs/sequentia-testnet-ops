@@ -804,19 +804,22 @@ read.
 
 `seqdex-wallet.service` (Ocean, the wallet daemon the interactive and
 confidential makers hold their coins in) runs under the limits in
-`systemd/seqdex-wallet.service.d/limits.conf`: slowed at 14 GB, restarted at
-18 GB, never in swap, at most two cores at half the default CPU weight (each of
-its accounts scans the chain on its own, so a catch-up after a restart would
-otherwise take six cores and the box's load with it). Ocean's scan of its accounts after a
-start was measured above 6.5 GB, and above `MemoryHigh` the kernel throttles a
-process hard enough that its calls hang, so the limits sit well above that peak;
-they keep a runaway (29-45 GB were seen) from starving the nodes and the Arca
-operator that share the box. The health pass says when it is throttled
-(`MEMORY THROTTLED`), when it holds more than half its file-descriptor limit
-open (`FILE DESCRIPTORS HIGH`), and when it is resident past 8 GB (`MEMORY
-HIGH`): either is a leak, hours before it stops answering (`HEALTH_LEAK_UNITS`
-names the units and their sizes, `unit:MB`). A restart costs Ocean its startup rescan and
-nothing else.
+`systemd/seqdex-wallet.service.d/limits.conf`: killed and restarted at 18 GB,
+never in swap, at most two cores at half the default CPU weight. Its accounts
+scan the chain each on its own, a few at a time while they catch up. It has no
+`MemoryHigh`: past one the kernel throttles a process instead of killing it,
+and a throttled wallet daemon accepts connections and answers none, for hours,
+where a killed one is back within seconds and the journal says so. The Go
+runtime gets `GOMAXPROCS=2`, the quota's cores, and `GOMEMLIMIT=13GiB`, three
+quarters of `MemoryMax`, so the collector works harder well before the kill.
+The daemon stops within seconds on SIGTERM (it ends its clients' notification
+streams and saves where each account's scan has got to); `TimeoutStopSec=90`
+is room for that. The health probe says when it accepts but does not answer
+(`wallet_answers`), and the health pass when it holds more than half its
+file-descriptor limit open (`FILE DESCRIPTORS HIGH`) and when it is resident
+past 8 GB (`MEMORY HIGH`): either is a leak, hours before it stops answering
+(`HEALTH_LEAK_UNITS` names the units and their sizes, `unit:MB`). A restart
+costs Ocean its startup rescan and nothing else.
 
 ```sh
 install -D -m 644 systemd/seqdex-wallet.service.d/limits.conf /etc/systemd/system/seqdex-wallet.service.d/limits.conf
@@ -1008,7 +1011,9 @@ from the testnet4 coins the service wallets hold.
 ## The DEX health probe
 
 `bin/dex-health-probe.sh` checks, every five minutes (`seq-health-probe.timer`),
-that the DEX's ports listen, that node000 answers, that node000 and the dexnode
+that the DEX's ports listen, that node000 answers, that the DEX wallet daemon
+(Ocean, on :19500) answers a status read within ten seconds (a daemon that
+accepts connections but answers none passes a port check), that node000 and the dexnode
 hold their wallets (node000 the `sbtc-bridge` one among them), that the relay on
 :9955 lists at least 20 markets, and that every unit that runs the DEX is active:
 `seqobd`, `leaf-maker`, `leaf-maker-btc`, `leaf-maker-agents`, `seqob-xmakers`,
