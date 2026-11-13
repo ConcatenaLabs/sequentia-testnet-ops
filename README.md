@@ -846,7 +846,7 @@ process on the box:
 | Unit | Drop-in | Limit | Measured peak |
 |---|---|---|---|
 | `seqob-crosser` (the order crosser and its `seqob-cli` legs) | `systemd/seqob-crosser.service.d/memory.conf` | 2 GB | a lift: 25 MB at 29 coins at the taker's address, 45 MB at 1,000, 465 MB at 10,000; the crosser itself about 16 MB |
-| `lsp-b5b1` (the web wallet's backend and its `seqob-cli` swaps) | `systemd/lsp-b5b1.service.d/memory.conf` | 1 GB | 87 MB |
+| `lsp-b5b1` (the web wallet's backend and its `seqob-cli` swaps) | `systemd/lsp-b5b1.service.d/memory.conf` | 2 GB | 86.8 MB, the largest of 44 runs over eight days |
 | `seqob-settler` (the covenant settler) | `systemd/seqob-settler.service.d/memory.conf` | 512 MB | 20 MB |
 | `seqob-volume-takers` (the volume takers and their crossers) | `systemd/seqob-volume-takers.service.d/memory.conf` (`OOMPolicy` only; the limit is in the unit) | 2 GB | |
 
