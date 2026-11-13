@@ -545,12 +545,13 @@ export async function run ({ b, report, trader }) {
     // The trade lines start once the Trade tab lists what the wallet holds.
     const t = await waitTradable(w, tOpen)
     const s = (t.ms / 1000).toFixed(1)
+    const since = o.fresh ? 'the restore ended' : 'the wallet opened'
     const words = t.unread ? `the wallet's balance or its Trade tab could not be read within ${s} s`
       : !t.expected.length ? `the library says the wallet can spend nothing now; the Trade tab was read after ${s} s`
-        : t.ok ? `the Trade tab lists ${t.expected.join(', ')} ${s} s after the restore ended` : `${s} s after the restore ended the Trade tab still lists no ${t.missing.join(', ')} that the library says the wallet can spend`
+        : t.ok ? `the Trade tab lists ${t.expected.join(', ')} ${s} s after ${since}` : `${s} s after ${since} the Trade tab still lists no ${t.missing.join(', ')} that the library says the wallet can spend`
     report.note(`trader: ${words}`)
-    report.note(t.restoring ? `trader: ${(t.readyMs / 1000).toFixed(1)} s after the restore ended the wallet still steps its restored history; the trades start anyway`
-      : `trader: the trades start ${(t.readyMs / 1000).toFixed(1)} s after the restore ended, its history stepped`)
+    report.note(t.restoring ? `trader: ${(t.readyMs / 1000).toFixed(1)} s after ${since} the wallet still steps its restored history; the trades start anyway`
+      : `trader: the trades start ${(t.readyMs / 1000).toFixed(1)} s after ${since}, its history stepped`)
     if (o.fresh) await report.line('WW-RESTORE-TRADABLE', 'desktop', tradableLine(), wp, async () => ({ ok: t.ok && t.ms <= TRADABLE_BOUND_MS, detail: words, at: '#userComposerRoot' }))
     else report.skip('WW-RESTORE-TRADABLE', 'desktop', tradableLine(), `no restore this run (the profile is kept); ${words}`)
     await tradeLines(b, report, w, wp)
