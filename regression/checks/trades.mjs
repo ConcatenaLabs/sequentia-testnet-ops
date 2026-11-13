@@ -199,6 +199,7 @@ async function openTrader (b, h, phrase) {
   await b.send('Page.addScriptToEvaluateOnNewDocument', { source: 'window.SEQ_TEST_HOOKS = true' }, h.page.sessionId)
   await b.send('Page.navigate', { url: WALLET }, h.page.sessionId)
   await h.waitFor("(()=>{const v=(id)=>{const e=document.getElementById(id); return e && getComputedStyle(e).display!=='none'}; return v('app')||v('welcome')})()", 240000)
+    .catch(() => { throw new Error('the page showed neither the wallet nor its welcome within 240 s') })
   // The trader's profile is kept between runs: a page that opens its wallet already is the
   // trader's, restored by an earlier run; a fresh profile is given the phrase.
   const fresh = !(await h.eval("localStorage.getItem('swk.sequentia.mnemonic') ? true : false"))
@@ -208,11 +209,13 @@ async function openTrader (b, h, phrase) {
     await b.send('Page.navigate', { url: WALLET }, h.page.sessionId)
   }
   await h.waitFor("document.querySelector('#app') && getComputedStyle(document.querySelector('#app')).display !== 'none'", 240000)
+    .catch(() => { throw new Error('the wallet did not show within 240 s of its phrase') })
   // Open only once the leaf wallet is: joined, and its restore run to its end. A wallet still
   // restoring shows part of what it holds, and a trade from it tests a half-restored wallet. Up to
   // RESTORE_MS, its time printed. -> { s, fresh }
   const t0 = Date.now()
   await h.waitFor("!!(window.__leavesApi && window.__leavesApi.isOpen() && !window.__leavesApi.restoring())", RESTORE_MS)
+    .catch(() => { throw new Error(`its restore had not ended after ${RESTORE_MS / 60000} min`) })
   const s = Math.round((Date.now() - t0) / 1000)
   console.log(`trader: the leaf wallet open after ${s} s (${fresh ? 'restored from the phrase in a fresh profile' : 'reopened from the kept profile'})`)
   return { s, fresh }
@@ -514,6 +517,12 @@ export async function run ({ b, report, trader }) {
   }
   const wp = await b.page('about:blank')
   const w = helpers(wp)
+  // A kept profile can reopen the tabs of the run before it, a wallet page among them, which then
+  // holds the wallet's one-tab lock: this page would find "The wallet is open in another tab". Every
+  // other tab is closed first, and said so.
+  const others = ((await b.targets().catch(() => [])) || []).filter((t) => t.type === 'page' && t.targetId !== wp.targetId)
+  for (const t of others) await b.send('Target.closeTarget', { targetId: t.targetId }).catch(() => {})
+  if (others.length) { report.note(`trader: closed ${others.length} tab(s) the kept profile reopened: ${others.map((t) => t.url).join(', ')}`); await sleep(1500) }
   // The trader holds weeks of trades: its restore in a fresh profile is the long-history restore a
   // person meets on a new device, bounded on a line of its own.
   // Its profile is kept between runs (run.mjs), so it restores once; the line is measured when the
@@ -521,15 +530,15 @@ export async function run ({ b, report, trader }) {
   let opened = false
   const restoreLine = `A wallet with weeks of trades, restored from its phrase in a fresh profile, finishes its restore within ${RESTORE_BOUND_MS / 1000} s`
   let o = null
-  try { o = await openTrader(b, w, trader.phrase); opened = true } catch (e) { o = { error: String(e && e.message || e) } }
+  try { o = await openTrader(b, w, trader.phrase); opened = true } catch (e) { o = { error: String(e && e.message || e).split('\n')[0].slice(0, 200), page: await w.bodyText().catch(() => '') } }
   const tOpen = Date.now()
   if (o.error || o.fresh) {
     await report.line('WW-RESTORE-LONG', 'desktop', restoreLine, wp, async () => (o.error
-      ? { ok: false, detail: `not open after ${RESTORE_MS / 60000} min: ${o.error}`, at: '#app' }
+      ? { ok: false, detail: `not open: ${o.error}${o.page ? `; the page says "${squeeze(o.page, 160)}"` : ''}`, at: '#app' }
       : { ok: o.s * 1000 <= RESTORE_BOUND_MS, detail: `the restore ended after ${o.s} s`, at: '#app' }))
   } else report.skip('WW-RESTORE-LONG', 'desktop', restoreLine, `the trader's profile is kept between runs: no restore this run (the wallet opened again in ${o.s} s); --fresh-trader restores afresh`)
   if (!opened) {
-    for (const [id, line] of [['WW-RESTORE-TRADABLE', tradableLine()], ['WW-TRADER-FUNDED', fundedLine], ...lines]) report.skip(id, 'desktop', line, `the trader wallet did not open within ${RESTORE_MS / 60000} min (WW-RESTORE-LONG)`)
+    for (const [id, line] of [['WW-RESTORE-TRADABLE', tradableLine()], ['WW-TRADER-FUNDED', fundedLine], ...lines]) report.skip(id, 'desktop', line, 'the trader wallet did not open (WW-RESTORE-LONG)')
     return
   }
   try {

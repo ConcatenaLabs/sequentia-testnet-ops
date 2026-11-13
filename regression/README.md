@@ -90,7 +90,9 @@ The trades surface opens that wallet in a browser profile kept between runs
 first run, or one started with `--fresh-trader`, restores it from its phrase in a fresh profile.
 It holds weeks of trades, so this is the long-history restore, bounded on a line of its own
 (`WW-RESTORE-LONG`): the restore must end within 300 seconds. Every later run reopens the wallet
-from the kept profile; the line is then SKIP, with how long the wallet took to open. A run trades
+from the kept profile; the line is then SKIP, with how long the wallet took to open. A kept
+profile can reopen the last run's tabs, and a wallet page among them holds the wallet's one-tab
+lock, so the run closes every tab but its own first and says which it closed. A run trades
 only once the leaf wallet is open and its restore has ended, never on a half-restored wallet, and
 the run prints how long that took. A wallet not open after 40 minutes skips the trade lines with
 that reason. The trade lines then wait until the Trade tab lists every asset the wallet's library
