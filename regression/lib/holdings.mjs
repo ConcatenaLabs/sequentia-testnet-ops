@@ -49,7 +49,8 @@ export const HOLDINGS_READ = `(()=>{
   let marks = { dec: '.', group: ',' };
   try { const p = new Intl.NumberFormat().formatToParts(12345.5); marks = { dec: (p.find((x)=>x.type==='decimal')||{}).value || '.', group: (p.find((x)=>x.type==='group')||{}).value || '' } } catch {}
   return { lib, places, page, btc: window.__btcHeld || null, names, marks,
-    open: !!(L && L.isOpen && L.isOpen()), restoring: !!(L && L.restoring && L.restoring()) };
+    open: !!(L && L.isOpen && L.isOpen()), restoring: !!(L && L.restoring && L.restoring()),
+    stillRestoring: !!(L && L.stillRestoring && L.stillRestoring()) };
 })()`
 
 // The Trade tab's asset chooser (You pay), opened and read as a person reads it: each row's asset

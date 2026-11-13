@@ -94,8 +94,9 @@ from the kept profile; the line is then SKIP, with how long the wallet took to o
 only once the leaf wallet is open and its restore has ended, never on a half-restored wallet, and
 the run prints how long that took. A wallet not open after 40 minutes skips the trade lines with
 that reason. The trade lines then wait until the Trade tab lists every asset the wallet's library
-says it can spend now (5 minutes at most); after a restore in a fresh profile that wait has its own
-line, `WW-RESTORE-TRADABLE`, which fails past 15 seconds. The kept profile also keeps the wallet's
+says it can spend now and the wallet has stepped through its restored history (until then it
+refuses a trade that would wait on money), 5 minutes at most; after a restore in a fresh profile
+the first of those has its own line, `WW-RESTORE-TRADABLE`, which fails past 15 seconds. The kept profile also keeps the wallet's
 trade records, so a trade an earlier run left under way is picked up and completed.
 
 ### What the trader holds
@@ -144,7 +145,9 @@ instead of a firm one: a price "about", the least it goes for, and the wait in w
 within about 6 minutes"). Once confirmed, it goes by itself when the round is through; SeqDEX says
 it is under way, and the line follows it in the wallet's Trade tab. Such a line keeps the 10-second
 bar for its ticket, and passes when the trade reads "Settled" (for a trade with BTC, "Received")
-within the wait its ticket stated. A firm trade that SeqDEX answers is under way is followed in the
+within the wait its ticket stated. A ticket that waits without naming a time ("Goes through by
+itself once what you pay is ready") is held to the suite's longest wait, 12 minutes, and its line
+says the ticket named none. A firm trade that SeqDEX answers is under way is followed in the
 Trade tab the same way and must end within the 60 seconds of a firm trade. A trade the wallet
 accepted that never gets a row in the Trade tab fails saying so: the ticket it was accepted with,
 when, how long there has been no row, and what the site showed. It is watched for up to three times that wait, so that it says

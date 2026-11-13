@@ -5,7 +5,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { btcPurchasesOpen, stillMoving, settledInTime, inTree, SETTLE_ROUND_MS, statedWaitMs, endWord, waitedInTime, TICKET_MS, OVERRUN,
-  tabNeed, dexNeed, followedInTime, followedWords, BOUND_MS, arrivedWhole } from './trades.mjs'
+  tabNeed, dexNeed, followedInTime, followedWords, BOUND_MS, arrivedWhole, UNSTATED_WAIT_MS, waitStated, waitedDetail, WAIT_WORDS } from './trades.mjs'
 import { lineNeed } from '../lib/holdings.mjs'
 
 test('a refresh not done, or a coin moving, keeps the page open', () => {
@@ -120,4 +120,18 @@ test('a faucet payment has arrived once the figure rose by it, less the fee of m
   assert.equal(arrivedWhole(25000000000000n, 50000000000000n), false)
   assert.equal(arrivedWhole(0n, 50000000000000n), false)
   assert.equal(arrivedWhole(5n, null), true)
+})
+
+test('a waiting ticket that names no time is followed, held to the suite\'s longest wait, and says so', () => {
+  const t = 'Goes through by itself once what you pay is ready'
+  assert.equal(statedWaitMs(t), UNSTATED_WAIT_MS)
+  assert.equal(waitStated(t), false)
+  assert.equal(waitStated('Goes through within about 6 minutes'), true)
+  assert.equal(('TRADE? You pay about 3.5 USDX ' + t + ' Approve').match(WAIT_WORDS)[0], t)
+  const d = waitedDetail('20 tSEQ → USDX', { ticketMs: 3000, statedMs: UNSTATED_WAIT_MS, endedMs: 200_000, end: 'done', word: 'Settled', stated: t })
+  assert.equal(d, `20 tSEQ → USDX: waited for a round, ticket "${t}" in 3.0 s; Settled after 200.0 s, within the suite's longest wait, 720.0 s (the ticket named no time)`)
+  assert.match(waitedDetail('x', { ticketMs: 3000, statedMs: 360_000, endedMs: 400_000, end: 'done', word: 'Settled', stated: 'Goes through within about 6 minutes' }), /past the 360\.0 s stated$/)
+  // A wallet's new ends are ends: nothing traded.
+  assert.equal(endWord('USDX', 'tSEQ', 'Returned: nothing traded. It took too long to get ready.'), 'returned')
+  assert.equal(endWord('USDX', 'tSEQ', 'Returned: nothing traded. Your wallet no longer holds what it was to pay.'), 'returned')
 })

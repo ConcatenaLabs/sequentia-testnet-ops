@@ -66,14 +66,22 @@ export function settledInTime (pay, get, done, later) {
 const REVIEW_MS = 60000
 // How far past its stated wait an indicative trade is still watched, so the line says when it ended.
 export const OVERRUN = 3
-// The wait an indicative ticket states, from the wallet's words (`goesThrough` in the web wallet's
-// default-arca.js and user-trade.js), in ms; null for a firm ticket, which names no wait.
+// The wait an indicative ticket states, from the wallet's words (`goesThrough` and `settling` in
+// the web wallet's user-trade.js USER_WORDS), in ms; null for a firm ticket, which names no wait.
+// A ticket that waits without a time ("Goes through by itself once what you pay is ready", when
+// the wallet gave none) is judged against UNSTATED_WAIT_MS, the longest wait this suite takes, and
+// its line says so (waitStated).
+export const UNSTATED_WAIT_MS = 12 * 60_000
+const NO_TIME = /Goes through by itself once what you pay is ready/
+export const WAIT_WORDS = /Goes through (in about a minute|within about \d+ minutes|by itself once what you pay is ready)/
 export function statedWaitMs (text) {
   const t = String(text || '')
   if (/Goes through in about a minute/.test(t)) return 60_000
   const m = t.match(/Goes through within about (\d+) minutes/)
-  return m ? Number(m[1]) * 60_000 : null
+  if (m) return Number(m[1]) * 60_000
+  return NO_TIME.test(t) ? UNSTATED_WAIT_MS : null
 }
+export const waitStated = (text) => !NO_TIME.test(String(text || ''))
 // Whether a trade's words say it is done: Settled for a trade of two assets in the tree, Received
 // or Settled for a trade with BTC; Returned is an end too, never done.
 export function endWord (pay, get, word) {
@@ -89,11 +97,13 @@ export function waitedInTime ({ ticketMs, statedMs, endedMs, end }) {
 }
 const secs = (ms) => (ms / 1000).toFixed(1)
 // One line's words for a trade that waited for a round.
-function waitedDetail (head, { ticketMs, statedMs, endedMs, end, word, stated }) {
+export function waitedDetail (head, { ticketMs, statedMs, endedMs, end, word, stated }) {
+  // A ticket that named no time is held to the suite's longest wait, and says so.
+  const bound = waitStated(stated) ? `the ${secs(statedMs)} s stated` : `the suite's longest wait, ${secs(statedMs)} s (the ticket named no time)`
   const tail = endedMs == null
-    ? `still reads "${word}" ${secs(OVERRUN * statedMs)} s after confirming, ${OVERRUN} times the ${secs(statedMs)} s stated`
-    : end === 'returned' ? `${word} after ${secs(endedMs)} s (stated ${secs(statedMs)} s)`
-      : `${word} after ${secs(endedMs)} s, ${endedMs <= statedMs ? 'within' : 'past'} the ${secs(statedMs)} s stated`
+    ? `still reads "${word}" ${secs(OVERRUN * statedMs)} s after confirming, ${OVERRUN} times ${bound}`
+    : end === 'returned' ? `${word} after ${secs(endedMs)} s (${bound})`
+      : `${word} after ${secs(endedMs)} s, ${endedMs <= statedMs ? 'within' : 'past'} ${bound}`
   return `${head}: waited for a round, ticket "${stated}" in ${secs(ticketMs)} s${ticketMs > TICKET_MS ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; ${tail}`
 }
 // A firm trade followed in the Trade tab after the site said it is under way: done within `boundMs`.
@@ -326,7 +336,7 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
   // itself, which the site says is under way; it is followed in the wallet's Trade tab.
   // The dialog's words are the ticket the trade is accepted with, reported when it leaves no row.
   const dialog = await wallet.eval("((document.querySelector('#pageApiApproval')||{}).innerText||'')").catch(() => '')
-  const stated = (String(dialog).match(/Goes through (in about a minute|within about \d+ minutes)/) || [''])[0]
+  const stated = (String(dialog).match(WAIT_WORDS) || [''])[0]
   const statedMs = statedWaitMs(stated)
   // The trades the wallet lists before approval: the one it lists after is this trade's.
   const ids0 = (await wallet.eval(TRADE_IDS).catch(() => [])) || []
@@ -425,13 +435,18 @@ async function readHoldings (w, { chooser = true } = {}) {
 }
 function printHoldings (report, when, hold) { for (const l of holdingsLines(when, hold && hold.list)) report.note(l) }
 
-// Waits until the Trade tab lists every asset the library says the wallet can spend now. -> { ms, ok, missing, expected }
+// Waits until the Trade tab lists every asset the library says the wallet can spend now, and the
+// wallet no longer steps its restored history (`stillRestoring`: until then it refuses a trade that
+// would wait on money, "Your wallet is still being restored"). -> { ms, ok, missing, expected,
+// restoring (still stepping when the wait ended), listedMs (when the tab first listed it all) }
 async function waitTradable (w, t0) {
-  let last = null
+  let last = null, listedMs = null
   for (;;) {
     const hold = await readHoldings(w)
     last = chooserListsHeld(hold.snap, hold.rows)
-    if (last.ok || Date.now() - t0 > TRADABLE_WAIT_MS) return { ms: Date.now() - t0, ...last }
+    if (last.ok && listedMs == null) listedMs = Date.now() - t0
+    const restoring = !!(hold.snap && hold.snap.stillRestoring)
+    if ((last.ok && !restoring) || Date.now() - t0 > TRADABLE_WAIT_MS) return { ms: listedMs ?? Date.now() - t0, ...last, restoring, readyMs: Date.now() - t0 }
     await sleep(2000)
   }
 }
@@ -525,6 +540,8 @@ export async function run ({ b, report, trader }) {
       : !t.expected.length ? `the library says the wallet can spend nothing now; the Trade tab was read after ${s} s`
         : t.ok ? `the Trade tab lists ${t.expected.join(', ')} ${s} s after the restore ended` : `${s} s after the restore ended the Trade tab still lists no ${t.missing.join(', ')} that the library says the wallet can spend`
     report.note(`trader: ${words}`)
+    report.note(t.restoring ? `trader: ${(t.readyMs / 1000).toFixed(1)} s after the restore ended the wallet still steps its restored history; the trades start anyway`
+      : `trader: the trades start ${(t.readyMs / 1000).toFixed(1)} s after the restore ended, its history stepped`)
     if (o.fresh) await report.line('WW-RESTORE-TRADABLE', 'desktop', tradableLine(), wp, async () => ({ ok: t.ok && t.ms <= TRADABLE_BOUND_MS, detail: words, at: '#userComposerRoot' }))
     else report.skip('WW-RESTORE-TRADABLE', 'desktop', tradableLine(), `no restore this run (the profile is kept); ${words}`)
     await tradeLines(b, report, w, wp)
