@@ -294,11 +294,29 @@ export const faucetButton = (ticker) => `#assets button[data-asset=${JSON.string
 // A trade accepted with a ticket that, `afterMs` later, has no row in the Trade tab: what it was
 // accepted with and when, how long there has been no row, and what the site showed.
 // `tab`, when read: what the Trade tab lists then ({ rows, newest }).
-export function noRowWords ({ head, ticket, approvedAt, afterMs, site = null, tab = null }) {
+// `record`, when read: the wallet's record of the trade new since the approval ({ id, state }), or
+// null when it wrote none. `card`: the trade's card open over the page (cardWords).
+export function noRowWords ({ head, ticket, approvedAt, afterMs, site = null, tab = null, record, card = null }) {
   const when = approvedAt ? new Date(approvedAt).toISOString().replace(/\.\d+Z$/, 'Z') : 'an unknown time'
   const listed = tab ? `; the Trade tab lists ${tab.rows} trade(s)${tab.rows ? `, the newest "${squeeze(tab.newest, 100)}"` : ''}` : ''
-  return `${head}: accepted at ${when} and no row for it in the Trade tab ${(afterMs / 1000).toFixed(1)} s later; the ticket: "${squeeze(ticket, 160) || 'not read'}"${site != null ? `; the site showed "${squeeze(site, 160) || 'nothing'}"` : ''}${listed}`
+  const rec = record === undefined ? '' : record ? `; the wallet's record of it (${record.state}) is not among the rows` : '; the wallet wrote no record of it'
+  return `${head}: accepted at ${when} and no row for it in the Trade tab ${(afterMs / 1000).toFixed(1)} s later; the ticket: "${squeeze(ticket, 160) || 'not read'}"${site != null ? `; the site showed "${squeeze(site, 160) || 'nothing'}"` : ''}${rec}${listed}${cardWords(card)}`
 }
+
+// ---- the trade's card over the page ----
+// What the open trade cards say ({ count, title, state }, from CARD_READ), as a clause of a line's
+// detail, so a card left stuck over the page is said (sequentia-web-wallet #775): always on a line
+// that failed (`always`), and on one that passed only when the card disagrees with the trade's row
+// (`rowWord`) or more than one is stacked. '' when no card is open.
+export function cardWords (card, { always = true, rowWord = null } = {}) {
+  if (!card || !card.count) return ''
+  const stacked = card.count > 1
+  const stale = rowWord != null && squeeze(card.state) !== squeeze(rowWord)
+  if (!always && !stacked && !stale) return ''
+  return `; ${stacked ? `${card.count} trade cards are stacked over the page, the top one` : 'the trade\'s card over the page'} says "${squeeze(card.title, 40)}", status "${squeeze(card.state, 120)}"${stale ? ' (not the row\'s words)' : ''}`
+}
+export const CARD_READ = "(()=>{ const m=[...document.querySelectorAll('.uc-card-modal')]; if(!m.length) return null; const t=m[m.length-1]; return { count: m.length, title: ((t.querySelector('.sent-title')||{}).textContent||'').trim(), state: ((t.querySelector('.uc-card-state')||{}).textContent||'').trim() } })()"
+
 // What the Trade tab lists: { rows, newest } (the newest row's words).
 export const TAB_LISTED = "(()=>{ const r=[...document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade')]; return { rows: r.length, newest: r.length ? r[0].innerText : '' } })()"
 export const squeeze = (t, n = 220) => { const s = String(t ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '…' : s }
