@@ -35,7 +35,7 @@
 // cannot pass by waiting everywhere unseen.
 import { sleep, helpers, faucetPass } from '../lib/suite.mjs'
 import { HOLDINGS_READ, CHOOSER_READ, holdingsOf, holdingsLines, usable, whereWords, lineNeed, fundedVerdict, faucetSent, faucetButton,
-  noRowWords, squeeze, chooserListsHeld, atomsOf } from '../lib/holdings.mjs'
+  noRowWords, squeeze, chooserListsHeld, atomsOf, units, TAB_LISTED } from '../lib/holdings.mjs'
 
 const ORIGIN = 'https://sequentiatestnet.com'
 const WALLET = ORIGIN + '/wallet/'
@@ -241,7 +241,7 @@ async function tabTrade (h, pay, get, amount) {
     // Accepted and never listed (sequentia-web-wallet #770): said as such, with the ticket.
     if (!r.trade) {
       const note = await h.text('#userComposerRoot #ucNote').catch(() => '')
-      return { ok: false, waited: true, detail: noRowWords({ head: `${amount} ${pay} → ${get}: waited for a round`, ticket: tk.slice(3), approvedAt: tC, afterMs: Date.now() - tC, site: null }) + (note ? `; the Trade tab says "${squeeze(note)}"` : ''), at: '#userComposerRoot #ucTrades' }
+      return { ok: false, waited: true, detail: noRowWords({ head: `${amount} ${pay} → ${get}: waited for a round`, ticket: tk.slice(3), approvedAt: tC, afterMs: Date.now() - tC, site: null, tab: await h.eval(TAB_LISTED).catch(() => null) }) + (note ? `; the Trade tab says "${squeeze(note)}"` : ''), at: '#userComposerRoot #ucTrades' }
     }
     return { ok: waitedInTime(v), waited: true, trade: r.trade, detail: waitedDetail(`${amount} ${pay} → ${get}`, v), at: '#userComposerRoot #ucTrades' }
   }
@@ -269,7 +269,7 @@ async function tabTrade (h, pay, get, amount) {
   // No row of its own yet: the top row is an earlier trade's, and is not reported as this one's.
   const rows1 = await h.eval("document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade').length")
   if (!(rows1 > rows0)) {
-    return { ok: false, detail: noRowWords({ head: `${amount} ${pay} → ${get}: firm ticket`, ticket: tk.slice(3), approvedAt: tC, afterMs: Date.now() - tC, site: null }) + (note ? `; the Trade tab says "${squeeze(note)}"` : ''), at: '#userComposerRoot #ucTrades' }
+    return { ok: false, detail: noRowWords({ head: `${amount} ${pay} → ${get}: firm ticket`, ticket: tk.slice(3), approvedAt: tC, afterMs: Date.now() - tC, site: null, tab: await h.eval(TAB_LISTED).catch(() => null) }) + (note ? `; the Trade tab says "${squeeze(note)}"` : ''), at: '#userComposerRoot #ucTrades' }
   }
   return { ok: false, detail: `${amount} ${pay} → ${get}: after ${secs} s the trade reads "${row || 'no row'}"${note ? '; ' + note : ''}`, at: '#userComposerRoot #ucTrades' }
 }
@@ -337,7 +337,7 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
     const r = await followWaited(wallet, pay, get, statedMs, tC, ids0)
     const v = { ticketMs: tC - tGo, statedMs, stated, ...r }
     // Accepted and never listed (sequentia-web-wallet #770): said as such, with the ticket.
-    if (!r.trade) return { ok: false, waited: true, detail: noRowWords({ head: `${side} ${amount} of ${pair}: waited for a round, dialog in ${dialogS} s`, ticket: dialog, approvedAt: tC, afterMs: Date.now() - tC, site: await site.text('#fStatus').catch(() => '') }), at: '#fStatus' }
+    if (!r.trade) return { ok: false, waited: true, detail: noRowWords({ head: `${side} ${amount} of ${pair}: waited for a round, dialog in ${dialogS} s`, ticket: dialog, approvedAt: tC, afterMs: Date.now() - tC, site: await site.text('#fStatus').catch(() => ''), tab: await wallet.eval(TAB_LISTED).catch(() => null) }), at: '#fStatus' }
     return { ok: waitedInTime(v), waited: true, detail: waitedDetail(`${side} ${amount} of ${pair} (the site: "${st.slice(3)}")`, v), at: '#fStatus' }
   }
   // The site draws its form again after a trade, so #fStatus can be missing for a moment.
@@ -358,7 +358,7 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
   if (st && st.startsWith('ok ') && /under way/i.test(st)) {
     const head = `${side} ${amount} of ${pair}: firm ticket, dialog in ${dialogS} s${slowDialog ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; the site said "${st.slice(3)}"`
     const r = await followWaited(wallet, pay, get, BOUND_MS, tC, ids0)
-    if (!r.trade) return { ok: false, detail: noRowWords({ head, ticket: dialog, approvedAt: tC, afterMs: Date.now() - tC, site: await site.text('#fStatus').catch(() => '') }), at: '#fStatus' }
+    if (!r.trade) return { ok: false, detail: noRowWords({ head, ticket: dialog, approvedAt: tC, afterMs: Date.now() - tC, site: await site.text('#fStatus').catch(() => ''), tab: await wallet.eval(TAB_LISTED).catch(() => null) }), at: '#fStatus' }
     return { ok: followedInTime(r, BOUND_MS) && !slowDialog, trade: r.trade, detail: `${head}; ${followedWords(r, BOUND_MS)}`, at: '#fStatus' }
   }
   return { ok: false, detail: `${side} ${amount} of ${pair}: after ${secs} s the site says "${st ? st.slice(st.indexOf(' ') + 1) : await site.text('#fStatus') || 'nothing'}"`, at: '#fStatus' }
@@ -436,6 +436,10 @@ async function waitTradable (w, t0) {
   }
 }
 
+// Whether a rise of `rose` atoms is the payment of `want` (null: not read) arriving: all of it, less
+// at most 1% for the fee of moving it in.
+export function arrivedWhole (rose, want) { return rose > 0n && (want == null || rose * 100n >= want * 99n) }
+
 // Asks the public faucet page for `ticker`, to the trader's own receive code, as a person would,
 // and waits until the wallet shows it and can trade it. -> { ok, words }
 async function topUp (b, w, ticker, before) {
@@ -462,18 +466,20 @@ async function topUp (b, w, ticker, before) {
     const asked = `asked the public faucet page for it to the trader's receive code (${code.slice(0, 18)}…); it said "${squeeze(text, 160)}"`
     if (!sent) return say({ ok: false, words: asked })
     const want = atomsOf(sent.amount, 8)
-    // Shown: what the wallet can count on rose by what was sent (or at all, when the amount could
-    // not be read); tradable: the Trade tab's figure rose by it.
-    let shownMs = null, nowMs = null
+    // Shown: what the wallet can count on rose by what was sent; tradable: the Trade tab's figure
+    // did. A payment to the address is moved in for a fee in its own asset, so the rise may fall
+    // short of what was sent by that fee (arrivedWhole).
+    let shownMs = null, nowMs = null, rose = 0n
     while (Date.now() - tAsk < TOPUP_MS) {
       const hold = await readHoldings(w)
       const h = hold.list && hold.list.find((x) => x.ticker === ticker)
-      if (shownMs == null && usable(h) > had && (want == null || usable(h) - had >= want)) shownMs = Date.now() - tAsk
-      if (h && (h.now || 0n) > hadNow && (want == null || (h.now || 0n) - hadNow >= want)) { nowMs = Date.now() - tAsk; if (shownMs == null) shownMs = nowMs; break }
+      if (shownMs == null && arrivedWhole(usable(h) - had, want)) shownMs = Date.now() - tAsk
+      rose = ((h && h.now) || 0n) - hadNow
+      if (arrivedWhole(rose, want)) { nowMs = Date.now() - tAsk; if (shownMs == null) shownMs = nowMs; break }
       await sleep(3000)
     }
     const s = (ms) => (ms / 1000).toFixed(1)
-    const tail = nowMs != null ? `; the wallet showed it after ${s(shownMs)} s and could trade it after ${s(nowMs)} s`
+    const tail = nowMs != null ? `; the wallet showed it after ${s(shownMs)} s and could trade ${units(rose, 8)} ${ticker} more after ${s(nowMs)} s`
       : shownMs != null ? `; the wallet showed it after ${s(shownMs)} s, and could not trade it yet ${s(TOPUP_MS)} s after asking`
         : `; ${s(TOPUP_MS)} s after asking the wallet shows none of it`
     return say({ ok: shownMs != null, words: asked + tail })
@@ -534,6 +540,9 @@ async function needsNow () {
   return { prices, needs: [...TAB_TRADES.map(tabNeed), ...DEX_TRADES.map(dexNeed)].map((n) => lineNeed(n, prices)) }
 }
 
+// The wallet's words when it refuses a trade for want of what it pays.
+const FUNDS_REFUSED = /You have no \S+ to trade|in the chooser|That is more than your|can be traded now, too little/
+
 async function tradeLines (b, report, w, wp) {
   // What the trader holds at the start, and whether it is what the lines need; short of an asset the
   // public faucet gives, it is asked for it first.
@@ -589,10 +598,13 @@ async function tradeLines (b, report, w, wp) {
     const g = await gate(id, key)
     if (g) return g
     const r = await fn()
-    if (!r.ok && before(key) && /You have no \S+ to trade|in the chooser|That is more than your|can be traded now, too little/.test(String(r.detail))) {
+    if (!r.ok && FUNDS_REFUSED.test(String(r.detail))) {
       const n = need.get(id)
       const h = await holdingOf(n ? n.pay : '')
-      return { skip: `the purchase before it ${before(key)}; ${h === undefined ? 'what the wallet holds could not be read' : whereWords(h, n && n.atoms, n && n.pay)}: ${r.detail}` }
+      const where = h === undefined ? 'what the wallet holds could not be read' : whereWords(h, n && n.atoms, n && n.pay)
+      if (before(key)) return { skip: `the purchase before it ${before(key)}; ${where}: ${r.detail}` }
+      // The wallet had what the line pays, or was to have it: a failure, saying where it was.
+      return { ...r, detail: `${r.detail} (${where})` }
     }
     return r
   }

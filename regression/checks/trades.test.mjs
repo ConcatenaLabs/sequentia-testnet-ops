@@ -5,7 +5,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { btcPurchasesOpen, stillMoving, settledInTime, inTree, SETTLE_ROUND_MS, statedWaitMs, endWord, waitedInTime, TICKET_MS, OVERRUN,
-  tabNeed, dexNeed, followedInTime, followedWords, BOUND_MS } from './trades.mjs'
+  tabNeed, dexNeed, followedInTime, followedWords, BOUND_MS, arrivedWhole } from './trades.mjs'
 import { lineNeed } from '../lib/holdings.mjs'
 
 test('a refresh not done, or a coin moving, keeps the page open', () => {
@@ -112,4 +112,12 @@ test('a firm trade the site calls under way is judged on the time it takes to it
   assert.equal(followedWords({ end: 'done', endedMs: 12_300, word: 'Settled' }, BOUND_MS), 'in the wallet\'s Trade tab it reads "Settled" after 12.3 s, within the 60.0 s')
   assert.equal(followedWords({ end: 'returned', endedMs: 9_000, word: 'Returned' }, BOUND_MS), 'in the wallet\'s Trade tab it reads "Returned" after 9.0 s: nothing traded')
   assert.equal(followedWords({ end: null, endedMs: null, word: 'Received, settling' }, BOUND_MS), `in the wallet's Trade tab it still reads "Received, settling" ${(OVERRUN * 60).toFixed(1)} s after approval, past the 60.0 s`)
+})
+
+test('a faucet payment has arrived once the figure rose by it, less the fee of moving it in', () => {
+  // 500,000 USDX paid to the address, moved in for 39 atoms (seen live 2026-11-13).
+  assert.equal(arrivedWhole(49999999999961n, 50000000000000n), true)
+  assert.equal(arrivedWhole(25000000000000n, 50000000000000n), false)
+  assert.equal(arrivedWhole(0n, 50000000000000n), false)
+  assert.equal(arrivedWhole(5n, null), true)
 })

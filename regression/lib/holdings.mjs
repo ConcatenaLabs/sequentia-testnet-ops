@@ -292,10 +292,14 @@ export const faucetButton = (ticker) => `#assets button[data-asset=${JSON.string
 // ---- a trade that leaves no row (sequentia-web-wallet #770) ----
 // A trade accepted with a ticket that, `afterMs` later, has no row in the Trade tab: what it was
 // accepted with and when, how long there has been no row, and what the site showed.
-export function noRowWords ({ head, ticket, approvedAt, afterMs, site = null }) {
+// `tab`, when read: what the Trade tab lists then ({ rows, newest }).
+export function noRowWords ({ head, ticket, approvedAt, afterMs, site = null, tab = null }) {
   const when = approvedAt ? new Date(approvedAt).toISOString().replace(/\.\d+Z$/, 'Z') : 'an unknown time'
-  return `${head}: accepted at ${when} and no row for it in the Trade tab ${(afterMs / 1000).toFixed(1)} s later; the ticket: "${squeeze(ticket, 160) || 'not read'}"${site != null ? `; the site showed "${squeeze(site, 160) || 'nothing'}"` : ''}`
+  const listed = tab ? `; the Trade tab lists ${tab.rows} trade(s)${tab.rows ? `, the newest "${squeeze(tab.newest, 100)}"` : ''}` : ''
+  return `${head}: accepted at ${when} and no row for it in the Trade tab ${(afterMs / 1000).toFixed(1)} s later; the ticket: "${squeeze(ticket, 160) || 'not read'}"${site != null ? `; the site showed "${squeeze(site, 160) || 'nothing'}"` : ''}${listed}`
 }
+// What the Trade tab lists: { rows, newest } (the newest row's words).
+export const TAB_LISTED = "(()=>{ const r=[...document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade')]; return { rows: r.length, newest: r.length ? r[0].innerText : '' } })()"
 export const squeeze = (t, n = 220) => { const s = String(t ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '…' : s }
 
 // ---- the Trade tab lists what the wallet holds (WW-RESTORE-TRADABLE) ----

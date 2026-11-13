@@ -163,6 +163,7 @@ test('a trade accepted and never listed says so: the ticket, when, how long, wha
     approvedAt: Date.UTC(2026, 10, 12, 21, 47, 32, 400), afterMs: 1080000, site: 'Your trade is under way. Follow it under Your orders.' })
   assert.equal(w, 'buy 20 of tSEQ-USDX: waited for a round, dialog in 6.3 s: accepted at 2026-11-12T21:47:32Z and no row for it in the Trade tab 1080.0 s later; the ticket: "You pay about 3.52 USDX You receive 20 tSEQ Goes through within about 6 minutes"; the site showed "Your trade is under way. Follow it under Your orders."')
   assert.doesNotMatch(noRowWords({ head: 'x', ticket: '', approvedAt: 0, afterMs: 1000 }), /site showed/)
+  assert.match(noRowWords({ head: 'x', ticket: 't', approvedAt: 0, afterMs: 1000, tab: { rows: 3, newest: 'Bought 20 tSEQ\n Settled' } }), /the Trade tab lists 3 trade\(s\), the newest "Bought 20 tSEQ Settled"$/)
 })
 
 test('the Trade tab lists what the wallet holds once it shows each asset the library can spend now', () => {
