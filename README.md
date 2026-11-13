@@ -31,7 +31,7 @@ put it in place and keep copies of it.
 | `backup/` | A script, a service and a timer that keep dated copies of the host configuration under `/var/backups/box`, four times a day, sixty deep; the Arca operator's daily PostgreSQL base backup; and the user timers that pull the bridge state and the Arca backups off the box. |
 | `journald/90-sequentia-retention.conf` | The journal's size cap, and so how far back every unit's log reaches. See "Log rotation". |
 | `logrotate/` | Rotation for the logs services append to. `bridges` covers the bridge services (`compagesd`, `compages-watch`, `compages-reserves`, `sbtc-bridge`): weekly or at 20 MB, twelve kept, compressed. `seqob-makers` covers every maker log under `/root/seqob-test/run`: at 20 MB, two kept, compressed. `bitcoin-ark` covers the Bitcoin ark's Bitcoin Core and Lightning logs under `/var/log/bitcoin-ark`: daily or at 50 MB, seven kept. `box-load` covers the load history: weekly, eight kept. |
-| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the makers below (`seqob-pureln-fleet`, `seqob-conf-maker`, `seqob-samechain-fleet`, the `seqob-liquidity-health` timer, `seqob-mixed-gold-eurx-buyer-side`, `seqob-mixed-gold-eurx-seller-side`, `seqob-xmakers`, the four `seqob-submarine-*`, `seqob-subasset-maker`, `seqob-subasset-sell-maker-usdx`), of the order crosser and the covenant settler (`seqob-crosser`, `seqob-settler`), of the volume takers and their Lightning nodes (`seqob-volume-takers`, `seqob-ln-asset-b`, `seqob-ln-btc-taker`, as the `takers` user), of the other Bitcoin-side Lightning node (`seqob-ln-btc-maker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key), of the status page's checker (`gatus`), and of the web wallet's backend (`lsp-b5b1`, whose hosted Lightning nodes run in `seqln-hosted.slice` and outlive its restarts); none holds a credential, each service reads its own mode-600 config. |
+| `systemd/` | The units of the bridge services on the box (`compagesd`, `compages-watch`, `sbtc-bridge`, and the `compages-reserves` snapshot timer) of the makers below (`seqob-pureln-fleet`, `seqob-conf-maker`, `seqob-samechain-fleet`, the `seqob-liquidity-health` timer, `seqob-mixed-gold-eurx-buyer-side`, `seqob-mixed-gold-eurx-seller-side`, `seqob-xmakers`, the four `seqob-submarine-*`, `seqob-subasset-maker`, `seqob-subasset-sell-maker-usdx`), of the order crosser and the covenant settler (`seqob-crosser`, `seqob-settler`; these two, `lsp-b5b1` and `seqob-volume-takers` each have a `memory.conf` drop-in: see "The takers' memory limits"), of the volume takers and their Lightning nodes (`seqob-volume-takers`, `seqob-ln-asset-b`, `seqob-ln-btc-taker`, as the `takers` user), of the other Bitcoin-side Lightning node (`seqob-ln-btc-maker`), of the Arca operator (`arca-signer`, `arcad`, `arca-pg-wal`, `arca-pg-basebackup`, and its Lightning node `arca-ln`, with `arcad.service.d/bitcoin-ark.conf` where the Bitcoin ark runs), of the node JSON-RPC for browser wallets (`node-rpc-proxy`), of the Bitcoin ark (`bitcoin-ark-bitcoind`, `bitcoin-ark-cln`, `bitcoin-ark-captaind`, `bitcoin-ark-watchmand`), of the oracle-bond watcher (`sequentia-oracle-watcher`, which slashes an oracle's bond on two prices for one pair and time and can see no oracle key), of the status page's checker (`gatus`), and of the web wallet's backend (`lsp-b5b1`, whose hosted Lightning nodes run in `seqln-hosted.slice` and outlive its restarts); none holds a credential, each service reads its own mode-600 config. |
 | `bitcoin-ark/` | The Bitcoin ark's configuration templates (Bitcoin Core, the Lightning gateway, Bark's server and watchman), its fee proxy (`fee-proxy.py`) with the test that runs it against a stand-in node (`fee-proxy.test.py`), and the patches its Bark client and hold plugin carry. |
 | `makers/` | The scripts that keep SeqOB makers running on the box: `pureln-fleet.sh` (pure-Lightning makers), `supervise-conf.sh` (confidential makers), `samechain-fleet.sh` (interactive same-chain makers), `mixed-maker.sh` (the two mixed GOLD/EURX makers), `supervise-xmakers.sh` (the cross-chain makers), `subasset-requote.sh` (which reprices a sub-asset or submarine maker from the feed, and starts it again at once when it ends), `covenant_seed_all.mjs` (the on-chain covenant ladder) and `covenant_reclaim.py` (which takes back the coins of its expired orders). Installed in `/root/seqob-test`. `seqob-makers.env.example` names the secrets the shell scripts read; the seeder reads the node's `elements.conf`. |
 | `status/gatus.yaml`, `status/site/index.html` | The testnet status page at `sequentiatestnet.com/status/`: the checks [Gatus](https://github.com/TwiN/gatus) runs every minute against the public address (the chain, the explorer, the web wallet, the faucet, Compages, the staking pools, Emissio and the Sequentia Core download), and the page that shows them. See "The status page". |
@@ -834,6 +834,43 @@ seqdexd runs or not. seqdexd still unlocks the wallet at its own start (a no-op 
 already unlocked), so it never reads a transaction from a locked wallet, and a seqdexd stop
 leaves the wallet unlocked. The environment file quotes the password, escaping `\` and `"`;
 `bx4_1_bringup.sh` (the owner's bring-up script) writes it from seqdexd's password file.
+
+## The takers' memory limits
+
+The units that take offers run their legs as child processes in their own
+control groups, on the box that also runs the committee's nodes. Each has a
+memory limit, so a runaway leg is killed inside its unit and never by the
+kernel's machine-wide out-of-memory killer, which picks its victim from every
+process on the box:
+
+| Unit | Drop-in | Limit | Measured peak |
+|---|---|---|---|
+| `seqob-crosser` (the order crosser and its `seqob-cli` legs) | `systemd/seqob-crosser.service.d/memory.conf` | 2 GB | a lift: 25 MB at 29 coins at the taker's address, 45 MB at 1,000, 465 MB at 10,000; the crosser itself about 16 MB |
+| `lsp-b5b1` (the web wallet's backend and its `seqob-cli` swaps) | `systemd/lsp-b5b1.service.d/memory.conf` | 2 GB | 86.8 MB, the largest of 44 runs over eight days |
+| `seqob-settler` (the covenant settler) | `systemd/seqob-settler.service.d/memory.conf` | 512 MB | 20 MB |
+| `seqob-volume-takers` (the volume takers and their crossers) | `systemd/seqob-volume-takers.service.d/memory.conf` (`OOMPolicy` only; the limit is in the unit) | 2 GB | |
+
+At the limit the kernel kills the largest process of the group. That is
+usually a leg. Each of these units sets `OOMPolicy=continue`, so the unit keeps
+running and reports that leg as failed. systemd's default, `stop`, would end
+the whole unit and every leg in flight with it. When the service itself is
+the process killed, it exits and its `Restart=` brings it back. None sets
+`MemoryHigh`, for the reason given under the wallet daemon's limits below:
+past it the kernel throttles a process instead of killing it.
+
+```sh
+for u in seqob-crosser lsp-b5b1 seqob-settler seqob-volume-takers; do
+  install -D -m 644 systemd/$u.service.d/memory.conf /etc/systemd/system/$u.service.d/memory.conf
+done
+systemctl daemon-reload
+systemctl show -p MemoryMax -p OOMPolicy seqob-crosser.service lsp-b5b1.service seqob-settler.service seqob-volume-takers.service
+```
+
+`daemon-reload` applies a new limit to a running unit's control group
+without a restart. A limit set at runtime (`systemctl set-property --runtime`,
+kept under `/run/systemd/system.control/`) takes precedence over these files
+until it is removed or the box restarts, so `systemctl show -p DropInPaths`
+is where to look when the limit shown is not the file's.
 
 ## The makers' health
 
