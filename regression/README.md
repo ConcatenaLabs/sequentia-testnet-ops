@@ -152,7 +152,12 @@ itself once what you pay is ready") is held to the suite's longest wait, 12 minu
 says the ticket named none. A firm trade that SeqDEX answers is under way is followed in the
 Trade tab the same way and must end within the 60 seconds of a firm trade. A trade the wallet
 accepted that never gets a row in the Trade tab fails saying so: the ticket it was accepted with,
-when, how long there has been no row, and what the site showed. It is watched for up to three times that wait, so that it says
+when, how long there has been no row, what the site showed, and whether the wallet wrote a record
+of it at all. A trade is found by the id of the wallet's trade record written after its
+confirmation, and its row by that id: never by the list growing or by its first row, since the
+wallet keeps a bounded number of trades and lists a trade that ended below one still open. When a
+trade's card is open over the page, a failed line says what the card shows, and so does a passed
+line whose card disagrees with the trade's row or sits on top of others. It is watched for up to three times that wait, so that it says
 when the trade really ended, against the wait stated. Each trade line names its kind of ticket
 (firm, or "waited for a round") with both times, and the summary counts the trades of each kind
 with their lines, so a run that passes because every trade waited for a round is seen as such. The Trade tab's sale of BTC, paid from the Bitcoin ark, is also followed

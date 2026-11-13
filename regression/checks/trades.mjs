@@ -35,7 +35,7 @@
 // cannot pass by waiting everywhere unseen.
 import { sleep, helpers, faucetPass } from '../lib/suite.mjs'
 import { HOLDINGS_READ, CHOOSER_READ, holdingsOf, holdingsLines, usable, whereWords, lineNeed, fundedVerdict, faucetSent, faucetButton,
-  noRowWords, squeeze, chooserListsHeld, atomsOf, units, TAB_LISTED } from '../lib/holdings.mjs'
+  noRowWords, cardWords, CARD_READ, squeeze, chooserListsHeld, atomsOf, units, TAB_LISTED } from '../lib/holdings.mjs'
 
 const ORIGIN = 'https://sequentiatestnet.com'
 const WALLET = ORIGIN + '/wallet/'
@@ -151,6 +151,22 @@ export function btcPurchasesOpen (records) {
 const TRADE_RECORDS = `(()=>{ const out=[]; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i);
   if(!/^swk\.usertrade\.[^.]+$/.test(k)) continue; try{ const v=JSON.parse(localStorage.getItem(k)); if(Array.isArray(v)) out.push(...v.map(r=>({ source:r.source, dir:r.dir, state:r.state, preimage:!!r.preimage, receiveState:r.receiveState||null }))) }catch{} }
   return out })()`
+// Every trade record the page keeps, in its store's order: { id, state, step } (`step`: a step of a
+// composed trade, shown as the trade it is part of).
+export const RECORD_IDS = `(()=>{ const out=[]; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i);
+  if(!/^swk\.usertrade\.[^.]+$/.test(k)) continue; try{ const v=JSON.parse(localStorage.getItem(k)); if(Array.isArray(v)) out.push(...v.map(r=>({ id:r.id, state:r.state, step:!!r.partOf, at:r.at||0 }))) }catch{} }
+  return out })()`
+// The trade a confirmation made: the newest record that was not among `ids0` (the record ids before
+// it) and is not a step of another. Found by id, never by the Trade tab's row count or its first
+// row: a wallet's store keeps a bounded number of trades, so the count need not grow, and a trade
+// that ends before an older open one is listed below it (ops #241). -> { id, state } | null
+export function newRecord (records, ids0) {
+  const before = new Set(ids0 || [])
+  const fresh = (records || []).filter((r) => r && r.id && !r.step && !before.has(r.id))
+  if (!fresh.length) return null
+  const r = fresh.reduce((a, b) => (Number(b.at) >= Number(a.at) ? b : a))
+  return { id: r.id, state: r.state }
+}
 
 // The Trade tab: what is paid, what is received, the amount paid.
 const TAB_TRADES = [
@@ -241,11 +257,11 @@ async function tabTrade (h, pay, get, amount) {
   const tk = await waitValue(h, "(()=>{ const r=document.getElementById('userComposerRoot'); if(r.querySelector('#ucConfirm')) return 'OK '+r.querySelector('#ucTicket').innerText; const n=r.querySelector('#ucNote'); return n && n.classList.contains('err') && n.textContent && !r.querySelector('#ucReview').disabled ? 'ERR '+n.textContent : false })()", REVIEW_MS).catch(() => null)
   if (!tk) return { ok: false, detail: `no ticket ${REVIEW_MS / 1000} s after Review; the button reads "${await h.text('#userComposerRoot #ucReview')}", the page says "${await h.text('#userComposerRoot #ucNote')}"`, at: '#userComposerRoot #ucNote' }
   if (tk.startsWith('ERR ')) return { ok: false, detail: `${amount} ${pay} → ${get}: ${tk.slice(4)}`, at: '#userComposerRoot #ucNote' }
-  const rows0 = await h.eval("document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade').length")
   // An indicative ticket names its wait (#ucWait): the trade waits for a round, then goes by itself.
   const stated = await h.eval("((document.querySelector('#userComposerRoot #ucWait')||{}).textContent||'').trim()")
   const statedMs = statedWaitMs(stated)
-  const ids0 = statedMs != null ? (await h.eval(TRADE_IDS).catch(() => [])) || [] : []
+  // The trade records before the confirmation: the one written after is this trade's.
+  const ids0 = recordIds(await h.eval(RECORD_IDS).catch(() => []))
   const tC = Date.now()
   await h.click('#userComposerRoot #ucConfirm')
   if (statedMs != null) {
@@ -254,16 +270,19 @@ async function tabTrade (h, pay, get, amount) {
     // Accepted and never listed (sequentia-web-wallet #770): said as such, with the ticket.
     if (!r.trade) {
       const note = await h.text('#userComposerRoot #ucNote').catch(() => '')
-      return { ok: false, waited: true, detail: noRowWords({ head: `${amount} ${pay} → ${get}: waited for a round`, ticket: tk.slice(3), approvedAt: tC, afterMs: Date.now() - tC, site: null, tab: await h.eval(TAB_LISTED).catch(() => null) }) + (note ? `; the Trade tab says "${squeeze(note)}"` : ''), at: '#userComposerRoot #ucTrades' }
+      return { ok: false, waited: true, detail: noRowWords({ head: `${amount} ${pay} → ${get}: waited for a round`, ticket: tk.slice(3), approvedAt: tC, afterMs: Date.now() - tC, site: null, tab: await h.eval(TAB_LISTED).catch(() => null), record: r.record, card: await h.eval(CARD_READ).catch(() => null) }) + (note ? `; the Trade tab says "${squeeze(note)}"` : ''), at: '#userComposerRoot #ucTrades' }
     }
-    return { ok: waitedInTime(v), waited: true, trade: r.trade, detail: waitedDetail(`${amount} ${pay} → ${get}`, v), at: '#userComposerRoot #ucTrades' }
+    const ok = waitedInTime(v)
+    return { ok, waited: true, trade: r.trade, detail: waitedDetail(`${amount} ${pay} → ${get}`, v) + cardWords(await h.eval(CARD_READ).catch(() => null), { always: !ok, rowWord: r.word }), at: '#userComposerRoot #ucTrades' }
   }
-  const done = await waitValue(h, `(()=>{ const r=document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade'); if(r.length<=${rows0}) return false; const s=(r[0].querySelector('.uc-state')||{}).textContent||''; return /^(Received|Settled|Returned)/.test(s) ? s : false })()`, boundOf(pay)).catch(() => null)
-  const row = await h.eval("((document.querySelector('#userComposerRoot #ucTrades .uc-trade')||{}).innerText||'').replace(/\\s+/g,' ')")
+  // This trade's row, found by its record's id, until it reads Received, Settled or Returned.
+  const first = await rowUntil(h, ids0, /^(Received|Settled|Returned)/, tC + boundOf(pay))
+  const done = first.matched ? first.word : null
+  const trade = first.trade
   const note = await h.text('#userComposerRoot #ucNote')
   const secs = ((Date.now() - tC) / 1000).toFixed(1)
-  const trade = await h.eval("((document.querySelector('#userComposerRoot #ucTrades .uc-trade')||{}).dataset||{}).trade||null")
   const ticketS = ((tC - t0) / 1000).toFixed(1)
+  const card = () => h.eval(CARD_READ).catch(() => null)
   if (done && !/^Returned/.test(done)) {
     const slow = tC - t0 > TICKET_MS
     // In the tree, "Received" means a round is still needed before its coins can be spent: the
@@ -271,38 +290,62 @@ async function tabTrade (h, pay, get, amount) {
     let later = null, laterS = null
     if (inTree(pay, get) && !/^Settled/.test(done)) {
       const tR = Date.now()
-      later = await waitValue(h, `(()=>{ const r=document.querySelector('#userComposerRoot #ucTrades .uc-trade'); const s=((r||{}).querySelector ? (r.querySelector('.uc-state')||{}).textContent : '')||''; return /^(Settled|Returned)/.test(s) ? s : false })()`, SETTLE_ROUND_MS).catch(() => null)
-      if (!later) later = await h.eval("(document.querySelector('#userComposerRoot #ucTrades .uc-trade .uc-state')||{}).textContent||null")
+      const r2 = await rowUntil(h, ids0, /^(Settled|Returned)/, tR + SETTLE_ROUND_MS, trade)
+      later = r2.word || null
       laterS = ((Date.now() - tR) / 1000).toFixed(1)
     }
     const v = settledInTime(pay, get, done, later)
+    const ok = !slow && v.ok
     const tail = laterS == null ? '' : v.ok ? `, then ${v.word} ${laterS} s later` : `; ${SETTLE_ROUND_MS / 1000} s later it still reads "${v.word}", so what it brought cannot be spent yet`
-    return { ok: !slow && v.ok, trade, detail: `${amount} ${pay} → ${get}: firm ticket in ${ticketS} s${slow ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; ${done} after ${secs} s${tail}` }
+    return { ok, trade, detail: `${amount} ${pay} → ${get}: firm ticket in ${ticketS} s${slow ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; ${done} after ${secs} s${tail}` + cardWords(await card(), { always: !ok, rowWord: later || done }) }
   }
-  // No row of its own yet: the top row is an earlier trade's, and is not reported as this one's.
-  const rows1 = await h.eval("document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade').length")
-  if (!(rows1 > rows0)) {
-    return { ok: false, detail: noRowWords({ head: `${amount} ${pay} → ${get}: firm ticket`, ticket: tk.slice(3), approvedAt: tC, afterMs: Date.now() - tC, site: null, tab: await h.eval(TAB_LISTED).catch(() => null) }) + (note ? `; the Trade tab says "${squeeze(note)}"` : ''), at: '#userComposerRoot #ucTrades' }
+  // No record of it, or no row for its record: said as such, with the ticket.
+  if (!first.row) {
+    return { ok: false, detail: noRowWords({ head: `${amount} ${pay} → ${get}: firm ticket`, ticket: tk.slice(3), approvedAt: tC, afterMs: Date.now() - tC, site: null, tab: await h.eval(TAB_LISTED).catch(() => null), record: first.record, card: await card() }) + (note ? `; the Trade tab says "${squeeze(note)}"` : ''), at: '#userComposerRoot #ucTrades' }
   }
-  return { ok: false, detail: `${amount} ${pay} → ${get}: after ${secs} s the trade reads "${row || 'no row'}"${note ? '; ' + note : ''}`, at: '#userComposerRoot #ucTrades' }
+  return { ok: false, trade, detail: `${amount} ${pay} → ${get}: after ${secs} s the trade reads "${first.word || 'no row'}"${note ? '; ' + note : ''}` + cardWords(await card()), at: '#userComposerRoot #ucTrades' }
 }
 
-// The ids of the trades the Trade tab lists now.
-const TRADE_IDS = "[...document.querySelectorAll('#userComposerRoot #ucTrades .uc-trade')].map((d)=>d.dataset.trade)"
+// The ids of every trade record, from RECORD_IDS.
+const recordIds = (recs) => (recs || []).map((r) => r && r.id).filter(Boolean)
+// The Trade tab's row of a trade, by its record's id.
+const rowSel = (t) => `#userComposerRoot #ucTrades .uc-trade[data-trade=${JSON.stringify(String(t))}]`
+const ROW_WORD = (t) => `(()=>{ const r=document.querySelector(${JSON.stringify(rowSel(t))}); return r ? ((r.querySelector('.uc-state')||{}).textContent||'') : null })()`
+// Follows the row of the trade new since `ids0` (or `trade`, once known) until its words match
+// `want` or `until` (ms) passes. -> { trade, record ({ id, state } | null), row (whether listed),
+// word, matched }
+async function rowUntil (h, ids0, want, until, trade = null) {
+  let record = trade ? { id: trade, state: null } : null, word = null
+  for (;;) {
+    if (!trade) { record = newRecord(await h.eval(RECORD_IDS).catch(() => []), ids0); trade = record ? record.id : null }
+    if (trade) {
+      word = await h.eval(ROW_WORD(trade)).catch(() => word)
+      if (word != null && want.test(word)) return { trade, record, row: true, word, matched: true }
+    }
+    if (Date.now() > until) {
+      if (trade) record = (await h.eval(RECORD_IDS).catch(() => [])).find((r) => r && r.id === trade) || record
+      return { trade, record, row: word != null, word: word || '', matched: false }
+    }
+    await sleep(2000)
+  }
+}
+
 // Follows the Trade tab's row of a trade that waits for a round, from the confirmation at `tC`,
-// until it ends or OVERRUN times its stated wait has passed: the trade listed now that was not
-// among `ids0` before the confirmation. -> { trade, end, endedMs, word }
+// until it ends or OVERRUN times its stated wait has passed: the trade whose record is new since
+// `ids0` (the record ids before the confirmation), its row read by that id.
+// -> { trade, end, endedMs, word, record } (`trade` null when the wallet wrote no record; `word`
+// 'no row' when it did and lists no row for it)
 async function followWaited (h, pay, get, statedMs, tC, ids0, trade = null) {
   const sel = (t) => `#userComposerRoot #ucTrades .uc-trade[data-trade=${JSON.stringify(String(t))}]`
   let word = ''
   for (;;) {
-    if (!trade) trade = ((await h.eval(TRADE_IDS).catch(() => [])) || []).find((t) => t && !ids0.includes(t)) || null
+    if (!trade) { const rec = newRecord(await h.eval(RECORD_IDS).catch(() => []), ids0); trade = rec ? rec.id : null }
     if (trade) {
       word = await h.eval(`((document.querySelector(${JSON.stringify(sel(trade))})||{}).querySelector?.('.uc-state')||{}).textContent||''`).catch(() => word)
       const end = endWord(pay, get, word)
       if (end) return { trade, end, endedMs: Date.now() - tC, word }
     }
-    if (Date.now() - tC > OVERRUN * statedMs) return { trade, end: null, endedMs: null, word: word || 'no row' }
+    if (Date.now() - tC > OVERRUN * statedMs) return { trade, end: null, endedMs: null, word: word || 'no row', record: trade ? { id: trade, state: null } : null }
     await sleep(2000)
   }
 }
@@ -341,8 +384,8 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
   const dialog = await wallet.eval("((document.querySelector('#pageApiApproval')||{}).innerText||'')").catch(() => '')
   const stated = (String(dialog).match(WAIT_WORDS) || [''])[0]
   const statedMs = statedWaitMs(stated)
-  // The trades the wallet lists before approval: the one it lists after is this trade's.
-  const ids0 = (await wallet.eval(TRADE_IDS).catch(() => [])) || []
+  // The trade records before approval: the one written after is this trade's.
+  const ids0 = recordIds(await wallet.eval(RECORD_IDS).catch(() => []))
   await wallet.click('#pageApiApprove')
   if (statedMs != null) {
     const st = await waitValue(site, "(()=>{const s=document.querySelector('#fStatus'); return s && (s.classList.contains('ok')||s.classList.contains('err')) ? (s.classList.contains('ok')?'ok ':'err ')+s.textContent : false})()", BOUND_MS).catch(() => null)
@@ -350,7 +393,7 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
     const r = await followWaited(wallet, pay, get, statedMs, tC, ids0)
     const v = { ticketMs: tC - tGo, statedMs, stated, ...r }
     // Accepted and never listed (sequentia-web-wallet #770): said as such, with the ticket.
-    if (!r.trade) return { ok: false, waited: true, detail: noRowWords({ head: `${side} ${amount} of ${pair}: waited for a round, dialog in ${dialogS} s`, ticket: dialog, approvedAt: tC, afterMs: Date.now() - tC, site: await site.text('#fStatus').catch(() => ''), tab: await wallet.eval(TAB_LISTED).catch(() => null) }), at: '#fStatus' }
+    if (!r.trade) return { ok: false, waited: true, detail: noRowWords({ head: `${side} ${amount} of ${pair}: waited for a round, dialog in ${dialogS} s`, ticket: dialog, approvedAt: tC, afterMs: Date.now() - tC, site: await site.text('#fStatus').catch(() => ''), tab: await wallet.eval(TAB_LISTED).catch(() => null), record: r.record }), at: '#fStatus' }
     return { ok: waitedInTime(v), waited: true, detail: waitedDetail(`${side} ${amount} of ${pair} (the site: "${st.slice(3)}")`, v), at: '#fStatus' }
   }
   // The site draws its form again after a trade, so #fStatus can be missing for a moment.
@@ -371,7 +414,7 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
   if (st && st.startsWith('ok ') && /under way/i.test(st)) {
     const head = `${side} ${amount} of ${pair}: firm ticket, dialog in ${dialogS} s${slowDialog ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; the site said "${st.slice(3)}"`
     const r = await followWaited(wallet, pay, get, BOUND_MS, tC, ids0)
-    if (!r.trade) return { ok: false, detail: noRowWords({ head, ticket: dialog, approvedAt: tC, afterMs: Date.now() - tC, site: await site.text('#fStatus').catch(() => ''), tab: await wallet.eval(TAB_LISTED).catch(() => null) }), at: '#fStatus' }
+    if (!r.trade) return { ok: false, detail: noRowWords({ head, ticket: dialog, approvedAt: tC, afterMs: Date.now() - tC, site: await site.text('#fStatus').catch(() => ''), tab: await wallet.eval(TAB_LISTED).catch(() => null), record: r.record }), at: '#fStatus' }
     return { ok: followedInTime(r, BOUND_MS) && !slowDialog, trade: r.trade, detail: `${head}; ${followedWords(r, BOUND_MS)}`, at: '#fStatus' }
   }
   return { ok: false, detail: `${side} ${amount} of ${pair}: after ${secs} s the site says "${st ? st.slice(st.indexOf(' ') + 1) : await site.text('#fStatus') || 'nothing'}"`, at: '#fStatus' }

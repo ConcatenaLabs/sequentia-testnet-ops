@@ -5,8 +5,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { btcPurchasesOpen, stillMoving, settledInTime, inTree, SETTLE_ROUND_MS, statedWaitMs, endWord, waitedInTime, TICKET_MS, OVERRUN,
-  tabNeed, dexNeed, followedInTime, followedWords, BOUND_MS, arrivedWhole, UNSTATED_WAIT_MS, waitStated, waitedDetail, WAIT_WORDS } from './trades.mjs'
-import { lineNeed } from '../lib/holdings.mjs'
+  tabNeed, dexNeed, followedInTime, followedWords, BOUND_MS, arrivedWhole, UNSTATED_WAIT_MS, waitStated, waitedDetail, WAIT_WORDS, newRecord } from './trades.mjs'
+import { lineNeed, noRowWords, cardWords } from '../lib/holdings.mjs'
 
 test('a refresh not done, or a coin moving, keeps the page open', () => {
   assert.deepEqual(stillMoving({ participations: [{ participation: '8e671547088b0000', state: 'pending' }], coins: [{ state: 'live' }] }),
@@ -134,4 +134,39 @@ test('a waiting ticket that names no time is followed, held to the suite\'s long
   // A wallet's new ends are ends: nothing traded.
   assert.equal(endWord('USDX', 'tSEQ', 'Returned: nothing traded. It took too long to get ready.'), 'returned')
   assert.equal(endWord('USDX', 'tSEQ', 'Returned: nothing traded. Your wallet no longer holds what it was to pay.'), 'returned')
+})
+
+// sequentia-web-wallet #774 / ops #241: on the testnet trader the store kept eight trades, so the
+// list stayed at eight rows as a purchase came in, and the purchase, settled first, was listed
+// below a sale still open. The trade is its record new since the confirmation, whatever the rows.
+test('a Trade-tab trade is the record new since its confirmation, never the row count or the first row', () => {
+  const before = [{ id: 'a', state: 'settled', at: 1 }, { id: 'sale', state: 'sent', at: 2 }]
+  const ids0 = before.map((r) => r.id)
+  // The store dropped its oldest trade as the purchase came in: the count did not grow.
+  const after = [{ id: 'sale', state: 'sent', at: 2 }, { id: 'buy', state: 'settled', at: 3 }]
+  assert.deepEqual(newRecord(after, ids0), { id: 'buy', state: 'settled' })
+  // None written: null, said as such.
+  assert.equal(newRecord(before, ids0), null)
+  // A composed trade's step is shown as its trade: the trade, not the step.
+  assert.deepEqual(newRecord([...before, { id: 'c', state: 'sent', at: 5 }, { id: 'c1', state: 'sent', at: 6, step: true }], ids0), { id: 'c', state: 'sent' })
+  // Two new ones (a site's trade written meanwhile): the newest.
+  assert.equal(newRecord([...before, { id: 'x', at: 7 }, { id: 'y', at: 9 }], ids0).id, 'y')
+})
+
+test('no row for a trade says whether the wallet wrote its record, and what an open card shows', () => {
+  const base = { head: 'h', ticket: 't', approvedAt: 0, afterMs: 1000 }
+  assert.match(noRowWords({ ...base, record: null }), /the wallet wrote no record of it/)
+  assert.match(noRowWords({ ...base, record: { id: 'b', state: 'waiting' } }), /the wallet's record of it \(waiting\) is not among the rows/)
+  assert.doesNotMatch(noRowWords(base), /record/, 'not read, not said')
+  const card = { count: 1, title: 'Trade sent', state: 'Keep this page open: your BTC is paid once what you buy is held for you' }
+  assert.match(noRowWords({ ...base, record: null, card }), /the trade's card over the page says "Trade sent", status "Keep this page open/)
+})
+
+test('an open trade card is said on a failed line, and on a passed one only when it is stuck or stacked (sequentia-web-wallet #775)', () => {
+  const card = (state, count = 1) => ({ count, title: 'Trade sent', state })
+  assert.equal(cardWords(null), '')
+  assert.match(cardWords(card('Settled')), /the trade's card over the page says "Trade sent", status "Settled"/)
+  assert.equal(cardWords(card('Settled'), { always: false, rowWord: 'Settled' }), '', 'a card that follows its trade is not news')
+  assert.match(cardWords(card('Keep this page open'), { always: false, rowWord: 'Settled' }), /status "Keep this page open" \(not the row's words\)/)
+  assert.match(cardWords(card('Settled', 3), { always: false, rowWord: 'Settled' }), /^; 3 trade cards are stacked over the page, the top one says/)
 })
