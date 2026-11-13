@@ -14,11 +14,14 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 // The testnet faucet pays each asset once per wallet and once a day to one network, and never
 // refuses our own tooling: a request carrying the token the box keeps for it, as `X-Faucet-Exempt`
 // (sequentia-faucet, "Once per wallet"), is neither checked nor recorded. The suite reads the
-// token from FAUCET_EXEMPT_TOKEN_FILE, else ~/.config/sequentia/faucet-exempt.token, and without
-// one runs as any tester does.
-export function faucetToken (env = process.env) {
-  const f = env.FAUCET_EXEMPT_TOKEN_FILE || join(homedir(), '.config/sequentia/faucet-exempt.token')
-  try { const t = readFileSync(f, 'utf8').trim(); return t.length >= 32 ? t : null } catch { return null }
+// token from FAUCET_EXEMPT_TOKEN_FILE alone when it is set, else from
+// ~/.config/sequentia/faucet-exempt.token, else, run on the box, from the faucet's own file there
+// (BOX_FAUCET_TOKEN); without one it runs as any tester does.
+export const BOX_FAUCET_TOKEN = '/root/sequentia/faucet-state/exempt.token'
+export function faucetToken (env = process.env, home = homedir()) {
+  const files = env.FAUCET_EXEMPT_TOKEN_FILE ? [env.FAUCET_EXEMPT_TOKEN_FILE] : [join(home, '.config/sequentia/faucet-exempt.token'), BOX_FAUCET_TOKEN]
+  for (const f of files) { try { const t = readFileSync(f, 'utf8').trim(); if (t.length >= 32) return t } catch {} }
+  return null
 }
 // Adds the token to the page's requests to `origin`/faucet, and to no other request, so it never
 // reaches another host. -> whether it is on.
@@ -88,6 +91,8 @@ export function clone (cache, repo) {
   return { dir, rev: execFileSync('git', ['-C', dir, 'rev-parse', '--short=10', 'HEAD']).toString().trim() }
 }
 
+export const DETAIL_MAX = 900
+
 export class Report {
   constructor (out, known = {}) {
     this.out = out; this.known = known; mkdirSync(out, { recursive: true })
@@ -105,7 +110,9 @@ export class Report {
     this.rows.push({ id, width, status, line, detail, shot })
     const d = detail === undefined || detail === '' ? '' : ' :: ' + (typeof detail === 'string' ? detail : JSON.stringify(detail))
     const k = status === 'FAIL' && this.known[id] ? `\n       known: ${this.known[id]}` : ''
-    this.note(`${status.padEnd(4)} ${id.padEnd(14)} ${(width || '-').padEnd(7)} ${line}${d.length > 400 ? d.slice(0, 400) + '…' : d}${shot ? '  [' + shot + ']' : ''}${k}`)
+    // A detail names the cause (what a line paid from, the ticket a trade was accepted with), so it
+    // is cut only past DETAIL_MAX.
+    this.note(`${status.padEnd(4)} ${id.padEnd(14)} ${(width || '-').padEnd(7)} ${line}${d.length > DETAIL_MAX ? d.slice(0, DETAIL_MAX) + '…' : d}${shot ? '  [' + shot + ']' : ''}${k}`)
   }
 
   // Runs one line. `page` (optional) is screenshotted on failure, with the result's `at`
