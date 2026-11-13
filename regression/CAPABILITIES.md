@@ -213,11 +213,15 @@ From the trader wallet (`checks/trades.mjs`): a small market purchase, then the 
 bought, each priced within 10 seconds (Review to the ticket; on SeqDEX, the button to the wallet's
 dialog) and done within 60 seconds of the confirmation, or failed with the time or what the page
 says. A purchase paid with BTC has 180 seconds: the wallet pays its BTC only once the asset held
-for it is final, in the operator's next round and that round's certified block.
+for it is final, in the operator's next round and that round's certified block. The run prints what
+the trader holds at its start and its end, per asset; a line that lacks what it pays is SKIP with
+where that asset is, and `WW-TRADER-FUNDED` is the line that fails.
 
 | Id | Can | Contract |
 |---|---|---|
 | WW-RESTORE-LONG | restore a wallet with weeks of trades from its phrase in a fresh profile, and its restore ends within 300 s (SKIP while the trader's profile is kept) | Receive |
+| WW-RESTORE-TRADABLE | once that restore ends, find every asset the wallet can spend listed in the Trade tab within 15 s (SKIP while the trader's profile is kept) | Trade |
+| WW-TRADER-FUNDED | the trader holds what the trade lines pay from its own holdings, each line's amount named, topped up from the public faucet page to its own receive code when short | Trade |
 | WW-TRADE-USDX-GOLD-BUY, WW-TRADE-USDX-GOLD-SELL | buy GOLD with USDX and sell it back in the Trade tab | Trade |
 | WW-TRADE-TSEQ-USDX-BUY, WW-TRADE-TSEQ-USDX-SELL | buy tSEQ with USDX and sell it back in the Trade tab | Trade |
 | WW-TRADE-BTC-USDX-BUY, WW-TRADE-BTC-USDX-SELL | buy BTC with USDX and sell it back in the Trade tab | Trade |

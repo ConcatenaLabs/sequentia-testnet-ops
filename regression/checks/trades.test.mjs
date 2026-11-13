@@ -4,7 +4,9 @@
 //   node --test regression/checks/trades.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { btcPurchasesOpen, stillMoving, settledInTime, inTree, SETTLE_ROUND_MS, statedWaitMs, endWord, waitedInTime, TICKET_MS, OVERRUN } from './trades.mjs'
+import { btcPurchasesOpen, stillMoving, settledInTime, inTree, SETTLE_ROUND_MS, statedWaitMs, endWord, waitedInTime, TICKET_MS, OVERRUN,
+  tabNeed, dexNeed, followedInTime, followedWords, BOUND_MS, arrivedWhole, UNSTATED_WAIT_MS, waitStated, waitedDetail, WAIT_WORDS } from './trades.mjs'
+import { lineNeed } from '../lib/holdings.mjs'
 
 test('a refresh not done, or a coin moving, keeps the page open', () => {
   assert.deepEqual(stillMoving({ participations: [{ participation: '8e671547088b0000', state: 'pending' }], coins: [{ state: 'live' }] }),
@@ -88,4 +90,48 @@ test('a purchase paid with BTC keeps the page open until its BTC is paid and its
   assert.deepEqual(btcPurchasesOpen(recs), { unpaid: 1, unclaimed: 1 })
   assert.deepEqual(btcPurchasesOpen([]), { unpaid: 0, unclaimed: 0 })
   assert.deepEqual(btcPurchasesOpen(null), { unpaid: 0, unclaimed: 0 })
+})
+
+test('each line pays what it states: the Trade tab what is paid, SeqDEX a purchase by what it receives', () => {
+  assert.deepEqual(tabNeed(['USDX-GOLD-BUY', 'USDX', 'GOLD', '5']), { id: 'WW-TRADE-USDX-GOLD-BUY', pay: 'USDX', get: 'GOLD', payAmount: '5' })
+  assert.deepEqual(dexNeed(['USDX-GOLD-BUY', 'GOLD-USDX', 'buy', '0.001']), { id: 'DX-TRADE-USDX-GOLD-BUY', pay: 'USDX', get: 'GOLD', getAmount: '0.001' })
+  assert.deepEqual(dexNeed(['TSEQ-USDX-SELL', 'tSEQ-USDX', 'sell', '20']), { id: 'DX-TRADE-TSEQ-USDX-SELL', pay: 'tSEQ', get: 'USDX', payAmount: '20' })
+  // The BTC desk's pair is shown USDX-BTC: selling USDX buys BTC, from the trader's own USDX.
+  assert.deepEqual(lineNeed(dexNeed(['BTC-USDX-BUY', 'USDX-BTC', 'sell', '10'])), { id: 'DX-TRADE-BTC-USDX-BUY', pay: 'USDX', atoms: 1000000000n, from: 'held', how: '10 USDX' })
+  // Buying USDX pays BTC, which the purchase before it bought.
+  const n = lineNeed(dexNeed(['BTC-USDX-SELL', 'USDX-BTC', 'buy', '10']), { USDX: { price: 1 }, tBTC: { price: 80000 } })
+  assert.equal(n.pay, 'BTC'); assert.equal(n.from, 'bought'); assert.equal(n.atoms, 15625n)
+})
+
+test('a firm trade the site calls under way is judged on the time it takes to its end in the Trade tab', () => {
+  assert.equal(followedInTime({ end: 'done', endedMs: 40_000, word: 'Settled' }, BOUND_MS), true)
+  assert.equal(followedInTime({ end: 'done', endedMs: 70_000, word: 'Settled' }, BOUND_MS), false)
+  assert.equal(followedInTime({ end: 'returned', endedMs: 10_000, word: 'Returned: nothing traded.' }, BOUND_MS), false)
+  assert.equal(followedInTime({ end: null, endedMs: null, word: 'Received, settling' }, BOUND_MS), false)
+  assert.equal(followedWords({ end: 'done', endedMs: 70_000, word: 'Settled' }, BOUND_MS), 'in the wallet\'s Trade tab it reads "Settled" after 70.0 s, past the 60.0 s')
+  assert.equal(followedWords({ end: 'done', endedMs: 12_300, word: 'Settled' }, BOUND_MS), 'in the wallet\'s Trade tab it reads "Settled" after 12.3 s, within the 60.0 s')
+  assert.equal(followedWords({ end: 'returned', endedMs: 9_000, word: 'Returned' }, BOUND_MS), 'in the wallet\'s Trade tab it reads "Returned" after 9.0 s: nothing traded')
+  assert.equal(followedWords({ end: null, endedMs: null, word: 'Received, settling' }, BOUND_MS), `in the wallet's Trade tab it still reads "Received, settling" ${(OVERRUN * 60).toFixed(1)} s after approval, past the 60.0 s`)
+})
+
+test('a faucet payment has arrived once the figure rose by it, less the fee of moving it in', () => {
+  // 500,000 USDX paid to the address, moved in for 39 atoms (seen live 2026-11-13).
+  assert.equal(arrivedWhole(49999999999961n, 50000000000000n), true)
+  assert.equal(arrivedWhole(25000000000000n, 50000000000000n), false)
+  assert.equal(arrivedWhole(0n, 50000000000000n), false)
+  assert.equal(arrivedWhole(5n, null), true)
+})
+
+test('a waiting ticket that names no time is followed, held to the suite\'s longest wait, and says so', () => {
+  const t = 'Goes through by itself once what you pay is ready'
+  assert.equal(statedWaitMs(t), UNSTATED_WAIT_MS)
+  assert.equal(waitStated(t), false)
+  assert.equal(waitStated('Goes through within about 6 minutes'), true)
+  assert.equal(('TRADE? You pay about 3.5 USDX ' + t + ' Approve').match(WAIT_WORDS)[0], t)
+  const d = waitedDetail('20 tSEQ → USDX', { ticketMs: 3000, statedMs: UNSTATED_WAIT_MS, endedMs: 200_000, end: 'done', word: 'Settled', stated: t })
+  assert.equal(d, `20 tSEQ → USDX: waited for a round, ticket "${t}" in 3.0 s; Settled after 200.0 s, within the suite's longest wait, 720.0 s (the ticket named no time)`)
+  assert.match(waitedDetail('x', { ticketMs: 3000, statedMs: 360_000, endedMs: 400_000, end: 'done', word: 'Settled', stated: 'Goes through within about 6 minutes' }), /past the 360\.0 s stated$/)
+  // A wallet's new ends are ends: nothing traded.
+  assert.equal(endWord('USDX', 'tSEQ', 'Returned: nothing traded. It took too long to get ready.'), 'returned')
+  assert.equal(endWord('USDX', 'tSEQ', 'Returned: nothing traded. Your wallet no longer holds what it was to pay.'), 'returned')
 })

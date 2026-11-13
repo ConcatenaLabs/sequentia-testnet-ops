@@ -47,4 +47,4 @@ jobs:
           tar xzf $f
           BITCOIND=$PWD/bitcoin-$v/bin/bitcoind python3 -I makers/bark_refill_test.py
       - name: regression suite unit tests
-        run: node --test regression/checks/trades.test.mjs regression/lib/browsers.test.mjs regression/lib/suite.test.mjs
+        run: node --test regression/checks/trades.test.mjs regression/lib/browsers.test.mjs regression/lib/suite.test.mjs regression/lib/holdings.test.mjs

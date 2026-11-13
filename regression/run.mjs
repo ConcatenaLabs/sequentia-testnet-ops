@@ -75,7 +75,8 @@ async function withBrowser (label, fn, { keep = false } = {}) {
   // without it. Anywhere else nothing changes.
   const root = typeof process.getuid === 'function' && process.getuid() === 0
   const b = new Browser({ chrome: CHROME, profile, ext: ext.dir, consoleLog: join(out, `console-${label}.log`), headless: true,
-    extraArgs: ['--window-size=1440,1000', ...(root ? ['--no-sandbox'] : [])] })
+    // Headless, without the GPU: the run needs none, and a laptop's graphics driver is left alone.
+    extraArgs: ['--window-size=1440,1000', '--disable-gpu', ...(root ? ['--no-sandbox'] : [])] })
   browsers.add(b)
   await b.launch(label)
   const seen = new Map()
