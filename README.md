@@ -18,7 +18,7 @@ put it in place and keep copies of it.
 | `bin/fronting-read.sh` | What the Arca operator fronts, why, and what fronting the market needs once fronted capital comes back promptly: in flight per asset and what holds it, refresh demand and return times, the steady state against the plan. Read-only. See "What the operator fronts". |
 | `bin/our-capital.py` | What the bots that stand for our own capital hold, at the feed's prices, against the mainnet plan: our makers' holdings and our LSP's channels and float. Read-only. See "The testnet's numbers". |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
-| `bin/publish-fee-whitelist.sh`, `systemd/seq-price-server.service.d/publish-file.conf` | The network's price server's fee whitelist at `http://sequentiatestnet.com/feewhitelist`, the address every testnet node is connected to by default: the price server writes it as a file and Caddy serves the file. See "The network's fee whitelist". |
+| `bin/fee-whitelist-cutover.sh` | The public nodes read their price servers' fee whitelists, and no price server writes to a node: the network's price server publishes at `http://sequentiatestnet.com/feewhitelist` (a file Caddy serves), the second operator's on loopback, and every public node and the second operator's node is connected to its price server by its configuration. Run in stages around a node release's cutover. See "The network's fee whitelist". |
 | `bin/node-rpc-proxy.py` | The node JSON-RPC for browser wallets behind `/node-rpc`: the calls a wallet makes and no other, rate-limited, with the node's credential added on the box. Installed at `/usr/local/lib/node-rpc-proxy/`. |
 | `bin/node-rpc-proxy-hold-test.py` | The node route's hold over HTTP: a hold kept for what it asks up to its bound, the per-source and overall bounds refused at once, anything else on `/hold` refused. |
 | `bin/node-rpc-proxy-limits-test.py` | The node route's limits in simulated time: a refused batch costs nothing, a client asking every 2.2 s gets a 64-call batch through steadily, and at the shipped limits a wallet's restore is never refused while a source asking for the largest blocks gets its byte budget and no more. |
@@ -154,27 +154,40 @@ are not restarted by it.
 
 ## The network's fee whitelist
 
-A fee whitelist is static when written by hand and dynamic when a price server
-updates it. Every testnet node is connected by default to the network's price
-server, `seq-price-server.service`, and takes the list it publishes at
-`http://sequentiatestnet.com/feewhitelist`. That price server also writes the
-same list to the public nodes over RPC. It publishes the list as a file
-(`price_server.py --publish-file /srv/feewhitelist/feewhitelist.json`, the
-drop-in `systemd/seq-price-server.service.d/publish-file.conf`), and the
-Caddyfile's `/feewhitelist` route serves that file, over plain http because the
-node links no TLS library. The route serves the file and nothing else: the price
-server's own web UI is never proxied, since behind a proxy every request comes
-from loopback, which that UI treats as its admin when no password is set.
+A fee whitelist is static when written by hand and dynamic when the node is
+connected to a price server and reads the list it publishes; a price server
+never writes to a node. Every testnet node is connected by default to the
+network's price server, `seq-price-server.service`, at
+`http://sequentiatestnet.com/feewhitelist`. That price server writes its list as
+a file (`price_server.py --publish-file /srv/feewhitelist/feewhitelist.json`),
+and the Caddyfile's `/feewhitelist` route serves that file, over plain http
+because the node links no TLS library. The route serves the file and nothing
+else: the price server's own web UI is never proxied, since behind a proxy every
+request comes from loopback, which that UI treats as its admin when no password
+is set. The file holds the rates and when they were made, nothing else.
 
-The price server's code runs from a detached checkout of the node repository of
-its own, `/root/seq-price-server-src`. `bin/publish-fee-whitelist.sh` installs
-or moves it forward, never back, and puts all of this in place. Run it on the box
-from a laptop (`TRIAL=1` checks one dry poll and changes nothing, `BACK=1` undoes
-it):
+The public nodes (the committee, the dexnode, the explorer node, the pool-board
+node) read the same list, each by a `feepriceserver=` line in its own
+`elements.conf`, which outranks a list once written by hand in its data
+directory. The second operator's node reads its own operator's price server,
+`arca-b-priceserver.service`, which publishes on `127.0.0.1:18690`. Neither price
+server holds a node's login.
+
+`bin/fee-whitelist-cutover.sh` puts all of this in place at a node release's
+cutover, in three stages around the fleet's stop and start, so no public node
+ever runs with an empty or a one-asset list. The network price server's code runs
+from a detached checkout of the node repository of its own,
+`/root/seq-price-server-src`, moved forward, never back, and both price servers
+are restarted whenever it runs. `TRIAL=1` checks one round of the new code and
+changes nothing; `BACK=1`, with the fleet stopped, undoes exactly what it
+changed.
 
 ```sh
 git -C <this checkout> fetch -q origin
-git -C <this checkout> show origin/main:bin/publish-fee-whitelist.sh | ssh seq 'bash -s'
+git -C <this checkout> show origin/main:bin/fee-whitelist-cutover.sh | ssh seq 'TRIAL=1 bash -s'
+git -C <this checkout> show origin/main:bin/fee-whitelist-cutover.sh | ssh seq 'STAGE=before bash -s'   # fleet running
+git -C <this checkout> show origin/main:bin/fee-whitelist-cutover.sh | ssh seq 'STAGE=stopped bash -s'  # fleet stopped, new binaries in place
+git -C <this checkout> show origin/main:bin/fee-whitelist-cutover.sh | ssh seq 'STAGE=started bash -s'  # fleet started
 ```
 
 `PP-FEE-WHITELIST` in the regression suite checks the address answers a fresh
