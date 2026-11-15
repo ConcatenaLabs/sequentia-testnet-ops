@@ -174,8 +174,8 @@ fleet_running() {
 }
 
 wait_served() {
-  local url=$1 body i
-  for i in $(seq 1 90); do
+  local url=$1 body
+  for _ in $(seq 1 90); do
     body=$(curl -fsS --max-time 10 "$url" 2>/dev/null) && check_list <<< "$body" >/dev/null 2>&1 && { check_list <<< "$body"; return 0; }
     sleep 2
   done
@@ -348,8 +348,8 @@ started)
   bad=0
   check_node() { # name, cli command..., expected url
     local name=$1 url=$2; shift 2
-    local s i
-    for i in $(seq 1 45); do
+    local s
+    for _ in $(seq 1 45); do
       s=$("$@" getfeepriceserver 2>/dev/null) && python3 -I -c '
 import json, sys
 s = json.loads(sys.argv[1])
