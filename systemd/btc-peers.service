@@ -1,5 +1,5 @@
 [Unit]
-Description=The box Bitcoin node's peer list, address and user agent only, for Emissio (bin/btc-peers.py)
+Description=The box Bitcoin node's peer list, for Emissio (bin/btc-peers.py)
 After=bitcoind.service
 
 [Service]
