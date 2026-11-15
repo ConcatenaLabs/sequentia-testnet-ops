@@ -1,0 +1,11 @@
+[Unit]
+Description=The box Bitcoin node's peer list every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Unit=btc-peers.service
+
+[Install]
+WantedBy=timers.target

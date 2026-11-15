@@ -24,6 +24,7 @@ put it in place and keep copies of it.
 | `makers/liquidity-health.sh`, `makers/maker_funds.py`, `makers/liquidity-targets.json` | The makers' and the Arca operator's health, every ten minutes: the depth audit, treasury2026 kept at its floors (minting the faucet assets it runs short of), and every consumer refilled below its floor from `treasury2026` and `maker-bridged` only. See "The makers' health". |
 | `makers/volume-takers.mjs` | Traders that trade against the makers on every rail and pair, both ways, at a daily volume target, ramped under load, health and wallet-latency rules. See "Trading volume: the volume takers". |
 | `bin/load-record.py`, `systemd/box-load-record.service`, `systemd/box-load-record.timer`, `logrotate/box-load` | The box's load history: every five minutes, one line of the load average, the kernel's pressure, the CPU split and each busy unit's CPU, memory and processes, kept eight weeks. See "The box's load history". |
+| `bin/btc-peers.py`, `systemd/btc-peers.service`, `systemd/btc-peers.timer`, `systemd/seq-rpc-proxy.service.d/own-checkout.conf` | The box Bitcoin node's peer list every minute, addresses and user agents only, readable by Emissio and nobody else, and the shared Bitcoin endpoint run from a checkout of its own. See "The shared Bitcoin endpoint and the Bitcoin node's peers". |
 | `bin/dex-health-probe.sh`, `systemd/seq-health-probe.service`, `systemd/seq-health-probe.timer` | The DEX's health on the box every five minutes, to the journal: the ports, the chain, the nodes' wallets, the relay's markets and every DEX unit. See "The DEX health probe". |
 | `bin/seqdex-depth-audit.py` | How deep every SeqDEX market is on every rail, and whether its best level can be taken now: one table and a verdict per directed market. See "How deep the books are". |
 | `bin/arca-pg-restore-drill.sh` | Restores the Arca operator's database from its newest base backup and every WAL segment after it into a scratch cluster, and checks the last commit is there. |
@@ -1068,6 +1069,45 @@ fixed. Install or update it from this checkout:
 
     install -m 644 systemd/seq-health-probe.service systemd/seq-health-probe.timer /etc/systemd/system/
     systemctl daemon-reload && systemctl enable --now seq-health-probe.timer
+
+## The shared Bitcoin endpoint and the Bitcoin node's peers
+
+A fresh testnet node checks its anchors against the shared Bitcoin testnet4
+endpoint, `seq-rpc-proxy.service` on port 48400: the Sequentia repository's
+`contrib/sequentia/testnet-rpc-cache-proxy.py`, in front of the box's Bitcoin
+node. The drop-in `systemd/seq-rpc-proxy.service.d/own-checkout.conf` runs it
+from a checkout of its own, `/root/sequentia/rpc-proxy` (a sparse checkout of
+`contrib/sequentia` only), so a change to the proxy goes live without moving
+the nodes' run checkout. The proxy keeps, in memory and for a day, the time
+each address last called it, and answers `GET /last-seen?addr=<address>` to
+the box itself only.
+
+The box's Bitcoin node (testnet4) takes peers on 48333/tcp, open in ufw.
+`btc-peers.timer` writes its peer list every minute, each peer's address, user
+agent and direction only, to `/var/lib/btc-peers/peers.json`
+(`bin/btc-peers.py`). The service runs as the `btc-peers` user, reads the
+node's configuration as a systemd credential, and speaks JSON-RPC itself; the
+file is mode 0640 in a directory of mode 0750, group `btc-peers`, of which the
+`emissio` user is a member. So Emissio reads the peer list without any Bitcoin
+node credential, and no other user reads it.
+
+Emissio's task for validating anchors with your own Bitcoin node reads both:
+the tester's Bitcoin node among the peers, announcing the account code, and no
+recent call to the shared endpoint from the same address.
+
+Install or update both from this checkout and the proxy's (the paste command
+for the owner does all of it, and checks it):
+
+    git clone --filter=blob:none --sparse https://github.com/ConcatenaLabs/Sequentia /root/sequentia/rpc-proxy
+    git -C /root/sequentia/rpc-proxy sparse-checkout set contrib/sequentia
+    getent group btc-peers || groupadd --system btc-peers
+    getent passwd btc-peers || useradd --system --gid btc-peers --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin btc-peers
+    usermod -aG btc-peers emissio
+    install -D -m 755 bin/btc-peers.py /usr/local/lib/btc-peers/btc-peers.py
+    install -m 644 systemd/btc-peers.service systemd/btc-peers.timer /etc/systemd/system/
+    install -D -m 644 systemd/seq-rpc-proxy.service.d/own-checkout.conf /etc/systemd/system/seq-rpc-proxy.service.d/own-checkout.conf
+    systemctl daemon-reload && systemctl enable --now btc-peers.timer && systemctl restart seq-rpc-proxy emissio
+    ufw allow 48333/tcp
 
 ## The box's load history
 
