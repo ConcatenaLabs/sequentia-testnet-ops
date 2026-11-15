@@ -179,16 +179,42 @@ ever runs with an empty or a one-asset list. The network price server's code run
 from a detached checkout of the node repository of its own,
 `/root/seq-price-server-src`, moved forward, never back, and both price servers
 are restarted whenever it runs. Its first line is the count of public nodes it
-found. `TRIAL=1` checks one round of the new code and changes nothing.
-`STAGE=before` and `TRIAL=1` also match every node the network's price server
-writes to today (the RPC ports in its `node_rpcs`), and the node the second
-operator's writes to, against the nodes it connects, and refuse on any that
-matches none. `BACK=1`, with the fleet stopped, undoes exactly what it changed,
-restoring each configuration byte for byte when nothing else in it changed. It
+found. `TRIAL=1` checks one round of the new code and changes no node, price
+server or Caddy file.
+
+`STAGE=before` runs with the fleet up, before anything moves, and records what
+the way back needs: the public nodes running then (the fleet the later stages
+act on; a directory whose node is not running is left alone), the commit the
+network's price server runs, and the release the second operator's bundle link
+names. It therefore runs before the second operator's bundle moves to the
+release, and refuses once it has. `STAGE=before` and `TRIAL=1` also match every
+node the network's price server writes to today (the RPC ports in its
+`node_rpcs`), and the node the second operator's writes to, against the running
+nodes it connects, and refuse on any that matches none or more than one. A
+node's RPC port is read as the node reads it (its chain's section first, the
+first value of a key, comments, included files, its command line, its chain's
+default) and checked against the ports its process listens on.
+
+`STAGE=stopped` installs the Caddy route when the address does not serve a
+valid list itself: a redirect, which is what the site answers a path it has no
+route for, is no route. `BACK=1`, with the fleet stopped, undoes what it
+changed: each configuration byte for byte when nothing else in it changed, the
+drop-ins, the published file, the second operator's price-server files (put back
+in the directory they came from, by its own path), the Caddyfile and its
+environment drop-in, and the checkout the route was applied from (these two only
+when nothing else changed them since; otherwise it says what it leaves). It
 first checks that the code each price server will then run accepts the node
 login it puts back: the release moves the node checkout the network's price
-server runs from, and the second operator's bundle may move its link. When one
+server runs from, and the second operator's bundle moves its link. When one
 refuses, it changes nothing and prints the command that moves that code back.
+
+Every stage can be pasted twice, and a run cut short is taken up by the next
+paste of the same stage or by `BACK=1`. Wherever a run stops, it prints the
+state of the box, the paste that goes forward and the paste that goes back.
+Temporaries that hold a configuration are created mode 600 before anything is
+written to them and removed on every exit; a run killed outright leaves them to
+the next paste, which removes them first. A paste while another run holds the
+lock waits 20 seconds for it, then exits 75 having done nothing.
 
 ```sh
 git -C <this checkout> fetch -q origin
