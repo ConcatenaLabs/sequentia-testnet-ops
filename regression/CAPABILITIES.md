@@ -213,7 +213,8 @@ From the trader wallet (`checks/trades.mjs`): a small market purchase, then the 
 bought, each priced within 10 seconds (Review to the ticket; on SeqDEX, the button to the wallet's
 dialog) and done within 60 seconds of the confirmation, or failed with the time or what the page
 says. A purchase paid with BTC has 180 seconds: the wallet pays its BTC only once the asset held
-for it is final, in the operator's next round and that round's certified block. The run prints what
+for it is final, in the operator's next round and that round's certified block. A sale for BTC
+must then read Settled within 10 minutes of Received. The run prints what
 the trader holds at its start and its end, per asset; a line that lacks what it pays is SKIP with
 where that asset is, and `WW-TRADER-FUNDED` is the line that fails.
 
@@ -224,11 +225,12 @@ where that asset is, and `WW-TRADER-FUNDED` is the line that fails.
 | WW-TRADER-FUNDED | the trader holds what the trade lines pay from its own holdings, each line's amount named, topped up from the public faucet page to its own receive code when short | Trade |
 | WW-TRADE-USDX-GOLD-BUY, WW-TRADE-USDX-GOLD-SELL | buy GOLD with USDX and sell it back in the Trade tab | Trade |
 | WW-TRADE-TSEQ-USDX-BUY, WW-TRADE-TSEQ-USDX-SELL | buy tSEQ with USDX and sell it back in the Trade tab | Trade |
-| WW-TRADE-BTC-USDX-BUY, WW-TRADE-BTC-USDX-SELL | buy BTC with USDX and sell it back in the Trade tab | Trade |
+| MAKER-UPKEEP | rely on every maker keeping itself while it quotes: each maker's upkeep ends a pass within 10 minutes, and none runs longer (read at each maker's `/health`; SKIP unless `REGRESSION_MAKERS` names them) | Trade |
+| WW-TRADE-BTC-USDX-BUY, WW-TRADE-BTC-USDX-SELL | buy BTC with USDX and sell it back in the Trade tab; the purchase of BTC (a sale of USDX for BTC) reads Settled within 10 minutes of Received | Trade |
 | WW-TRADE-BTC-ARK-SETTLED | see the sale of BTC above, paid from the Bitcoin ark, reach Settled within an hour with the wallet open | Trade |
 | DX-TRADE-USDX-GOLD-BUY, DX-TRADE-USDX-GOLD-SELL | buy and sell GOLD on SeqDEX's market page through the web wallet | SeqDEX |
 | DX-TRADE-TSEQ-USDX-BUY, DX-TRADE-TSEQ-USDX-SELL | buy and sell tSEQ on SeqDEX through the web wallet | SeqDEX |
-| DX-TRADE-BTC-USDX-BUY, DX-TRADE-BTC-USDX-SELL | buy and sell BTC against USDX on SeqDEX through the web wallet; a purchase paid with BTC passes once the wallet's row reads Received | SeqDEX |
+| DX-TRADE-BTC-USDX-BUY, DX-TRADE-BTC-USDX-SELL | buy and sell BTC against USDX on SeqDEX through the web wallet; a purchase paid with BTC passes once the wallet's row reads Received, and a sale of USDX for BTC once it reads Settled within 10 minutes of Received | SeqDEX |
 
 ## Capabilities lost, and where
 

@@ -22,7 +22,10 @@
 // for its person once what it brought can be spent: "Settled". The wallet says "Received,
 // settling" only while the next spend needs the operator's round (a coin one payment short of
 // the operator's limit), so such a line must also read "Settled" within SETTLE_ROUND_MS of
-// reading "Received" (settledInTime). Otherwise it fails with what the page says at that moment.
+// reading "Received" (settledInTime). A sale of an asset for BTC reads "Received, settling" once the
+// BTC came and needs the maker to finish its side to read "Settled": it is followed on to Settled,
+// SALE_SETTLED_MS at most (followSale). Otherwise it fails with what the page says at that moment.
+// Before the trades, MAKER-UPKEEP reads each maker's own record of its upkeep (makersUpkeep).
 //
 // A trade whose coins first wait for the wallet's own round gets an indicative ticket: a price
 // "about", the least it goes for, and the wait in words ("Goes through within about 6 minutes").
@@ -51,6 +54,28 @@ const boundOf = (pay) => (pay === 'BTC' ? BTC_PAID_BOUND_MS : BOUND_MS)
 // A round takes about 64 s from built to credited on the testnet (a 60 s round and a 60 s block):
 // a trade that says it is settling reads "Settled" within two of them.
 export const SETTLE_ROUND_MS = 150000
+// A sale of an asset for BTC reads "Received, settling" once the BTC has come, and "Settled" once
+// the wallet's payment of the asset is settled with the preimage, which needs the maker's side to
+// move on (its leaf made in a round, its claim): a sale that stays "Received, settling" is a maker
+// that no longer keeps itself (sequentia-web-wallet #791, 2026-11-14: 20 to 40 minutes). The wallet
+// itself says settling "is taking longer than usual" ten minutes after the trade was sent
+// (user-trade.js SLOW_SETTLE_MIN, `receivedSlow`): so a sale must read Settled within
+// SALE_SETTLED_MS of reading Received, and before its row says it is late.
+export const SALE_SETTLED_MS = 10 * 60_000
+export const saleForBtc = (pay, get) => get === 'BTC' && pay !== 'BTC'
+const LATE_WORDS = /taking longer than usual/
+// The verdict on a sale followed from Received: the row's last words and the time since Received.
+export function saleSettled (word, ms) {
+  const w = String(word || '')
+  return { ok: /^Settled/.test(w) && ms != null && ms <= SALE_SETTLED_MS, word: w }
+}
+export function saleWords ({ word, ms }) {
+  const v = saleSettled(word, ms)
+  if (v.ok) return `, then Settled ${secs(ms)} s after Received`
+  if (/^Returned/.test(v.word)) return `; then "${v.word}" ${secs(ms)} s after Received`
+  if (LATE_WORDS.test(v.word)) return `; ${secs(ms)} s after Received the wallet says "${v.word}", so the maker has not finished its side`
+  return `; ${secs(ms)} s after Received it still reads "${v.word || 'no row'}", not Settled within ${secs(SALE_SETTLED_MS)} s, so the maker has not finished its side`
+}
 // Whether a Trade tab line must read "Settled" too, not only "Received": a trade of two assets in
 // the tree. A trade with BTC settles on the Bitcoin side's own terms (the BTC ark's line below).
 export const inTree = (pay, get) => pay !== 'BTC' && get !== 'BTC'
@@ -272,8 +297,11 @@ async function tabTrade (h, pay, get, amount) {
       const note = await h.text('#userComposerRoot #ucNote').catch(() => '')
       return { ok: false, waited: true, detail: noRowWords({ head: `${amount} ${pay} → ${get}: waited for a round`, ticket: tk.slice(3), approvedAt: tC, afterMs: Date.now() - tC, site: null, tab: await h.eval(TAB_LISTED).catch(() => null), record: r.record, card: await h.eval(CARD_READ).catch(() => null) }) + (note ? `; the Trade tab says "${squeeze(note)}"` : ''), at: '#userComposerRoot #ucTrades' }
     }
-    const ok = waitedInTime(v)
-    return { ok, waited: true, trade: r.trade, detail: waitedDetail(`${amount} ${pay} → ${get}`, v) + cardWords(await h.eval(CARD_READ).catch(() => null), { always: !ok, rowWord: r.word }), at: '#userComposerRoot #ucTrades' }
+    let ok = waitedInTime(v)
+    // A sale for BTC goes on from Received to Settled.
+    let sale = ''
+    if (ok && saleForBtc(pay, get) && !/^Settled/.test(r.word)) { const f = await followSale(h, r.trade, Date.now()); ok = f.ok; sale = f.detail }
+    return { ok, waited: true, trade: r.trade, detail: waitedDetail(`${amount} ${pay} → ${get}`, v) + sale + cardWords(await h.eval(CARD_READ).catch(() => null), { always: !ok, rowWord: r.word }), at: '#userComposerRoot #ucTrades' }
   }
   // This trade's row, found by its record's id, until it reads Received, Settled or Returned.
   const first = await rowUntil(h, ids0, /^(Received|Settled|Returned)/, tC + boundOf(pay))
@@ -295,8 +323,10 @@ async function tabTrade (h, pay, get, amount) {
       laterS = ((Date.now() - tR) / 1000).toFixed(1)
     }
     const v = settledInTime(pay, get, done, later)
-    const ok = !slow && v.ok
-    const tail = laterS == null ? '' : v.ok ? `, then ${v.word} ${laterS} s later` : `; ${SETTLE_ROUND_MS / 1000} s later it still reads "${v.word}", so what it brought cannot be spent yet`
+    let ok = !slow && v.ok
+    let tail = laterS == null ? '' : v.ok ? `, then ${v.word} ${laterS} s later` : `; ${SETTLE_ROUND_MS / 1000} s later it still reads "${v.word}", so what it brought cannot be spent yet`
+    // A sale for BTC goes on from Received to Settled.
+    if (saleForBtc(pay, get) && !/^Settled/.test(done)) { const f = await followSale(h, trade, Date.now()); ok = ok && f.ok; tail += f.detail; later = f.word }
     return { ok, trade, detail: `${amount} ${pay} → ${get}: firm ticket in ${ticketS} s${slow ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; ${done} after ${secs} s${tail}` + cardWords(await card(), { always: !ok, rowWord: later || done }) }
   }
   // No record of it, or no row for its record: said as such, with the ticket.
@@ -328,6 +358,15 @@ async function rowUntil (h, ids0, want, until, trade = null) {
     }
     await sleep(2000)
   }
+}
+
+// A sale for BTC that read Received, followed in the Trade tab to Settled: its row by `trade`, from
+// `from` (ms, when it read Received) for SALE_SETTLED_MS at most, stopping early once it ends or the
+// wallet says it is late. -> { ok, word, ms, detail }
+async function followSale (h, trade, from) {
+  const r = await rowUntil(h, [], /^(Settled|Returned)|taking longer than usual/, from + SALE_SETTLED_MS, trade)
+  const ms = Date.now() - from
+  return { ...saleSettled(r.word, ms), ms, detail: saleWords({ word: r.word, ms }) }
 }
 
 // Follows the Trade tab's row of a trade that waits for a round, from the confirmation at `tC`,
@@ -394,7 +433,9 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
     const v = { ticketMs: tC - tGo, statedMs, stated, ...r }
     // Accepted and never listed (sequentia-web-wallet #770): said as such, with the ticket.
     if (!r.trade) return { ok: false, waited: true, detail: noRowWords({ head: `${side} ${amount} of ${pair}: waited for a round, dialog in ${dialogS} s`, ticket: dialog, approvedAt: tC, afterMs: Date.now() - tC, site: await site.text('#fStatus').catch(() => ''), tab: await wallet.eval(TAB_LISTED).catch(() => null), record: r.record }), at: '#fStatus' }
-    return { ok: waitedInTime(v), waited: true, detail: waitedDetail(`${side} ${amount} of ${pair} (the site: "${st.slice(3)}")`, v), at: '#fStatus' }
+    let ok = waitedInTime(v), sale = ''
+    if (ok && saleForBtc(pay, get) && !/^Settled/.test(r.word)) { const f = await followSale(wallet, r.trade, Date.now()); ok = f.ok; sale = f.detail }
+    return { ok, waited: true, detail: waitedDetail(`${side} ${amount} of ${pair} (the site: "${st.slice(3)}")`, v) + sale, at: '#fStatus' }
   }
   // The site draws its form again after a trade, so #fStatus can be missing for a moment.
   const st = await waitValue(site, "(()=>{const s=document.querySelector('#fStatus'); return s && (s.classList.contains('ok')||s.classList.contains('err')) ? (s.classList.contains('ok')?'ok ':'err ')+s.textContent : false})()", BOUND_MS).catch(() => null)
@@ -408,14 +449,27 @@ async function dexTrade (b, site, wallet, pair, side, amount) {
     const took = ((r.endedMs ?? (Date.now() - tC)) / 1000).toFixed(1)
     return { ok: done && !slowDialog, trade: r.trade, detail: `${side} ${amount} of ${pair}: dialog in ${dialogS} s; the site said "${st.slice(3)}"; the wallet's row ${done ? `reads "${r.word}" after ${took} s` : `reads "${r.word}" after ${took} s, not Received`}`, at: '#fStatus' }
   }
-  if (st && st.startsWith('ok ') && /Traded with/.test(st)) return { ok: !slowDialog, detail: `${side} ${amount} of ${pair}: firm ticket, dialog in ${dialogS} s${slowDialog ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; ${st.slice(3)} after ${secs} s` }
+  if (st && st.startsWith('ok ') && /Traded with/.test(st)) {
+    const head = `${side} ${amount} of ${pair}: firm ticket, dialog in ${dialogS} s${slowDialog ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; ${st.slice(3)} after ${secs} s`
+    if (!saleForBtc(pay, get)) return { ok: !slowDialog, detail: head }
+    // A sale for BTC: the site's word is the trade made; the wallet's row then reads Received once
+    // the BTC came, within BOUND_MS, and goes on to Settled.
+    const first = await rowUntil(wallet, ids0, /^(Received|Settled|Returned)/, tC + BOUND_MS)
+    if (!first.matched) return { ok: false, trade: first.trade, detail: `${head}; the wallet's row reads "${first.word || 'no row'}" ${secs(Date.now() - tC)} s after approval, not Received`, at: '#fStatus' }
+    if (/^Settled/.test(first.word)) return { ok: !slowDialog, trade: first.trade, detail: `${head}; the wallet's row reads Settled` }
+    if (/^Returned/.test(first.word)) return { ok: false, trade: first.trade, detail: `${head}; the wallet's row reads "${first.word}"`, at: '#fStatus' }
+    const f = await followSale(wallet, first.trade, Date.now())
+    return { ok: !slowDialog && f.ok, trade: first.trade, detail: `${head}; the wallet's row reads Received ${secs(Date.now() - f.ms - tC)} s after approval${f.detail}`, at: '#fStatus' }
+  }
   // A firm trade the site says is under way: followed in the wallet's Trade tab to its end, and
   // judged on the time, BOUND_MS as for any firm trade (ops #239).
   if (st && st.startsWith('ok ') && /under way/i.test(st)) {
     const head = `${side} ${amount} of ${pair}: firm ticket, dialog in ${dialogS} s${slowDialog ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; the site said "${st.slice(3)}"`
     const r = await followWaited(wallet, pay, get, BOUND_MS, tC, ids0)
     if (!r.trade) return { ok: false, detail: noRowWords({ head, ticket: dialog, approvedAt: tC, afterMs: Date.now() - tC, site: await site.text('#fStatus').catch(() => ''), tab: await wallet.eval(TAB_LISTED).catch(() => null), record: r.record }), at: '#fStatus' }
-    return { ok: followedInTime(r, BOUND_MS) && !slowDialog, trade: r.trade, detail: `${head}; ${followedWords(r, BOUND_MS)}`, at: '#fStatus' }
+    let ok = followedInTime(r, BOUND_MS) && !slowDialog, sale = ''
+    if (followedInTime(r, BOUND_MS) && saleForBtc(pay, get) && !/^Settled/.test(r.word)) { const f = await followSale(wallet, r.trade, Date.now()); ok = ok && f.ok; sale = f.detail }
+    return { ok, trade: r.trade, detail: `${head}; ${followedWords(r, BOUND_MS)}${sale}`, at: '#fStatus' }
   }
   return { ok: false, detail: `${side} ${amount} of ${pair}: after ${secs} s the site says "${st ? st.slice(st.indexOf(' ') + 1) : await site.text('#fStatus') || 'nothing'}"`, at: '#fStatus' }
 }
@@ -549,7 +603,48 @@ async function topUp (b, w, ticker, before) {
   } finally { await b.send('Target.closeTarget', { targetId: fp.targetId }).catch(() => {}) }
 }
 
+// The makers' upkeep: a maker can go on quoting while it no longer keeps itself (its sync starved
+// its upkeep on 2026-11-14, sequentia-web-wallet #791), and its sales for BTC then never settle.
+// Each maker named in REGRESSION_MAKERS (`name=host:port`, comma-separated; the makers listen on
+// the box's loopback, so the line runs on the box: al1_trades_on_box.sh names them) is read at
+// `/health`, whose `upkeep` says when its last pass ended (`ago_ms`) and how long the pass under way
+// has run. A maker passes when its upkeep ended a pass within UPKEEP_STALE_MS, the time the wallet
+// gives a sale before it calls it late, and no pass has run longer than that.
+export const UPKEEP_STALE_MS = SALE_SETTLED_MS
+export const makersFrom = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean)
+  .map((x) => { const i = x.indexOf('='); return i > 0 ? { name: x.slice(0, i), at: x.slice(i + 1) } : { name: x, at: x } })
+// One maker's verdict from its `/health` answer (null when it did not answer). -> { ok, words } or
+// { skip, words } for a maker too old to say what its upkeep does.
+export function upkeepVerdict (name, h) {
+  if (!h) return { ok: false, words: `${name} does not answer /health` }
+  const u = h.upkeep
+  if (!u || u.ago_ms == null) return { skip: true, words: `${name} does not say what its upkeep does (a maker before sequentia-web-wallet #792)` }
+  const period = h.period_ms ? `, its period ${secs(h.period_ms)} s` : ''
+  const sync = h.sync && h.sync.last_ms != null ? `; its last sync pass ${secs(h.sync.last_ms)} s, the longest gap between two ${secs(h.sync.longest_gap_ms || 0)} s` : ''
+  const fig = `${u.passes} passes, the last ended ${secs(u.ago_ms)} s ago and took ${secs(u.last_ms ?? 0)} s, the longest gap between two ${secs(u.longest_gap_ms || 0)} s${period}${sync}`
+  if (u.under_way_ms != null && u.under_way_ms > UPKEEP_STALE_MS) return { ok: false, words: `${name}: a pass of its upkeep has run ${secs(u.under_way_ms)} s, past ${secs(UPKEEP_STALE_MS)} s (${fig})` }
+  if (u.ago_ms > UPKEEP_STALE_MS) return { ok: false, words: `${name}: its upkeep ended no pass in ${secs(u.ago_ms)} s, past ${secs(UPKEEP_STALE_MS)} s (${fig})` }
+  // Started moments ago: no pass has ended yet, and none is late.
+  if (!u.passes) return { ok: true, words: `${name}: started ${secs(u.ago_ms)} s ago, its first pass of the upkeep not ended yet${period}` }
+  return { ok: true, words: `${name}: ${fig}` }
+}
+const upkeepLine = `Each maker's upkeep ends a pass within ${UPKEEP_STALE_MS / 60000} min, and none runs longer`
+export async function makersUpkeep (report) {
+  const makers = makersFrom(process.env.REGRESSION_MAKERS)
+  if (!makers.length) return report.skip('MAKER-UPKEEP', 'service', upkeepLine, 'no makers named (REGRESSION_MAKERS): the makers listen on the box only')
+  await report.line('MAKER-UPKEEP', 'service', upkeepLine, null, async () => {
+    const vs = []
+    for (const m of makers) {
+      const h = await fetch(`http://${m.at}/health`, { signal: AbortSignal.timeout(10000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      vs.push(upkeepVerdict(m.name, h))
+    }
+    if (vs.every((v) => v.skip)) return { skip: vs.map((v) => v.words).join('; ') }
+    return { ok: vs.every((v) => v.ok || v.skip), detail: vs.map((v) => v.words).join('; ') }
+  })
+}
+
 export async function run ({ b, report, trader }) {
+  await makersUpkeep(report)
   const lines = [...TAB_TRADES.map((t) => ['WW-TRADE-' + t[0], tabLine(t[1], t[2], t[3])]),
     ...DEX_TRADES.map((t) => ['DX-TRADE-' + t[0], dexLine(t[1], t[2], t[3])])]
   if (!trader) {
