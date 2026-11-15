@@ -1,0 +1,23 @@
+[Unit]
+Description=The box Bitcoin node's peer list, for Emissio (bin/btc-peers.py)
+After=bitcoind.service
+
+[Service]
+Type=oneshot
+# Its own user, in a group of its own that Emissio's user is a member of: the
+# file is readable by the two of them and nobody else, and Emissio holds no
+# Bitcoin node credential. The node's configuration (which holds its RPC
+# login) reaches this service alone, as a read-only credential.
+User=btc-peers
+Group=btc-peers
+LoadCredential=bitcoin.conf:/root/.bitcoin/bitcoin.conf
+StateDirectory=btc-peers
+StateDirectoryMode=0750
+UMask=0027
+ExecStart=/usr/bin/python3 -I /usr/local/lib/btc-peers/btc-peers.py --conf %d/bitcoin.conf --out /var/lib/btc-peers/peers.json
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+Nice=10
