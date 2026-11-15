@@ -178,9 +178,17 @@ cutover, in three stages around the fleet's stop and start, so no public node
 ever runs with an empty or a one-asset list. The network price server's code runs
 from a detached checkout of the node repository of its own,
 `/root/seq-price-server-src`, moved forward, never back, and both price servers
-are restarted whenever it runs. `TRIAL=1` checks one round of the new code and
-changes nothing; `BACK=1`, with the fleet stopped, undoes exactly what it
-changed.
+are restarted whenever it runs. Its first line is the count of public nodes it
+found. `TRIAL=1` checks one round of the new code and changes nothing.
+`STAGE=before` and `TRIAL=1` also match every node the network's price server
+writes to today (the RPC ports in its `node_rpcs`), and the node the second
+operator's writes to, against the nodes it connects, and refuse on any that
+matches none. `BACK=1`, with the fleet stopped, undoes exactly what it changed,
+restoring each configuration byte for byte when nothing else in it changed. It
+first checks that the code each price server will then run accepts the node
+login it puts back: the release moves the node checkout the network's price
+server runs from, and the second operator's bundle may move its link. When one
+refuses, it changes nothing and prints the command that moves that code back.
 
 ```sh
 git -C <this checkout> fetch -q origin

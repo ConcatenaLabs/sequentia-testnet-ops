@@ -23,7 +23,16 @@
 #   BACK=1   with the fleet stopped: undoes exactly what STAGE=stopped changed
 #            (the configuration lines it added, the keys it removed, its drop-ins,
 #            the second operator's price-server files) and restarts the price
-#            servers as they ran before.
+#            servers as they ran before. It first checks that the code each
+#            price server will then run accepts the configuration it puts back
+#            (a node login); if not, because the release moved that code on, it
+#            changes nothing and prints the one command that moves it back.
+#
+# Its first line is the count of public nodes it found. STAGE=before and TRIAL=1
+# also match every node the network's price server writes to today (the RPC
+# ports in its node_rpcs) to a public node's data directory, and the second
+# operator's node_rpc to its node, and refuse on any that matches none: a node
+# left out would keep a list nothing updates any more.
 #
 # Nothing in between leaves a public node with an empty or a one-asset list:
 # the nodes are stopped while their configuration changes; STAGE=stopped
@@ -106,6 +115,9 @@ gone = {k: cfg.pop(k) for k in keys if k in cfg}
 if not gone:
     print("%s holds none of %s" % (path, " ".join(keys))); sys.exit(0)
 if not os.path.exists(saved):
+    # The file as it was, byte for byte, so the way back can restore it exactly.
+    fd = os.open(saved + ".orig", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f: f.write(open(path, "rb").read())
     fd = os.open(saved, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as f: json.dump(gone, f)
 tmp = path + ".cutover-tmp"
@@ -118,7 +130,8 @@ PY
 }
 
 # The way back for strip_config: puts the saved keys back into the config as it
-# is now, without touching anything else in it.
+# is now, without touching anything else in it. When nothing else in it changed
+# since, that is the file as it was, and its original bytes are written back.
 unstrip_config() {
   [ -f "$2" ] || { echo "$1: nothing of it was removed"; return 0; }
   python3 -I - "$1" "$2" <<'PY'
@@ -127,14 +140,17 @@ path, saved = sys.argv[1], sys.argv[2]
 st = os.stat(path)
 cfg = json.load(open(path)); back = json.load(open(saved))
 cfg.update(back)
+orig = open(saved + ".orig", "rb").read() if os.path.exists(saved + ".orig") else None
+same = orig is not None and json.loads(orig) == cfg
 tmp = path + ".cutover-tmp"
 fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, st.st_mode & 0o777)
-with os.fdopen(fd, "w") as f: json.dump(cfg, f, indent=2); f.write("\n")
+with os.fdopen(fd, "wb") as f:
+    f.write(orig if same else (json.dumps(cfg, indent=2) + "\n").encode())
 os.chown(tmp, st.st_uid, st.st_gid)
 os.replace(tmp, path)
-print("%s: put back %s" % (path, " ".join(sorted(back))))
+print("%s: put back %s%s" % (path, " ".join(sorted(back)), " (the file as it was, byte for byte)" if same else ""))
 PY
-  rm -f "$2"
+  rm -f "$2" "$2.orig"
 }
 
 # Adds "feepriceserver=<url>" under a marker line at the top of the
@@ -183,14 +199,157 @@ wait_served() {
   return 1
 }
 
+# The RPC port a node's configuration sets (the last rpcport= line, in any
+# section); empty when it sets none.
+conf_rpcport() { awk -F= '/^[[:space:]]*rpcport[[:space:]]*=/ {gsub(/[[:space:]]/, "", $2); p=$2} END {print p}' "$1"; }
+
+# Every node a price server's configuration writes to today, matched to the
+# data directories this script connects ("<port> <datadir>" per line on stdin).
+# Prints each match; fails on a node it writes to that matches none, and on one
+# not on this machine. Never prints a login.
+match_written_nodes() { # <price-server config> <label>
+  python3 -I -c '
+import json, sys, urllib.parse
+cfg = json.load(open(sys.argv[1])); label = sys.argv[2]
+dirs = {}
+for line in sys.stdin.read().split("\n"):
+    if line.strip():
+        port, d = line.split(" ", 1); dirs.setdefault(port, []).append(d)
+entries = list(cfg.get("node_rpcs") or [])
+if cfg.get("node_rpc"): entries.append(cfg["node_rpc"])
+bad = 0
+for e in entries:
+    if isinstance(e, str):
+        u = urllib.parse.urlsplit(e if "//" in e else "http://" + e); host, port = u.hostname, u.port
+    else:
+        host, port = e.get("host", "127.0.0.1"), e.get("port")
+    port = str(port)
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        print("  %s writes to a node at %s:%s, not on this machine" % (label, host, port)); bad += 1
+    elif port not in dirs:
+        print("  %s writes to the node on RPC port %s, which is none of the nodes this script connects" % (label, port)); bad += 1
+    else:
+        print("  %s writes to port %s: %s" % (label, port, " ".join(dirs[port])))
+print("  %s writes to %d node(s); %d match none" % (label, len(entries), bad))
+sys.exit(1 if bad else 0)
+' "$1" "$2"
+}
+
+# The price server's code a unit runs once this script's drop-in is gone: the
+# last ExecStart= of the unit and its other drop-ins, without publish.conf.
+unit_code_without_ours() {
+  local all
+  all=$(systemctl cat "$1" 2>/dev/null) || return 1
+  python3 -I -c '
+import shlex, sys
+cur, exe = "", None
+for line in sys.argv[1].split("\n"):
+    if line.startswith("# /"): cur = line[2:].strip(); continue
+    if cur.endswith("/publish.conf"): continue
+    if line.startswith("ExecStart="):
+        exe = line[len("ExecStart="):].strip() or None
+code = [a for a in shlex.split(exe or "") if a.endswith("price_server.py")]
+if not code: sys.exit(1)
+print(code[0])
+' "$all"
+}
+
+# Whether price-server code accepts a configuration (the file as it is, with
+# the keys this script removed put back): the code's own check, run on it.
+# Prints the code's refusal, never the configuration.
+code_accepts() { # <price_server.py> <config> [<removed keys json>]
+  # -B: loading the code leaves no bytecode cache beside it.
+  python3 -I -B -c '
+import importlib.util, json, os, sys
+code, path = sys.argv[1], sys.argv[2]
+saved = sys.argv[3] if len(sys.argv) > 3 else ""
+cfg = json.load(open(path))
+if saved and os.path.exists(saved): cfg.update(json.load(open(saved)))
+spec = importlib.util.spec_from_file_location("price_server_under_check", code)
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+check = getattr(m, "check_config", None)
+if check is None: sys.exit(0)
+try:
+    check(cfg)
+except Exception as e:
+    print(str(e).split("\n")[0][:300]); sys.exit(1)
+' "$@"
+}
+
 # Its own directory, created once; an existing one is never changed.
 [ -d "$STATE" ] || install -d -m 700 "$STATE"
 [ "$(stat -c %a "$STATE")" = 700 ]
+echo "$(public_datadirs | wc -l) public nodes ($(fleet_running | grep -vcxF "$B_NODE_UNIT" || true) running), and the second operator's node"
+
+# What the way back needs, taken once before the cutover changes anything: the
+# checkout the network's price server's code runs from and its commit, and the
+# directory the second operator's price server's code is in.
+record_before() {
+  local code clone
+  if [ ! -s "$STATE/node-clone.before" ] && code=$(unit_code_without_ours "$PS_UNIT") \
+     && code_accepts "$code" "$PS_CONFIG" > /dev/null \
+     && clone=$(git -C "$(dirname "$code")" rev-parse --show-toplevel 2>/dev/null); then
+    echo "$clone $(git -C "$clone" rev-parse HEAD)" > "$STATE/node-clone.before"
+  fi
+  if [ ! -s "$STATE/second-price-server-dir.before" ] && [ ! -f "$B_PS_DROPIN_DIR/publish.conf" ]; then
+    readlink -f "$B_PS_DIR" > "$STATE/second-price-server-dir.before"
+    # A bundle's link, as it is written (a bundle compares the text).
+    [ -L "$(dirname "$B_PS_DIR")" ] && readlink "$(dirname "$B_PS_DIR")" > "$STATE/second-bundle-link.before"
+  fi
+  return 0
+}
+
+# The way back to the release a bundle link pointed at before (prints nothing
+# when the link is not a symbolic link or has not moved).
+b_link_back() {
+  local bl was
+  bl=$(dirname "$B_PS_DIR")
+  [ -L "$bl" ] && [ -s "$STATE/second-bundle-link.before" ] || return 0
+  was=$(cat "$STATE/second-bundle-link.before")
+  [ "$(readlink "$bl")" != "$was" ] || return 0
+  echo "  the bundle moved $bl to $(readlink "$bl"); point it back first (its node then runs the release it ran before, from its next start):"
+  echo "    ln -sfn $was $bl"
+}
 
 if [ "${BACK:-0}" = 1 ]; then
   step "back: the fleet must be stopped"
   running=$(fleet_running)
   [ -z "$running" ] || { echo "still running: $running" >&2; false; }
+
+  step "back: the code each price server will run accepts what is put back"
+  # Checked before anything changes. A release moves the code under a price
+  # server (the node checkout the network's runs from; the second operator's
+  # bundle link), and code that refuses a node login would not start again.
+  refuse=""
+  code=$(unit_code_without_ours "$PS_UNIT") || { echo "cannot read the code $PS_UNIT runs" >&2; false; }
+  if ! why=$(code_accepts "$code" "$PS_CONFIG" "$STATE/network-price-server.removed.json"); then
+    echo "  the network's price server would run $code, which refuses its configuration with the node logins put back: $why"
+    clone=$(git -C "$(dirname "$code")" rev-parse --show-toplevel 2>/dev/null || true)
+    if [ -n "$clone" ] && [ -s "$STATE/node-clone.before" ] && [ "$(cut -d' ' -f1 "$STATE/node-clone.before")" = "$clone" ]; then
+      was=$(cut -d' ' -f2 "$STATE/node-clone.before")
+      echo "  $clone is at $(git -C "$clone" rev-parse HEAD); it was at $was before the cutover. Move it back first:"
+      echo "    git -C $clone checkout -q --detach $was"
+    else
+      echo "  move $code back to the code it ran before the cutover first"
+    fi
+    refuse=1
+  fi
+  if [ -d "$STATE/second-price-server-code" ]; then
+    # The kept code goes back where it came from, never over another release's.
+    bcode=$STATE/second-price-server-code/price_server.py
+    moved=$(b_link_back)
+    [ -z "$moved" ] || { echo "  the second operator's price-server code kept here came from a release its bundle has moved off"; echo "$moved"; refuse=1; }
+  else
+    bcode=$B_PS_DIR/price_server.py
+  fi
+  if ! why=$(code_accepts "$bcode" "$B_PS_CONFIG" "$STATE/second-price-server.removed.json"); then
+    echo "  the second operator's price server would run $bcode, which refuses its configuration with the node login put back: $why"
+    moved=$(b_link_back)
+    if [ -n "$moved" ]; then echo "$moved"; else echo "  move $bcode back to the code it ran before the cutover first"; fi
+    refuse=1
+  fi
+  [ -z "$refuse" ] || { echo "back refused; nothing was changed. Do the steps above, then BACK=1 again." >&2; false; }
+  echo "  both accept it"
   step "back: the nodes' configuration lines"
   for d in $(public_datadirs); do conf_disconnect "$d/elements.conf"; done
   conf_disconnect "$B_NODE_CONF"
@@ -212,6 +371,7 @@ if [ "${BACK:-0}" = 1 ]; then
   systemctl restart "$PS_UNIT" "$B_PS_UNIT"
   sleep 5
   systemctl is-active --quiet "$PS_UNIT"; systemctl is-active --quiet "$B_PS_UNIT"
+  rm -f "$STATE/node-clone.before" "$STATE/second-price-server-dir.before" "$STATE/second-bundle-link.before"
   echo "back done: both price servers run as before; start the fleet with the binaries it ran before"
   exit 0
 fi
@@ -220,16 +380,30 @@ step "check the box"
 command -v curl >/dev/null; command -v python3 >/dev/null
 [ -r "$PS_CONFIG" ] && [ -r "$B_PS_CONFIG" ] && [ -w "$B_NODE_CONF" ]
 for d in $(public_datadirs); do [ -w "$d/elements.conf" ]; done
-echo "$(public_datadirs | wc -l) public nodes, and the second operator's node"
+
+# The nodes the price servers write to today, against the nodes this script
+# connects.
+check_written_nodes() {
+  local d p pairs="" b_port
+  for d in $(public_datadirs); do p=$(conf_rpcport "$d/elements.conf"); pairs+="${p:-none} $d"$'\n'; done
+  match_written_nodes "$PS_CONFIG" "the network's price server" <<< "$pairs" \
+    || { echo "a node the network's price server writes to would lose its list: add it to this script's nodes, or take it out of node_rpcs" >&2; return 1; }
+  b_port=$(conf_rpcport "$B_NODE_CONF")
+  match_written_nodes "$B_PS_CONFIG" "the second operator's price server" <<< "${b_port:-none} $B_NODE_CONF" \
+    || { echo "the second operator's price server writes to a node this script does not connect" >&2; return 1; }
+}
 
 STAGE=${STAGE:-}
 [ "${TRIAL:-0}" = 1 ] && STAGE=trial
 case "$STAGE" in
 before|trial)
+  step "the nodes the price servers write to today, against the nodes this script connects"
+  check_written_nodes
   step "the assets the public nodes accept now (node000, by its own cookie)"
   live=$("$CLI" -datadir="$COMMITTEE_ROOT/node000" getfeeassetinfo | python3 -I -c 'import json,sys; print(" ".join(sorted(k for k,v in json.load(sys.stdin).items() if v["accepted"])))')
   echo "$(wc -w <<< "$live") assets"
   [ "$STAGE" = before ] && { printf '%s\n' "$live" > "$STATE/assets.before"; echo "kept in $STATE/assets.before"; }
+  [ "$STAGE" = before ] && record_before
   step "the price server's code: origin/master"
   git -C "$NODE_CLONE" fetch -q origin master
   COMMIT=$(git -C "$NODE_CLONE" rev-parse origin/master)
@@ -260,6 +434,7 @@ stopped)
   step "every public node and the second operator's node is stopped"
   running=$(fleet_running)
   [ -z "$running" ] || { echo "still running: $running" >&2; false; }
+  record_before
 
   step "the network's price server: code at origin/master, in its own checkout"
   git -C "$NODE_CLONE" fetch -q origin master
