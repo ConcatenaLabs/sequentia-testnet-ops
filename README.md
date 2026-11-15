@@ -18,6 +18,7 @@ put it in place and keep copies of it.
 | `bin/fronting-read.sh` | What the Arca operator fronts, why, and what fronting the market needs once fronted capital comes back promptly: in flight per asset and what holds it, refresh demand and return times, the steady state against the plan. Read-only. See "What the operator fronts". |
 | `bin/our-capital.py` | What the bots that stand for our own capital hold, at the feed's prices, against the mainnet plan: our makers' holdings and our LSP's channels and float. Read-only. See "The testnet's numbers". |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
+| `bin/publish-fee-whitelist.sh`, `systemd/seq-price-server.service.d/publish-file.conf` | The network's price server's fee whitelist at `http://sequentiatestnet.com/feewhitelist`, the address every testnet node is connected to by default: the price server writes it as a file and Caddy serves the file. See "The network's fee whitelist". |
 | `bin/node-rpc-proxy.py` | The node JSON-RPC for browser wallets behind `/node-rpc`: the calls a wallet makes and no other, rate-limited, with the node's credential added on the box. Installed at `/usr/local/lib/node-rpc-proxy/`. |
 | `bin/node-rpc-proxy-hold-test.py` | The node route's hold over HTTP: a hold kept for what it asks up to its bound, the per-source and overall bounds refused at once, anything else on `/hold` refused. |
 | `bin/node-rpc-proxy-limits-test.py` | The node route's limits in simulated time: a refused batch costs nothing, a client asking every 2.2 s gets a 64-call batch through steadily, and at the shipped limits a wallet's restore is never refused while a source asking for the largest blocks gets its byte budget and no more. |
@@ -150,6 +151,34 @@ changes when the box has not fetched it yet.
 
 Other units that run from the same checkout are named in its first step, and
 are not restarted by it.
+
+## The network's fee whitelist
+
+A fee whitelist is static when written by hand and dynamic when a price server
+updates it. Every testnet node is connected by default to the network's price
+server, `seq-price-server.service`, and takes the list it publishes at
+`http://sequentiatestnet.com/feewhitelist`. That price server also writes the
+same list to the public nodes over RPC. It publishes the list as a file
+(`price_server.py --publish-file /srv/feewhitelist/feewhitelist.json`, the
+drop-in `systemd/seq-price-server.service.d/publish-file.conf`), and the
+Caddyfile's `/feewhitelist` route serves that file, over plain http because the
+node links no TLS library. The route serves the file and nothing else: the price
+server's own web UI is never proxied, since behind a proxy every request comes
+from loopback, which that UI treats as its admin when no password is set.
+
+The price server's code runs from a detached checkout of the node repository of
+its own, `/root/seq-price-server-src`. `bin/publish-fee-whitelist.sh` installs
+or moves it forward, never back, and puts all of this in place. Run it on the box
+from a laptop (`TRIAL=1` checks one dry poll and changes nothing, `BACK=1` undoes
+it):
+
+```sh
+git -C <this checkout> fetch -q origin
+git -C <this checkout> show origin/main:bin/publish-fee-whitelist.sh | ssh seq 'bash -s'
+```
+
+`PP-FEE-WHITELIST` in the regression suite checks the address answers a fresh
+published list and nothing of the price server's UI.
 
 ## Changing a route
 

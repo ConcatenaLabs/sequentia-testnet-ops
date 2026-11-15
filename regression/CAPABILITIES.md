@@ -274,6 +274,7 @@ is taken.
 | PP-LAND-START | read the network's one line on the front page and start with one step: open the web wallet, which is the first card |
 | PP-LAND-PUBLIC | meet on the front page only public products, in plain words (no hidden product's path or name, no rail or protocol word) |
 | PP-FCT-BTC-AMT | see what a BTC request to the faucet pays, more than nothing |
+| PP-FEE-WHITELIST | install Sequentia Core on the testnet and have its fee whitelist at once: `http://sequentiatestnet.com/feewhitelist` answers the network's price server's published list (`updated`, `rates`, at least one asset), updated within the last ten minutes, and nothing else under the path |
 | PP-LNADDR-NONE | pay a payment name from a Lightning wallet: `/.well-known/lnurlp/<name>` answers LNURL-pay, open to any origin, and says so in its own form when no wallet goes by the name |
 | PP-FCT-CODE | paste the web wallet's receive code into the faucet page, and ask for BTC there |
 | PP-CMP-CODE | paste a receive code where Compages asks for a Sequentia address, and see its address read and checked |

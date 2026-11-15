@@ -45,6 +45,17 @@ export async function run ({ b, report, widths }) {
     return { ok: r.asset === 'BTC' && Number(r.amount) > 0, detail: r }
   })
 
+  await R('FEE-WHITELIST', null, 'A testnet node finds the network\'s price server\'s whitelist, fresh, at the address it is connected to by default', async () => {
+    const r = await fetch('http://sequentiatestnet.com/feewhitelist', { redirect: 'manual' })
+    const j = await r.json().catch(() => null)
+    const n = j && j.rates && typeof j.rates === 'object' ? Object.keys(j.rates).length : 0
+    const age = j && typeof j.updated === 'number' ? Date.now() / 1000 - j.updated : null
+    // Only that one file is published: nothing of the price server's own UI.
+    const admin = await fetch('http://sequentiatestnet.com/feewhitelist/admin', { redirect: 'manual' })
+    return { ok: r.status === 200 && n > 0 && age !== null && age < 600 && admin.status !== 200,
+      detail: { status: r.status, assets: n, age_s: age && Math.round(age), admin_status: admin.status } }
+  })
+
   for (const w of widths) {
     await setWidth(b, page, w)
     await scheme('dark')
