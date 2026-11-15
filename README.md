@@ -24,7 +24,7 @@ put it in place and keep copies of it.
 | `makers/liquidity-health.sh`, `makers/maker_funds.py`, `makers/liquidity-targets.json` | The makers' and the Arca operator's health, every ten minutes: the depth audit, treasury2026 kept at its floors (minting the faucet assets it runs short of), and every consumer refilled below its floor from `treasury2026` and `maker-bridged` only. See "The makers' health". |
 | `makers/volume-takers.mjs` | Traders that trade against the makers on every rail and pair, both ways, at a daily volume target, ramped under load, health and wallet-latency rules. See "Trading volume: the volume takers". |
 | `bin/load-record.py`, `systemd/box-load-record.service`, `systemd/box-load-record.timer`, `logrotate/box-load` | The box's load history: every five minutes, one line of the load average, the kernel's pressure, the CPU split and each busy unit's CPU, memory and processes, kept eight weeks. See "The box's load history". |
-| `bin/btc-peers.py`, `systemd/btc-peers.service`, `systemd/btc-peers.timer`, `systemd/seq-rpc-proxy.service.d/own-checkout.conf` | The box Bitcoin node's peer list every minute, addresses and user agents only, readable by Emissio and nobody else, and the shared Bitcoin endpoint run from a checkout of its own. See "The shared Bitcoin endpoint and the Bitcoin node's peers". |
+| `bin/btc-peers.py`, `systemd/btc-peers.service`, `systemd/btc-peers.timer`, `systemd/seq-rpc-proxy.service.d/own-checkout.conf`, `systemd/emissio.service.d/own-bitcoin.conf` | The box Bitcoin node's peer list every minute, addresses and user agents only, readable by Emissio and nobody else, the shared Bitcoin endpoint run from a checkout of its own, and Emissio's drop-in naming both (`systemd/emissio.service.d/own-bitcoin.conf`). See "The shared Bitcoin endpoint and the Bitcoin node's peers". |
 | `bin/dex-health-probe.sh`, `systemd/seq-health-probe.service`, `systemd/seq-health-probe.timer` | The DEX's health on the box every five minutes, to the journal: the ports, the chain, the nodes' wallets, the relay's markets and every DEX unit. See "The DEX health probe". |
 | `bin/seqdex-depth-audit.py` | How deep every SeqDEX market is on every rail, and whether its best level can be taken now: one table and a verdict per directed market. See "How deep the books are". |
 | `bin/arca-pg-restore-drill.sh` | Restores the Arca operator's database from its newest base backup and every WAL segment after it into a scratch cluster, and checks the last commit is there. |
@@ -1093,7 +1093,8 @@ node credential, and no other user reads it.
 
 Emissio's task for validating anchors with your own Bitcoin node reads both:
 the tester's Bitcoin node among the peers, announcing the account code, and no
-recent call to the shared endpoint from the same address.
+recent call to the shared endpoint from the same address. It is told where both are by
+`systemd/emissio.service.d/own-bitcoin.conf`.
 
 Install or update both from this checkout and the proxy's (the paste command
 for the owner does all of it, and checks it):
@@ -1106,6 +1107,7 @@ for the owner does all of it, and checks it):
     install -D -m 755 bin/btc-peers.py /usr/local/lib/btc-peers/btc-peers.py
     install -m 644 systemd/btc-peers.service systemd/btc-peers.timer /etc/systemd/system/
     install -D -m 644 systemd/seq-rpc-proxy.service.d/own-checkout.conf /etc/systemd/system/seq-rpc-proxy.service.d/own-checkout.conf
+    install -m 644 systemd/emissio.service.d/own-bitcoin.conf /etc/systemd/system/emissio.service.d/own-bitcoin.conf
     systemctl daemon-reload && systemctl enable --now btc-peers.timer && systemctl restart seq-rpc-proxy emissio
     ufw allow 48333/tcp
 
