@@ -139,7 +139,12 @@ beside it, never taken for it. When the lines end, the page stays open until eve
 is paid and collected, as well as until no refresh waits for a round (15 minutes at most). The
 summary says how many were left unpaid or uncollected. A Trade tab trade of two assets in the tree is done once what it brought can be spent:
 "Settled". The wallet says "Received, settling" only while a round is still needed first, so such a
-line must also read "Settled" within 150 seconds (two rounds) of reading "Received". Each line also records how long the person waited for a price, from Review to the ticket
+line must also read "Settled" within 150 seconds (two rounds) of reading "Received". A sale of an
+asset for BTC reads "Received, settling" once the BTC has come, and "Settled" once the wallet's
+payment of the asset is settled, which needs the maker to finish its side: such a line, in the
+Trade tab and on SeqDEX alike, is followed on to "Settled" and fails when it does not read it within
+10 minutes of "Received", or reads "taking longer than usual" first (the wallet's own words for a
+settling past ten minutes). Each line also records how long the person waited for a price, from Review to the ticket
 (on SeqDEX, from the button to the wallet's dialog), and fails when that was over 10 seconds.
 
 A trade paid from coins that first wait for the wallet's own round gets an indicative ticket
@@ -163,6 +168,13 @@ when the trade really ended, against the wait stated. Each trade line names its 
 with their lines, so a run that passes because every trade waited for a round is seen as such. The Trade tab's sale of BTC, paid from the Bitcoin ark, is also followed
 to "Settled" with the wallet left open, for up to an hour after it was received
 (`WW-TRADE-BTC-ARK-SETTLED`), which makes the surface take up to an hour longer. One run spends about 60 USDX through the books, most of it bought back, plus fees.
+
+Before the trades, `MAKER-UPKEEP` reads each maker's `/health` and fails when a maker's upkeep has
+ended no pass in 10 minutes, or one pass has run that long: a maker can go on quoting while it no
+longer keeps itself, and its sales for BTC then never settle. The makers listen on the box's
+loopback only, so the line needs them named, `REGRESSION_MAKERS=name=host:port,…` (on the box
+`leaf-maker=127.0.0.1:9979,leaf-maker-btc=127.0.0.1:9978,leaf-maker-agents=127.0.0.1:9977`), and is
+SKIP without; a maker that does not report its upkeep is SKIP for that maker, saying so.
 
 When the lines end, the wallet's page stays open until none of its refreshes waits for a round and
 no coin of it is on its way, for 15 minutes at most. A last line in the results says how it left:
