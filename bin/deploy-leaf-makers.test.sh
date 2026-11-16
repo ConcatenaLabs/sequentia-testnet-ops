@@ -3,13 +3,17 @@
 # as root, with the makers' users (leafmaker, leafmakerbtc) owning their checkouts, cloned from an
 # origin of commits made here, and git run as those users. A stand-in `systemctl` (SYSTEMCTL) runs
 # each unit's stand-in maker with runuser as its user; the stand-in answers /health as the maker does,
-# its sync and upkeep ending passes or not as the commit it runs says. Four runs:
+# its sync and upkeep ending passes or not as the commit it runs says. Seven runs:
 #   1. a commit every maker keeps itself on: all three move, one at a time, and pass;
 #   2. pasted again: nothing moves or restarts, every maker is checked;
 #   3. a commit on which the BTC maker ends no sync pass: it is put back by itself, restarted on the
 #      commit it ran, and nothing after it moves;
 #   4. a commit on which only the agents' maker ends no upkeep pass: the checkout it shares goes back,
 #      and both makers that run from it restart on it; the BTC maker stays on the new commit.
+#   5. a unit that is neither a maker nor a volume wallet runs from a maker checkout: refused before
+#      anything moves;
+#   6, 7. the new library's sizing of the BTC maker's store fails, or answers no sizing: its checkout
+#      goes back, it is not restarted, and nothing after it moves.
 # Needs docker; uses the node:22-bookworm image.  bin/deploy-leaf-makers.test.sh
 set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -34,6 +38,8 @@ import { readFileSync } from 'node:fs'
 const cfg = JSON.parse(readFileSync(process.argv[process.argv.indexOf('--config') + 1], 'utf8'))
 const how = JSON.parse(readFileSync(new URL('./stand-in.json', import.meta.url), 'utf8'))
 if (process.argv.includes('--size')) {
+  if (how.size === 'fail') { console.error('sizing failed: cannot read the store'); process.exit(1) }
+  if (how.size === 'garbage') { console.log('not a sizing'); process.exit(0) }
   console.log(JSON.stringify({ store: { bytes: 362000000, live_coins: 640 }, took_ms: 900, steps: { refresh: { items: 640,
     refused_participations: { refused: 2089, void: 6264, expired: 43, coins_named: 127089 },
     before_items_ms: { refused_each_slice: 1, refused_each_slice_by_an_older_library: 2400, refused_read_once: 150 } } } }))
@@ -58,6 +64,10 @@ git checkout -q "$OLD"; git checkout -q -b bad1
 BAD_BTC=$(commit bad-btc '{"name":"bad-btc","sync_after":2,"upkeep_after":4,"never":["127.0.0.1:9978"]}')
 git checkout -q main; git checkout -q -b bad2
 BAD_AGENTS=$(commit bad-agents '{"name":"bad-agents","sync_after":2,"upkeep_after":4,"upkeep_never":["127.0.0.1:9977"]}')
+git checkout -q "$OLD"; git checkout -q -b bad3
+SIZE_FAIL=$(commit size-fail '{"name":"size-fail","sync_after":2,"upkeep_after":4,"size":"fail"}')
+git checkout -q "$OLD"; git checkout -q -b bad4
+SIZE_GARBAGE=$(commit size-garbage '{"name":"size-garbage","sync_after":2,"upkeep_after":4,"size":"garbage"}')
 git clone -q --bare /src /srv/origin.git; chmod -R a+rX /srv/origin.git
 # On the box the origin is GitHub; here it is a directory of root's, which the makers' users may read.
 git config --system --add safe.directory /srv/origin.git
@@ -153,5 +163,31 @@ grep -q 'leaf-maker-agents.service ended no upkeep pass within 12 s' /tmp/run-4.
 for a in 9979 9977; do [ "$(version 127.0.0.1:$a)" = old ] || fail "run 4: :$a does not run OLD again"; done
 [ "$(version 127.0.0.1:9601)" = old ] || fail "run 4: the volume wallet moved"
 echo "ok 4"
+
+back_to_old() { for spec in $BTC:leafmakerbtc $MAIN:leafmaker; do runuser -u "${spec##*:}" -- git -C "${spec%%:*}" checkout -q --detach "$OLD"; done
+  while IFS='|' read -r u _; do fake-systemctl restart "$u"; done < /etc/fake-units/list; sleep 2; }
+echo "--- 5. a unit that is neither a maker nor a volume wallet runs from a maker checkout"
+echo "unrelated.service|$MAIN|leafmaker|127.0.0.1:9655|/etc/leaf-maker/unrelated.json" >> /etc/fake-units/list
+echo '{"listen":"127.0.0.1:9655"}' > /etc/leaf-maker/unrelated.json; chmod a+r /etc/leaf-maker/unrelated.json
+back_to_old
+if run "$GOOD" 5; then cat /tmp/run-5.log; fail "run 5 should stop"; fi
+grep -q 'unrelated.service runs from /opt/leaf-maker/sequentia-web-wallet and is neither a maker' /tmp/run-5.log || { cat /tmp/run-5.log; fail "run 5: not refused"; }
+[ "$(head_of $BTC leafmakerbtc)" = "$OLD" ] && [ "$(head_of $MAIN leafmaker)" = "$OLD" ] || fail "run 5: a checkout moved"
+[ "$(version 127.0.0.1:9655)" = old ] || fail "run 5: the unrelated unit restarted"
+kill -- -"$(cat /run/fake/unrelated.service.pid)"; sed -i '/^unrelated.service|/d' /etc/fake-units/list
+echo "ok 5"
+
+for c in "6 $SIZE_FAIL its store's sizing failed: sizing failed: cannot read the store" "7 $SIZE_GARBAGE its store's sizing answered no sizing: not a sizing"; do
+  read -r k commit why <<<"$c"
+  echo "--- $k. the new library's sizing: $why"
+  back_to_old
+  if run "$commit" "$k"; then cat "/tmp/run-$k.log"; fail "run $k should stop"; fi
+  grep -qF "leaf-maker-btc.service: $why" "/tmp/run-$k.log" || { cat "/tmp/run-$k.log"; fail "run $k: the reason is not named"; }
+  grep -q 'rolled back' "/tmp/run-$k.log" || fail "run $k: not rolled back"
+  grep -q 'restarted on' "/tmp/run-$k.log" && fail "run $k: a maker restarted"
+  [ "$(head_of $BTC leafmakerbtc)" = "$OLD" ] && [ "$(head_of $MAIN leafmaker)" = "$OLD" ] || fail "run $k: a checkout is not on OLD"
+  [ "$(version 127.0.0.1:9978)" = old ] || fail "run $k: the BTC maker does not run OLD"
+  echo "ok $k"
+done
 echo "PASS"
 IN

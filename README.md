@@ -168,14 +168,17 @@ ssh seq 'COMMIT=<web wallet commit> LIBRARY=<arca commit> bash -s' < bin/deploy-
 Before anything moves it checks every checkout: the commit contains what it
 runs now (`ALLOW_BACK=1` for a deliberate step back) and web `FLOOR`, its
 `leaves/pkg` is built from `LIBRARY`, its maker keeps working coins, sizes
-quotes on a pass's room and stops quoting when its sync ends no pass, and no
-tracked file is modified.
+quotes on a pass's room and stops quoting when its sync ends no pass, no
+tracked file is modified, and no unit runs from a maker checkout but the makers
+and the volume wallets (`seqob-volume-wallet@*`, `OTHER_UNITS`): anything else
+would restart on the new commit, so it is refused before anything moves.
 
 Then it takes the makers one at a time, the BTC maker first. It moves the
 maker's checkout, has the new library size the maker's store (`leaf-maker.mjs
 --size`, from a private copy: the store's size and live coins, the refresh
 step's items, and what each slice reads before them, against what an older
-library read), restarts that maker alone, holding the makers' health run's lock
+library read; a sizing that fails or answers no sizing stops that maker and puts
+its checkout back, unless `SIZE=0`), restarts that maker alone, holding the makers' health run's lock
 for the restart, and reads its `/health` until the maker has ended a sync pass
 (within `SYNC_WAIT`, 300 s) and an upkeep pass (within `UPKEEP_WAIT`, 900 s) and
 says `ok`, answers its quotes and has logged its working coins. A maker that
@@ -193,8 +196,10 @@ nothing (`FORCE_RESTART=1` restarts them) and checks every maker's `/health`.
 root, with the makers' users owning their checkouts and git run as them, and a
 stand-in for `systemctl` and the makers. It moves all three makers on a good
 commit, leaves everything on a second paste, puts the BTC maker back by itself
-when it ends no sync pass, and puts `/opt/leaf-maker` and both its makers back
-when the agents' maker ends no upkeep pass. CI runs it on every pull request.
+when it ends no sync pass, puts `/opt/leaf-maker` and both its makers back
+when the agents' maker ends no upkeep pass, refuses a checkout that another
+unit runs from, and puts the BTC maker's checkout back, unrestarted, when the
+new library's sizing of its store fails or answers no sizing. CI runs it on every pull request.
 
 ## Changing a route
 

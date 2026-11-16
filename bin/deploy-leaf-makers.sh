@@ -16,9 +16,11 @@
 # Before a checkout moves: COMMIT must contain what the checkout runs now (ALLOW_BACK=1 for a
 # deliberate rollback) and web FLOOR; its leaves/pkg must be built from LIBRARY; its maker must keep
 # working coins, size quotes on a pass's room and stop quoting when its sync ends no pass
-# (syncStanding); the tracked files must be unmodified. After a checkout moves and before its maker
-# restarts, the new library sizes that maker's store (`--size`, from a private copy; nothing is
-# written to the store): what a pass in slices will cost there.
+# (syncStanding); the tracked files must be unmodified; and no unit may run from a maker checkout
+# but the makers named in MAKERS and the volume wallets (OTHER_UNITS). After a checkout moves and
+# before its maker restarts, the new library sizes that maker's store (`--size`, from a private
+# copy; nothing is written to the store): what a pass in slices will cost there. A sizing that
+# fails or answers no sizing stops that maker and puts its checkout back (SIZE=0 skips it).
 #
 # The order: the BTC maker (its own checkout), then the leaf maker, then the agents' maker (both run
 # from /opt/leaf-maker). Each must, from its restart, end its first sync pass within SYNC_WAIT
@@ -37,7 +39,8 @@ trap 'printf "\nSTOPPED: unexpected failure at line %s: %s\n" "$LINENO" "$BASH_C
 : "${SYNC_WAIT:=300}"       # seconds from a maker's restart to the end of its first sync pass
 : "${UPKEEP_WAIT:=900}"     # seconds from its restart to the end of its first upkeep pass
 : "${POLL:=5}"              # seconds between two readings of /health
-: "${SIZE:=1}"              # 0: the new library does not size the stores first
+: "${SIZE:=1}"              # 0: the new library does not size the stores first (else a sizing that fails stops that maker)
+: "${OTHER_UNITS:=seqob-volume-wallet@*.service}"   # the only other units that may run from a maker checkout
 # unit|checkout|its user|its address, in the order they move.
 : "${MAKERS:=leaf-maker-btc.service|/opt/leaf-maker-btc/sequentia-web-wallet|leafmakerbtc|127.0.0.1:9978 leaf-maker.service|/opt/leaf-maker/sequentia-web-wallet|leafmaker|127.0.0.1:9979 leaf-maker-agents.service|/opt/leaf-maker/sequentia-web-wallet|leafmaker|127.0.0.1:9977}"
 : "${STATE:=/root/deploy-leaf-makers}"
@@ -125,6 +128,13 @@ for dir in $(checkouts); do
   grep -q 'export function workingSizes' <<<"$maker" || die "$COMMIT's maker keeps no working coins (web wallet #643)"
   grep -q 'export function roomNow' <<<"$maker" || die "$COMMIT's maker sizes quotes on its coins, not a pass's room"
   grep -q 'export function syncStanding' <<<"$maker" || die "$COMMIT's maker quotes on whatever its sync does: it does not stop when no pass ends"
+  # Every unit that runs from the checkout restarts on the new commit: only the makers named and the
+  # volume wallets may, anything else is refused before anything moves.
+  for u in $(units_of "$dir"); do
+    named=0; for m in $MAKERS; do IFS='|' read -r mu _ _ _ <<<"$m"; [ "$mu" = "$u" ] && named=1; done
+    # shellcheck disable=SC2053
+    [ "$named" = 1 ] || [[ "$u" == $OTHER_UNITS ]] || die "$u runs from $dir and is neither a maker named in MAKERS nor a unit of $OTHER_UNITS: it would restart on the new commit; stop it, move it, or name it"
+  done
   say "$dir: at $(g "$dir" "$user" log -1 --format='%h' HEAD), can move to ${COMMIT:0:9} (leaf library arca ${LIBRARY:0:9})"
 done
 for m in $MAKERS; do IFS='|' read -r unit dir _ addr <<<"$m"
@@ -154,21 +164,29 @@ for m in $MAKERS; do
     [ "$ok" = true ] || die "$unit's /health is not ok: ${why//_/ }"
     say "$unit: /health ok"; continue
   fi
-  # The store as the new library sees it, from a private copy (the maker's own config and node).
+  # The store as the new library sees it, from a private copy (the maker's own config and node). A
+  # sizing that fails, or answers no sizing, stops this maker: its checkout goes back (SIZE=0 skips it).
   if [ "$SIZE" = 1 ]; then
     exe=$($SYSTEMCTL show -p ExecStart --value "$unit" | sed -n 's/.*path=\([^ ;]*\).*/\1/p')
     cfg=$($SYSTEMCTL show -p ExecStart --value "$unit" | sed -n 's/.*--config \([^ ;]*\).*/\1/p')
-    if [ -n "$exe" ] && [ -n "$cfg" ]; then
-      sized=$(cd "$dir" && timeout 900 runuser -u "$user" -- "$exe" tooling/lsp/leaf-maker.mjs --config "$cfg" --size 2>&1) || true
-      python3 -I -c '
+    serr="" sized="" summary="" errf=$(mktemp)
+    if [ -z "$exe" ] || [ -z "$cfg" ]; then serr="no node or no --config in its ExecStart, so its store cannot be sized"
+    elif ! sized=$(cd "$dir" && timeout 900 runuser -u "$user" -- "$exe" tooling/lsp/leaf-maker.mjs --config "$cfg" --size 2>"$errf"); then
+      serr="its store's sizing failed: $(tail -c 300 "$errf" | tr '\n' ' ')"
+    elif ! summary=$(python3 -I -c '
 import json, sys
-try: v = json.loads(sys.argv[1])
-except Exception: print("  the store could not be sized:", sys.argv[1][-200:]); sys.exit(0)
+v = json.loads(sys.argv[1])
 r = v["steps"]["refresh"]; b = r["before_items_ms"]; p = r["refused_participations"]
 print("  store %d MB, %d live coins; refresh: %d items, %d refused/void/expired participations naming %d coins" % (v["store"]["bytes"] // 1000000, v["store"]["live_coins"], r["items"], p["refused"] + p["void"] + p["expired"], p["coins_named"]))
 print("  before refresh'"'"'s items, each slice: %d ms (an older library: %d ms); once a change: %d ms; sized in %d ms" % (b["refused_each_slice"], b["refused_each_slice_by_an_older_library"], b["refused_read_once"], v["took_ms"]))
-' "$sized"
-    else say "$unit: no node or config in its ExecStart, not sized"; fi
+' "$sized" 2>/dev/null); then serr="its store's sizing answered no sizing: $(printf '%s' "$sized" | tail -c 200 | tr '\n' ' ')"
+    fi
+    rm -f "$errf"
+    if [ -n "$serr" ]; then
+      # shellcheck disable=SC2086
+      roll_back "$dir" "$user" "${PREV[$dir]}" "$unit: $serr" ${RESTARTED[$dir]:-}
+    fi
+    printf '%s\n' "$summary"
   fi
   since=$(date +%s)
   restart "$unit"; RESTARTED[$dir]="${RESTARTED[$dir]:-} $unit"
@@ -185,6 +203,8 @@ for dir in $(checkouts); do
   [ "${MOVED[$dir]:-0}" = 1 ] || [ "${FORCE_RESTART:-0}" = 1 ] || continue
   for u in $(units_of "$dir"); do
     case " ${RESTARTED[$dir]:-} " in *" $u "*) continue;; esac
+    # shellcheck disable=SC2053
+    [[ "$u" == $OTHER_UNITS ]] || die "$u runs from $dir and is not a unit of $OTHER_UNITS: not restarted"
     restart "$u"; say "$u restarted"
   done
 done
