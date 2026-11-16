@@ -31,13 +31,18 @@ How each surface is read:
 | WW-BAL-HIDE | hide an asset: it moves to "Hidden assets (n)", the total is unchanged | Balance |
 | WW-BAL-FAUCET | ask the testnet faucet for an asset | Receive |
 | WW-FAUCET-AT-ONCE | see a faucet payment under its asset as arriving the moment the faucet says it was sent, and as "Received" in History (SKIP when every asset button is one the wallet has received, or, without the faucet token, when the faucet has paid the suite's network that asset for ten wallets in the last day) | Receive, History |
+| WW-RCV-ARRIVE | keep Receive open while a payment comes in and read "Payment arriving…", then "Received <amount> <TICKER>." on the same screen (SKIP as WW-FAUCET-AT-ONCE) | Receive |
 | WW-BAL-RELOAD | reload and see the last figures at once: the total never 0, "Up to date." only once everything is read | Balance |
-| WW-RCV-CODE | get one receive code, `bitcoin:<address>?ark=…&sequentia=…` | Receive |
-| WW-RCV-SHORT | get a code that scans at a glance: upper case, the request short (`SQR1…`), under 450 characters | Receive |
-| WW-RCV-TIP | read what the code takes ("Any asset, any amount. …") | Receive |
-| WW-RCV-BUTTONS | copy the code, make a new one; no address-only controls | Receive |
-| WW-RCV-AMOUNT | ask for an amount of BTC: the code names it and carries an invoice | Receive |
-| WW-RCV-NAME | choose a payment name under the code ("Your payment name", "Choose a name"), in plain words | Receive |
+| WW-RCV-SIMPLE | open Receive and meet one card: the QR code, "Scan or share to get paid in BTC or any asset." and Copy, with More options; no code text, label, New code or switch in view | Receive |
+| WW-RCV-NAME | have a payment name with nothing asked: the QR code holds `name@sequentiatestnet.com` alone, under 100 characters | Receive |
+| WW-RCV-ARRIVE-QUIET | read nothing about a payment before one comes in | Receive |
+| WW-RCV-MORE | open More options: the name and where to change it, "Request a specific amount", New code, Show full code, Confidential | Receive |
+| WW-RCV-CODE | show the full code, `bitcoin:<address>?ark=…&sequentia=…`, in text and in the QR code, and go back with Show name | Receive |
+| WW-RCV-SHORT | get a full code that scans: upper case, the request short (`SQR1…`) and under 300 characters, the whole code under 600 | Receive |
+| WW-RCV-AMOUNT | request an amount of BTC: the QR code is the code naming it and carrying an invoice | Receive |
+| WW-RCV-CONF | turn Confidential on: the QR code is the confidential address and the line says so; off, the name again | Receive |
+| WW-RCV-NO-HEX | meet no restricted-asset card, account id or other hex identifier on Receive unless asked for | Receive |
+| WW-SET-NAME | find the payment name in Settings, with Copy, Change name and Remove name | Receive |
 | WW-BTC-EXIT-QUIET | meet no line about BTC leaving the ark while the ark answers; the page carries the rule that moves it to the address when the ark stops renewing it | BTC |
 | WW-RCV-NO-INVOICE | not meet a BTC invoice card, or an empty framed box, while holding no BTC on the ark | BTC |
 | WW-RCV-WORDS | read Receive without a word default mode never says | Never in default mode |

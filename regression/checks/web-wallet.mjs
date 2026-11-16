@@ -81,37 +81,66 @@ export async function run ({ b, report, widths, funded, problems }) {
     })
 
     await tab(h, 'receive')
-    await R('RCV-CODE', w, 'Receive shows a "Receive code": bitcoin:<address>?ark=…&sequentia=…', h, async () => {
-      const lbl = await h.text('#recvLbl'), code = await h.text('#addr')
-      return { ok: joined && /receive code/i.test(lbl) && /^bitcoin:tb1[a-z0-9]+\?.*ark=.*sequentia=/i.test(code), detail: { label: lbl, code: code.slice(0, 60) + '…' } }
+    // Receive in default mode is one card: the QR code, one line and Copy; everything else behind
+    // More options (the web wallet's docs/DEFAULT_MODE.md, "Receive"). The QR code's text is the
+    // image's data-text.
+    const qrText = () => h.eval("(document.querySelector('#qr')||{dataset:{}}).dataset.text||''")
+    await R('RCV-SIMPLE', w, 'Receive is one card: the QR code, "Scan or share to get paid in BTC or any asset." and Copy; no code text, label, New code or switch in view', h, async () => {
+      const r = { qr: await h.visible('#qr'), line: await h.text('#recvLine'), copy: await h.text('#btnCopy'), copyShown: await h.visible('#btnCopy'),
+        more: await h.text('#btnRecvMore'), codeText: await h.visible('#addr'), label: await h.visible('#recvLbl'), newCode: await h.visible('#btnRecvNew'),
+        newAddr: await h.visible('#btnNewAddr'), conf: await h.visible('#recvConfRow'), amount: await h.visible('#recvAmt'), name: await h.visible('#nameBox'),
+        blinded: await h.visible('#btnConf'), xpub: await h.visible('#btnXpub') }
+      const ok = r.qr && r.line === 'Scan or share to get paid in BTC or any asset.' && r.copy === 'Copy' && r.copyShown && r.more === 'More options' &&
+        !r.codeText && !r.label && !r.newCode && !r.newAddr && !r.conf && !r.amount && !r.name && !r.blinded && !r.xpub
+      return { ok, detail: r }
     })
-    await R('RCV-SHORT', w, 'The code scans at a glance: upper case, the request short (SQR1…), under 450 characters', h, async () => {
+    await R('RCV-NAME', w, 'A fresh wallet gets a payment name with nothing asked: the QR code holds name@sequentiatestnet.com alone, under 100 characters', h, async () => {
+      const got = await h.waitFor("/^[a-z0-9_-]{3,32}@sequentiatestnet\\.com$/.test((document.querySelector('#qr')||{dataset:{}}).dataset.text||'')", 90000).then(() => true, () => false)
+      const t = await qrText(); return { ok: got && t.length < 100, detail: { qr: t, chars: t.length } }
+    })
+    await R('RCV-ARRIVE-QUIET', w, 'Nothing is said about a payment before one comes in', h, async () => {
+      const v = await h.visible('#recvArrive'); return { ok: !v, detail: { arrivalLine: v } }
+    })
+    await h.click('#btnRecvMore'); await sleep(800)
+    await R('RCV-MORE', w, 'More options: the payment name and where to change it, "Request a specific amount", New code, Show full code, Confidential', h, async () => {
+      const r = { name: await h.text('#recvMoreName'), amountLabel: await h.text('#recvAmtLbl'), amountHint: await h.eval("(document.querySelector('#recvAmt')||{}).placeholder||''"),
+        amount: await h.visible('#recvAmt'), newCode: await h.text('#btnRecvNew'), full: await h.text('#btnRecvFull'), conf: await h.visible('#recvConfChk') || await h.visible('#recvConfRow'),
+        confLabel: await h.text('#recvConfLbl'), less: await h.text('#btnRecvMore') }
+      const ok = /^Your payment name is \w+@sequentiatestnet\.com\. You can change or remove it in Settings\.$/.test(r.name) && /^request a specific amount$/i.test(r.amountLabel) &&
+        /Amount in BTC/i.test(r.amountHint) && r.amount && r.newCode === 'New code' && r.full === 'Show full code' && r.conf && r.confLabel === 'Confidential' && r.less === 'Fewer options'
+      return { ok, detail: r }
+    })
+    await h.click('#btnRecvFull'); await sleep(1000)
+    await R('RCV-CODE', w, 'Show full code: one receive code, bitcoin:<address>?ark=…&sequentia=…, shown and in the QR code; Show name goes back', h, async () => {
+      const code = await h.text('#addr'), shown = await h.visible('#addr'), qr = await qrText(), back = await h.text('#btnRecvFull')
+      return { ok: joined && shown && /^bitcoin:tb1[a-z0-9]+\?.*ark=.*sequentia=/i.test(code) && qr === code && back === 'Show name', detail: { shown, code: code.slice(0, 60) + '…', back } }
+    })
+    await R('RCV-SHORT', w, 'The full code scans: upper case, the request short (SQR1…) and under 300 characters, the whole code under 600', h, async () => {
       const code = (await h.text('#addr')).trim()
-      const ok = /^BITCOIN:TB1[0-9A-Z]+\?/.test(code) && /&sequentia=SQR1[0-9A-Z]+(&|$)/.test(code) && code.length < 450
-      return { ok, detail: { chars: code.length, code: code.slice(0, 60) + '…' } }
+      const req = (/&sequentia=(SQR1[0-9A-Z]+)(&|$)/.exec(code) || [])[1] || ''
+      const ok = /^BITCOIN:TB1[0-9A-Z]+\?/.test(code) && !!req && req.length < 300 && code.length < 600
+      return { ok, detail: { chars: code.length, request: req.length, code: code.slice(0, 60) + '…' } }
     })
-    await R('RCV-TIP', w, 'Under it: "Any asset, any amount. …"', h, async () => {
-      const t = await h.text('#recvTip'); return { ok: /^Any asset, any amount\./.test(t), detail: t }
-    })
-    await R('RCV-BUTTONS', w, 'Buttons "Copy receive code" and "New code"; no address-only controls', h, async () => {
-      const c = await h.text('#btnCopy'), n = await h.text('#btnNewAddr'), conf = await h.visible('#btnConf'), xpub = await h.visible('#btnXpub')
-      return { ok: c === 'Copy receive code' && n === 'New code' && !conf && !xpub, detail: { copy: c, new: n, blindedButton: conf, xpub } }
-    })
-    await R('RCV-NAME', w, 'Under the code, "Your payment name" with "Choose a name" (or the name, with Copy), no protocol word', h, async () => {
-      const shown = await h.visible('#nameBox'), lbl = await h.text('#nameLbl'), choose = await h.visible('#btnNameChoose'), copy = await h.visible('#btnNameCopy')
-      // innerText carries the label's text-transform (capitals), so it is compared without case.
-      return { ok: shown && /^your payment name$/i.test(lbl || '') && (choose || copy), detail: { shown, label: lbl, choose, copy }, at: '#nameBox' }
-    })
-    await R('RCV-AMOUNT', w, '"Amount in BTC (optional)": with an amount the code names it and carries an invoice', h, async () => {
-      const ph = await h.eval("(document.querySelector('#recvAmt')||{}).placeholder||''")
-      if (!/Amount in BTC/i.test(ph)) return { ok: false, detail: 'field: ' + JSON.stringify(ph) }
+    await h.click('#btnRecvFull'); await sleep(800)
+    await R('RCV-AMOUNT', w, 'An amount requested: the QR code is the code naming it and carrying an invoice', h, async () => {
       await h.type('#recvAmt', '0.0001')
-      const ok = await h.waitFor("/amount=0\\.0001/.test(document.querySelector('#addr').textContent) && /lightning=/.test(document.querySelector('#addr').textContent)", 60000).then(() => true, () => false)
-      const code = await h.text('#addr'); await h.type('#recvAmt', '')
-      // The code is drawn again without the amount a moment after the field empties: the next line
-      // reads Receive as a person leaves it, not mid-redraw.
-      await h.waitFor("!/lightning=/i.test(document.querySelector('#addr').textContent)", 15000).catch(() => {})
+      const ok = await h.waitFor("/amount=0\\.0001/.test((document.querySelector('#qr')||{dataset:{}}).dataset.text||'') && /lightning=/.test(document.querySelector('#qr').dataset.text)", 60000).then(() => true, () => false)
+      const code = await qrText(); await h.type('#recvAmt', '')
+      // The QR code is drawn again without the amount a moment after the field empties: the next
+      // line reads Receive as a person leaves it, not mid-redraw.
+      await h.waitFor("/@/.test((document.querySelector('#qr')||{dataset:{}}).dataset.text||'')", 15000).catch(() => {})
       return { ok, detail: code.replace(/(lightning=)\w{12}\w*/i, '$1…').slice(0, 140) }
+    })
+    await R('RCV-CONF', w, 'Confidential on: the QR code is the confidential address (tsqb1…) and the line says so; off again, the name', h, async () => {
+      await h.click('#recvConfChk'); await sleep(1000)
+      const qr = await qrText(), line = await h.text('#recvLine')
+      await h.click('#recvConfChk'); await sleep(1000)
+      const after = await qrText()
+      return { ok: /^tsqb1/.test(qr) && line === 'Any Sequentia asset, any amount, paid to your confidential address.' && /@/.test(after), detail: { qr: qr.slice(0, 16) + '…', line, after } }
+    })
+    await R('RCV-NO-HEX', w, 'No restricted-asset card, account id or other hex identifier on Receive unless asked for', h, async () => {
+      const card = await h.visible('#recvOampCard'), hex = (await h.text('section[data-panel=receive]')).match(/\b[0-9a-f]{40,}\b/g) || []
+      return { ok: !card && !hex.length, detail: { card, hex: hex.map((x) => x.slice(0, 12) + '…') } }
     })
     await R('RCV-NO-INVOICE', w, 'Receive: a wallet holding no BTC shows no invoice card and no empty framed box', h, async () => {
       const c = await h.visible('#lnRecvCard'), box = await h.visible('#lnRecvBolt11')
@@ -119,6 +148,13 @@ export async function run ({ b, report, widths, funded, problems }) {
     })
     if (words) await R('RCV-WORDS', w, 'Receive says none of the words default mode never says', h, async () => {
       const f = forbiddenIn(await h.text('section[data-panel=receive]'), words); return { ok: !f.length, detail: f }
+    })
+    await h.click('#btnRecvMore'); await sleep(500)
+    await tab(h, 'settings')
+    await R('SET-NAME', w, 'Settings holds the payment name, with Copy, Change name and Remove name', h, async () => {
+      const r = { shown: await h.visible('#setNameCard #nameBox'), name: await h.text('#nameAddr'), copy: await h.visible('#btnNameCopy'),
+        change: await h.text('#btnNameChoose'), remove: await h.text('#btnNameRemove') }
+      return { ok: r.shown && /@sequentiatestnet\.com$/.test(r.name) && r.copy && r.change === 'Change name' && r.remove === 'Remove name', detail: r, at: '#setNameCard' }
     })
 
     await tab(h, 'send')
@@ -281,6 +317,20 @@ export async function run ({ b, report, widths, funded, problems }) {
     await tab(h, 'history')
     const row = await h.waitFor(`[...document.querySelectorAll('#histList .item')].some(i=>/Received/.test(i.innerText) && i.innerText.includes(${JSON.stringify(asset)}))`, 30000).then(() => true, () => false)
     return { ok: shown && row, detail: { faucet: st, inBalanceWithin2_5s: shown, historyRow: row } }
+  })
+  // A payment lands on Receive itself, so whoever holds up the QR code sees it arrive without
+  // leaving the screen: the faucet is asked from the page while Receive is open.
+  await R('RCV-ARRIVE', null, 'With Receive open, a payment coming in reads "Payment arriving…", then "Received <amount> <TICKER>." on the same screen', h, async () => {
+    await setWidth(b, page, widths[0]); await tab(h, 'balance')
+    const asset = await h.eval("(()=>{const on=[...document.querySelectorAll('#faucetBtns button')].filter(x=>!x.disabled && x.dataset.faucet && x.dataset.faucet!=='BTC' && x.dataset.faucet!=='EURX'); return on.length ? on[0].dataset.faucet : null})()")
+    if (!asset) return { skip: 'no faucet button for an asset this wallet has not received' }
+    await tab(h, 'receive')
+    await h.eval(`(()=>{const x=[...document.querySelectorAll('#faucetBtns button')].find(x=>x.dataset.faucet===${JSON.stringify(asset)}); x.click(); return true})()`)
+    const arriving = await h.waitFor("/Payment arriving/.test((document.querySelector('#recvArrive')||{}).innerText||'')", 60000).then(() => true, () => false)
+    const got = await h.waitFor(`/^Received [0-9.,]+ ${asset}\\.$/.test((document.querySelector('#recvArrive')||{}).innerText||'')`, 180000).then(() => true, () => false)
+    const line = await h.text('#recvArrive'), faucet = await h.text('#faucetStatus')
+    if (/already paid .* on your network/i.test(faucet)) return { skip: 'the faucet held this network back: ' + faucet }
+    return { ok: got, detail: { asset, arrivingSeen: arriving, line, faucet } }
   })
   // The node calls the leaf wallet makes to read an address a person gives it (a payment from
   // leaves, an offboard, a claim) and to tell a supervised asset from a plain one, asked of the
