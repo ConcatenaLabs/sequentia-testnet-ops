@@ -265,8 +265,8 @@ linked from the public surface; these lines hold it to its own contract (every a
 
 ## Public pages around the web wallet
 
-The front page, the faucet page, Compages, the explorer (its Ark section and labels too), the staking pools, the Sequentia Core
-download and Emissio's report scopes, in headless Chromium, desktop and phone, as a new tester
+The front page, the faucet page, Compages, the explorer (its Ark section and labels too), the staking pools, the public
+download page (Sequentia Core and Ambra for Android) and Emissio's report scopes, in headless Chromium, desktop and phone, as a new tester
 meets them; the explorer also in a light colour scheme. `regression/checks/public-pages.mjs`.
 Nothing is requested, bridged or sent: the faucet's and Compages' lines stop once the receive code
 is taken.
@@ -290,6 +290,7 @@ is taken.
 | PP-EXP-CONTRACT-UNITS | read a contract's amounts in the asset's units, not in atoms |
 | PP-POOLS | read stakes in tSEQ on the pools page and delegate from the web wallet (More → Stake) |
 | PP-CORE-MAC | find a path on a Mac from the Core download page within Sequentia Core: a build from source (the card links to no other product) |
+| PP-CORE-AMBRA | download Ambra for Android from the public download page, seeing the file's size, with no other wallet offered there |
 | PP-CORE-GET | download Sequentia Core for Linux or Windows from its download page, seeing each file's size, and check the file against one signed checksum list, its signing key and the key's fingerprint; the page names no hidden product and scrolls no wider than the screen |
 | PP-EMI-BUGS | read that Emissio's bug reports cover the web wallet |
 | PP-EMI-SECURITY | read that Emissio's security reports cover the web wallet |
