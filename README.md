@@ -208,8 +208,9 @@ by its state directory, `/root/sequentia/node-cutover-v<version>`, through its
 
 `STAGE=stopped` installs the Caddy route when the address does not serve a
 valid list itself: a redirect, which is what the site answers a path it has no
-route for, is no route. `BACK=1`, with the fleet stopped, undoes what it
-changed: each configuration byte for byte when nothing else in it changed, the
+route for, is no route. `BACK=1` undoes what it changed, with the fleet
+stopped (when `STAGE=stopped` changed nothing, it only clears the records and
+the fleet may run): each configuration byte for byte when nothing else in it changed, the
 drop-ins, the published file, the second operator's price-server files (put back
 in the directory they came from, by its own path), the Caddyfile and its
 environment drop-in, and the checkout the route was applied from (these two only

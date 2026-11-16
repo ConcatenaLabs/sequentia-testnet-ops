@@ -673,7 +673,11 @@ switch_state() {
 # The paste of that switch's way back (its owner script is named after its version).
 switch_back_paste() {
   local s v
-  s=$(switch_state 2>/dev/null || true); v=${s##*/node-cutover-v}
+  s=$(switch_state 2>/dev/null || true)
+  # None under way (a switch that has finished): the newest one on the box.
+  # shellcheck disable=SC2086
+  [ -n "$s" ] || s=$(ls -dt $SWITCH_GLOB 2>/dev/null | head -n 1 || true)
+  v=${s##*/node-cutover-v}
   if [ -n "$s" ] && [ "$v" != "$s" ]; then
     echo "ssh seq 'BACK=1${1:+ $1} bash -s' < ~/Documents/arca/owner/node_cutover_${v}_2_switch.sh"
   else
@@ -701,7 +705,7 @@ reconcile() { # <stopped|started>
   if [ "$1" = stopped ]; then
     die "$(if changed_by_stopped; then echo "This stage has changed things already."; else echo "This stage has changed nothing."; fi) To record the fleet that is to run: go back by the way printed below (it starts every node the release switch recorded, on the binaries they ran), stop or start each node named above as it is to be, paste $(paste_cmd STAGE=before), and take the day up again from the second operator's script."
   else
-    die "A node named above runs without its price server's list. If it is not to run, stop it and paste $(paste_cmd STAGE=started) again. To connect it, record it: go back by the way printed below, then paste $(paste_cmd STAGE=before) with it running, and take the day up again from the second operator's script."
+    die "A node that ran at STAGE=before and is not running now: start it (as it was started), then paste $(paste_cmd STAGE=started) again. A node that runs and was not running then has no price server's list: if it is not to run, stop it and paste the same again; to connect it, record it: go back by the way printed below, then paste $(paste_cmd STAGE=before) with it running, and take the day up again from the second operator's script."
   fi
 }
 
@@ -745,9 +749,21 @@ case "$MODE" in stopped|back) remove_temporaries ;; esac
 echo "$(datadirs_on_disk | wc -l) public nodes on disk ($(fleet_running | grep -vcxF "$B_NODE_UNIT" || true) running)$( [ -s "$FLEET" ] && echo "; the fleet recorded at STAGE=before: $(wc -l < "$FLEET")"), and the second operator's node"
 
 if [ "$MODE" = back ]; then
-  step "back: the fleet must be stopped"
-  running=$(fleet_running)
-  [ -z "$running" ] || die "still running: $(tr '\n' ' ' <<< "$running")"
+  step "back: the fleet must be stopped, if STAGE=stopped changed anything"
+  # A node's configuration changes only with the node stopped. With nothing of
+  # STAGE=stopped's to undo (it never ran, or was refused before it changed
+  # anything), only the records go, and the fleet may run.
+  marked=""
+  for d in $(all_dirs) "$(dirname "$B_NODE_CONF")"; do
+    f=$d/elements.conf; [ "$d" = "$(dirname "$B_NODE_CONF")" ] && f=$B_NODE_CONF
+    if grep -qxF "$MARK" "$f" 2>/dev/null; then marked=1; fi
+  done
+  if changed_by_stopped || [ -n "$marked" ] || [ -f "$CADDY_PENDING" ]; then
+    running=$(fleet_running)
+    [ -z "$running" ] || die "still running: $(tr '\n' ' ' <<< "$running")"
+  else
+    echo "  STAGE=stopped changed nothing: the fleet may run"
+  fi
 
   step "back: what each part goes back to, checked before anything changes"
   refuse=""
