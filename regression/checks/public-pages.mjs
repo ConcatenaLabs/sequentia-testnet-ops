@@ -1,6 +1,6 @@
 // The public pages around the web wallet, at desktop and phone widths: the front page, the faucet
-// page, Compages, the explorer (in a light colour scheme too), the staking pools, the Sequentia Core
-// download and Emissio's report scopes. Each line reads a page as a new tester meets it. Nothing
+// page, Compages, the explorer (in a light colour scheme too), the staking pools, the public
+// download page (Sequentia Core and Ambra for Android) and Emissio's report scopes. Each line reads a page as a new tester meets it. Nothing
 // is requested, bridged or sent: the faucet's and Compages' lines check that a receive code is
 // taken, and stop before any button that would move coins.
 import { sleep, helpers, setWidth } from '../lib/suite.mjs'
@@ -11,8 +11,9 @@ const SITE = process.env.SITE_URL || 'https://sequentiatestnet.com'
 const ADDR = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
 const CODE = 'BITCOIN:' + ADDR.toUpperCase() + '?ark=TARK1PNGLPCR3ZQQPQRP6TLZTDFMCHLYN76TQVXHG8XGUSPYMP8HG4F0JF445AQ3YZ4P3ZQYPEJS78MQ2CTZC8RZMDCCLKA7J4FE273DLXS87UD70ZV3KXDZVL9NQ3YWVYE&sequentia=SQR1QQQQ'
 // Paths and names of products that are served but not public: public copy never links or names them.
-const HIDDEN_PATHS = /href="(\/dex|\/lending|\/levo|\/seqpal|\/liquidity|\/secretfullmenu|\/download\/")/
-const HIDDEN_NAMES = /\b(Ambra|SeqDEX|Pignus|Levo|SeqPal|Fulmen)\b/
+// Ambra for Android is public; the Ambra browser extension is not.
+const HIDDEN_PATHS = /href="(\/dex|\/lending|\/levo|\/seqpal|\/liquidity|\/secretfullmenu|\/download\/")|href="[^"]*\.zip"/
+const HIDDEN_NAMES = /\b(Ambra browser|Ambra extension|SeqDEX|Pignus|Levo|SeqPal|Fulmen|Seqognito)\b|browser extension/
 
 // Visible text drawn near-white on a light background (its own or the nearest painted ancestor's).
 const WHITE_ON_LIGHT = `(()=>{
@@ -143,6 +144,14 @@ export async function run ({ b, report, widths }) {
       const card = await h.eval("[...document.querySelectorAll('.card a')].map(a=>a.getAttribute('href'))")
       const t = await h.bodyText()
       return { ok: links.some((l) => /build-osx/.test(l)) && !card.includes('/wallet/') && !/rather than/.test(t), detail: { mac: links, card }, at: '#mac' }
+    })
+    await R('CORE-AMBRA', w, 'The public download page offers Ambra for Android, its APK with its size, and no other wallet', async () => {
+      await h.waitFor("document.querySelectorAll('#ambra a.dl[download] .size span').length >= 1", 15000).catch(() => {})
+      const d = await h.eval(`(()=>{const a=document.querySelector('#ambra a.dl[download]');
+        return { name: ((document.querySelector('#ambra h2')||{}).innerText||''), apk: a ? a.getAttribute('href') : null,
+          size: a ? (a.querySelector('.size')||{innerText:''}).innerText : '', cards: document.querySelectorAll('.card').length }})()`)
+      return { ok: d.name === 'Ambra for Android' && /^\.\.\/ambra-[0-9][0-9.]*\.apk$/.test(d.apk || '') && /\d (kB|MB|GB)/.test(d.size) && d.cards === 2,
+        detail: d, at: '#ambra' }
     })
     await R('CORE-GET', w, 'The Core download page offers Linux and Windows with their sizes, and one signed checksum list with its key', async () => {
       await h.waitFor("document.querySelectorAll('a.dl[download] .size span').length >= 2", 15000).catch(() => {})

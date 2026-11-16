@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sequentia Core Downloads</title>
+<title>Sequentia Core and Ambra Downloads</title>
 <link rel="icon" type="image/png" href="../sequentia-mark.png">
 <!-- The same stylesheet and script as ../index.html; change both together.
      The release publisher rewrites every file name on this page, and the number
      in the version chip: a span of class "ver" whose data-ver attribute names
      the publisher's recipe and whose text is "version" and the number. Keep the
-     chip in exactly that form. This page names Sequentia Core only, and its card
-     links only to Sequentia Core. -->
+     chip in exactly that form. This page offers Sequentia Core and Ambra for
+     Android, and nothing else; each card links only to its own product. -->
 <style>
   :root{ --ground:#101317; --panel:#161a20; --raise:#1c2129; --line:#2a3039; --txt:#eef1f4; --dim:#9aa3ad;
          --gold:#ffc629; --gold-ink:#1d1600; }
@@ -116,12 +116,16 @@
     <div>
       <img class="brand" src="../sequentia-logo.svg" alt="Sequentia" height="38">
       <h1>Downloads</h1>
-      <p class="sub">The node software for the Sequentia testnet. Sequentia is a Bitcoin sidechain for asset
+      <p class="sub">The full node and the Android wallet for the Sequentia testnet. Sequentia is a Bitcoin sidechain for asset
         tokenization and disintermediated exchanges: every block commits to a Bitcoin testnet4 header, addresses are
         transparent by default, and fees are payable in any accepted asset.</p>
     </div>
     <span class="chain">Testnet: coins and assets have no value</span>
   </header>
+
+  <nav class="jump" aria-label="Products">
+    <a href="#core">Sequentia Core</a><a href="#ambra">Ambra for Android</a>
+  </nav>
 
   <main class="grid" style="grid-template-columns:1fr">
     <section class="card solo" id="core">
@@ -152,6 +156,31 @@
           <li><b>Staking tab</b>: committee schedule, stake weights and staking-output tools.</li>
           <li><b>Anchor watching</b>: follows Bitcoin testnet4 and reorgs when it does.</li>
           <li><b>Any-asset fees</b>: pay a fee in whichever asset a producer accepts.</li>
+        </ul>
+    </section>
+
+    <section class="card solo" id="ambra">
+      <div class="info">
+        <div class="head"><h2>Ambra for Android</h2><span class="ver" data-ver="ambra">version 0.17.29</span></div>
+        <p class="desc">A self-custody Android wallet for Bitcoin testnet4 and Sequentia, from one recovery phrase.</p>
+      </div>
+      <div class="get">
+        <a class="dl" data-os="android" href="../ambra-0.17.29.apk" download>
+          <span class="what"><b>Android</b><small>arm64 and x86-64, APK</small></span><span class="size"></span></a>
+        <details class="more">
+          <summary>Install and update</summary>
+          <p><b>Install</b>: allow &ldquo;install unknown apps&rdquo; for your browser, then open the <code>.apk</code>.</p>
+          <p><b>Update</b>: open the newer <code>.apk</code> the same way. It installs over the old one and keeps the wallet.</p>
+          <p><a href="https://github.com/ConcatenaLabs/ambra" target="_blank" rel="noopener">Source on GitHub</a></p>
+          <p class="files"><b>File</b>: <code>ambra-0.17.29.apk</code></p>
+        </details>
+      </div>
+        <ul class="feat">
+          <li><b>Both chains</b>: BTC beside every Sequentia asset, on one shared <code>tb1</code> address.</li>
+          <li><b>Total first</b>: one total in your reference currency, every asset an equal row.</li>
+          <li><b>Send and receive</b>: fees in any accepted asset, opt-in confidential addresses, and a waiting payment sped up on its own.</li>
+          <li><b>Issue and stake</b>: create your own assets, and stake the Sequence token (tSEQ).</li>
+          <li><b>App lock</b>: fingerprint or device PIN.</li>
         </ul>
     </section>
   </main>

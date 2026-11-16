@@ -22,12 +22,13 @@ same sitting; one removed on purpose takes its line out with it.
   drift, which `bin/caddy-drift.sh` reports; commit it or apply the checkout.
 - **The release publisher keeps the download pages current; nobody edits a
   version by hand.** `downloads/index.html` is the full page and
-  `downloads/core/index.html` the Sequentia Core one. The publisher rewrites
+  `downloads/core/index.html` the public one (Sequentia Core and Ambra for
+  Android). The publisher rewrites
   their file names and each `data-ver` version chip on every run, so a card
   keeps both in the form the README's "The download pages" gives. A design
   change edits both pages together and goes live with
   `bin/apply-downloads.sh`, which ends with a publisher run and checks every
-  linked file exists on the box. The Core page names no hidden product.
+  linked file exists on the box. The public page names no hidden product.
 - **Validate before install.** `apply-caddy.sh` does; a Caddyfile that does not
   validate takes every product down at the next reload.
 - **A maker script holds no credential and launches nothing on missing data.**

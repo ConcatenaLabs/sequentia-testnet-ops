@@ -40,7 +40,7 @@ put it in place and keep copies of it.
 | `bin/apply-status.sh` | Builds Gatus at the pinned version if it is not there, installs its config, its unit (`systemd/gatus.service`) and the page, restarts it and checks every check has run. |
 | `regression/` | The regression suite: every capability a person relies on in the web wallet, SeqDEX, Ambra browser and Ambra mobile, checked on the live testnet from a laptop in headless Chromium after each deploy, `node regression/run.mjs`. See `regression/README.md`. |
 | `downloads/index.html` | The full download page at `sequentiatestnet.com/download/`, a card for every product the box publishes, installed at `/root/sequentia/downloads/index.html` beside the release files it links; the explorer's server serves that directory. See "The download pages". |
-| `downloads/core/index.html` | The Sequentia Core download page at `sequentiatestnet.com/download/core/`, the one the site's front page links: the node and desktop wallet, reaching the same files through `../`. It names no product but Sequentia Core. |
+| `downloads/core/index.html` | The public download page at `sequentiatestnet.com/download/core/`, the one the site's front page, sequentia.io and concatenalabs.com link: Sequentia Core (the node and desktop wallet) and Ambra for Android, reaching the same files through `../`. It names no other product. |
 | `bin/apply-downloads.sh` | Installs both download pages, has the release publisher point every card at the newest file present, and checks every file the pages link is on the box. |
 
 ## Checks
@@ -59,7 +59,7 @@ registry and the download pages fall through to the explorer's own server on
 port 8080, which serves them; everything else is proxied to its own process.
 That server also renders the site's two menu pages: the front page at `/`,
 which links the explorer, the staking pool board, the faucet, the Compages
-bridge, Emissio and the Sequentia Core download, and the full menu of every product at
+bridge, Emissio and the public download page (Sequentia Core and Ambra for Android), and the full menu of every product at
 `/secretfullmenu`, which nothing links to.
 Two paths sit behind basic auth because they show simulated regulated data;
 the SBTC peg path carries a bearer token the browser never sees.
