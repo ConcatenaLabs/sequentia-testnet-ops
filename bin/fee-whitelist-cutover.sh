@@ -44,6 +44,20 @@
 # first, the first value of a key, comments, included files, its command line,
 # its chain's default) and checked against the ports its process listens on.
 #
+# STAGE=before also records every public node directory on disk, running or
+# not, with its RPC port. STAGE=stopped, before it changes anything, and
+# STAGE=started, before it reports success, hold the fleet as it is now against
+# that record (and STAGE=stopped against the nodes a release switch under way
+# will start): a node added, removed, started since or moved to another port is
+# refused by name, with what to do, since a node this script does not connect
+# keeps a list nothing updates.
+#
+# It changes only what it wrote. A price server's drop-in it did not write is
+# refused, never replaced; a published list that was there before is kept and
+# put back by BACK=1; Caddy's files go back through temporaries and renames,
+# and a restore stays pending until Caddy has reloaded. BACK=1 refuses where
+# no cutover was recorded.
+#
 # Nothing in between leaves a public node with an empty or a one-asset list:
 # the nodes are stopped while their configuration changes; STAGE=stopped
 # returns only when both price servers serve a list of at least two assets, so
@@ -51,8 +65,13 @@
 # It changes no firewall rule. Each stage can be pasted twice, and a run that
 # was cut short is taken up by the next paste of the same stage or by BACK=1.
 # Wherever it stops, it prints the state of the box, the command to go forward
-# and the command to go back.
+# and the command to go back. On any host but the testnet box it stops before
+# it opens or creates anything.
 set -Eeuo pipefail
+# The testnet box, checked before anything is opened or created.
+BOX_HOST=sequentia
+[ "$(cat /proc/sys/kernel/hostname)" = "$BOX_HOST" ] \
+  || { echo "this host is $(cat /proc/sys/kernel/hostname), not the testnet box ($BOX_HOST): nothing was opened or changed" >&2; exit 1; }
 exec 9> /run/lock/fee-whitelist-cutover.lock
 # A run killed outright can leave a child (a sleep) holding the lock for a few seconds.
 flock -w 20 9 || { echo "another run of this script holds its lock; this paste did nothing. Paste it again once that run has ended." >&2; exit 75; }
@@ -91,6 +110,18 @@ B_DATADIR=${B_DATADIR:-/var/lib/arca-b/sequentia}
 MARK="# fee-whitelist-cutover: connected to its price server"
 REMOVED_KEYS="node_rpc node_rpcs clear_whitelist_on_shutdown"
 FLEET=$STATE/fleet.before
+# Every public node directory on disk at STAGE=before, and the second
+# operator's node: 'port datadir running|stopped conf|command-line'.
+DISK=$STATE/nodes.before
+# The node release's switch records the nodes it stops and starts in
+# <its state>/fleet.txt (name|kind|unit|datadir|binary) and its progress in
+# <its state>/phase; SWITCH_STATE names it, else the one under way here.
+SWITCH_GLOB=${SWITCH_GLOB:-/root/sequentia/node-cutover-v*}
+# A Caddy restore under way: present from before its first file changes until
+# Caddy has reloaded.
+CADDY_PENDING=$STATE/caddy-restore.pending
+PUB_KEPT=$STATE/feewhitelist.json.before
+DROPIN_MARK="# fee-whitelist-cutover:"
 
 MODE=${STAGE:-}
 [ "${TRIAL:-0}" = 1 ] && MODE=trial
@@ -265,7 +296,62 @@ def fleet(argv):
             if port in seen:
                 print("  %s and %s both on RPC port %d" % (seen[port], d, port), file=sys.stderr); bad += 1; continue
             seen[port] = d
-        print("%d %s %s" % (port, d, "running" if pid is not None else "stopped"))
+        print("%d %s %s %s" % (port, d, "running" if pid is not None else "stopped",
+                               "command-line" if src == "command line" else "conf"))
+    sys.exit(1 if bad else 0)
+
+def reconcile(argv):
+    # reconcile <record> <stopped|started> <switch fleet record or -> <the second
+    # operator's datadir, which no release switch starts>, the fleet
+    # now on stdin ('port datadir running|stopped conf|command-line', as fleet
+    # prints it): one line per node added, removed, started since or moved to
+    # another port; fails if there is any.
+    rec_path, stage, sw_path, own = argv
+    def table(text):
+        t = {}
+        for line in text.split("\n"):
+            f = line.split()
+            if len(f) >= 3: t[f[1]] = (int(f[0]), f[2], f[3] if len(f) > 3 else "conf")
+        return t
+    rec, now = table(open(rec_path).read()), table(sys.stdin.read())
+    since = os.stat(rec_path).st_mtime
+    bad = []
+    for d in sorted(set(now) - set(rec)):
+        bad.append("%s: a node directory that was not on disk at STAGE=before (%s now)" % (d, now[d][1]))
+    for d in sorted(set(rec) - set(now)):
+        if rec[d][1] == "running":
+            bad.append("%s: ran at STAGE=before, and is gone from disk" % d)
+    for d in sorted(set(rec) & set(now)):
+        (rp, rs, rsrc), (np_, ns, nsrc) = rec[d], now[d]
+        # A port given on the command line is not in the configuration: with the
+        # node stopped, only a port read from the configuration both times compares.
+        if rs == "running" and np_ != rp and (stage == "started" or (rsrc == "conf" and nsrc == "conf")):
+            bad.append("%s: its RPC port is %d now, %d at STAGE=before" % (d, np_, rp))
+        if stage == "started" and rs == "stopped" and ns == "running":
+            bad.append("%s: runs now, and was not running at STAGE=before: its configuration is not connected" % d)
+        if stage == "started" and rs == "running" and ns == "stopped":
+            bad.append("%s: ran at STAGE=before, and is not running" % d)
+    if stage == "stopped":
+        recrun = {d for d in rec if rec[d][1] == "running"}
+        if sw_path != "-":
+            sw = set()
+            for line in open(sw_path).read().split("\n"):
+                f = line.split("|")
+                if len(f) >= 4 and f[3].rstrip("/") in set(rec) | set(now): sw.add(f[3].rstrip("/"))
+            for d in sorted(sw - recrun):
+                bad.append("%s: the release switch (%s) starts it, and it was not running at STAGE=before" % (d, sw_path))
+            for d in sorted((recrun - sw - {own}) & set(now)):
+                bad.append("%s: ran at STAGE=before, and the release switch (%s) does not start it" % (d, sw_path))
+        else:
+            # No switch record: a directory stopped at STAGE=before whose log
+            # moved since has run since, and may run again.
+            for d in sorted(set(rec) & set(now)):
+                if rec[d][1] != "stopped": continue
+                for root, dirs, files in os.walk(d):
+                    if root[len(d):].count(os.sep) >= 2: dirs[:] = []
+                    if "debug.log" in files and os.stat(os.path.join(root, "debug.log")).st_mtime > since:
+                        bad.append("%s: not running at STAGE=before, and has run since (%s)" % (d, os.path.join(root, "debug.log"))); break
+    for b in bad: print("  " + b)
     sys.exit(1 if bad else 0)
 
 def match(argv):
@@ -413,7 +499,7 @@ def check_list_cmd(argv):
     try: print(check_list(sys.stdin.read()))
     except Exception as e: print(str(e), file=sys.stderr); sys.exit(1)
 
-{"check-list": check_list_cmd, "running": running, "fleet": fleet, "match": match, "connect": connect,
+{"check-list": check_list_cmd, "running": running, "fleet": fleet, "reconcile": reconcile, "match": match, "connect": connect,
  "disconnect": disconnect, "strip": strip, "unstrip": unstrip, "unit-code": unit_code,
  "accepts": accepts, "served": served}[sys.argv[1]](sys.argv[2:])
 PY
@@ -455,6 +541,10 @@ remove_temporaries() {
   done
   rm -f "$STATE"/*.tmp "$STATE"/*.new 2>/dev/null || true
   rm -rf "$STATE/second-price-server-code.new"
+  # put_back's temporaries (a run killed between its copy and its rename).
+  for f in "$CADDYFILE" "$CADDY_ENV_CONF" "$PUBFILE"; do
+    find "$(dirname "$f")" -maxdepth 1 -name ".$(basename "$f").cutover-back.*" -type f -delete 2>/dev/null || true
+  done
   [ -z "$T" ] || rm -rf "$T"
 }
 
@@ -479,12 +569,20 @@ advice() {
   stopped)
     echo "Forward: fix the cause above, then paste the same again; it takes up from where this run stopped:"
     echo "    $(paste_cmd STAGE=stopped)"
-    echo "Back: $(paste_cmd BACK=1)"
-    echo "    (it says first if a command is needed before it), then put the release's binaries back by the release's own way back, and start the fleet.";;
+    echo "Back, with every node stopped, in this order:"
+    echo "    $(switch_back_paste CUT_PAUSE_STOPPED=1)   (the release's binaries and clones back; starts nothing)"
+    echo "    $(paste_cmd BACK=1)   (it says first if a command is needed before it; then paste it again)"
+    echo "    $(switch_back_paste)   (starts every node as it was started, reloads the wallets)"
+    echo "    ssh seq systemctl start $B_NODE_UNIT";;
   started)
     echo "The fleet runs."
     echo "Forward: fix the cause above (the node named), then paste the same again: $(paste_cmd STAGE=started)"
-    echo "Back: stop the fleet and $B_NODE_UNIT, then $(paste_cmd BACK=1)";;
+    echo "Back, in this order:"
+    echo "    $(switch_back_paste CUT_PAUSE_STOPPED=1)   (stops every node; the release's binaries and clones back)"
+    echo "    ssh seq systemctl stop $B_NODE_UNIT"
+    echo "    $(paste_cmd BACK=1)   (it says first if a command is needed before it; then paste it again)"
+    echo "    $(switch_back_paste)   (starts every node as it was started, reloads the wallets)"
+    echo "    ssh seq systemctl start $B_NODE_UNIT";;
   back)
     echo "Forward (finish the way back): fix the cause above, then paste the same again; it takes up from where this run stopped:"
     echo "    $(paste_cmd BACK=1)"
@@ -552,6 +650,91 @@ code_of_unit() {
   py unit-code <<< "$all"
 }
 
+# --- The fleet now, against the record STAGE=before made. ---
+# 'port datadir running|stopped conf|command-line' per public node directory on
+# disk, and the second operator's node.
+fleet_now() {
+  local d args=()
+  for d in $(datadirs_on_disk); do args+=(- "$d"); done
+  py fleet "${args[@]}" "$B_NODE_CONF" "$B_DATADIR"
+}
+# The state directory of the node release's switch under way, if any.
+switch_state() {
+  local f ph found=()
+  if [ -n "${SWITCH_STATE:-}" ]; then echo "$SWITCH_STATE"; return 0; fi
+  for f in $SWITCH_GLOB; do
+    [ -s "$f/phase" ] && [ -s "$f/fleet.txt" ] || continue
+    ph=$(cat "$f/phase")
+    case $ph in captured|stopping|stopped|swapped|started|back-*) [ "$ph" = back-done ] || found+=("$f");; esac
+  done
+  [ "${#found[@]}" -le 1 ] || { echo "more than one node release's switch is under way (${found[*]}): set SWITCH_STATE to this release's" >&8; return 1; }
+  [ "${#found[@]}" = 0 ] || echo "${found[0]}"
+}
+# The paste of that switch's way back (its owner script is named after its version).
+switch_back_paste() {
+  local s v
+  s=$(switch_state 2>/dev/null || true); v=${s##*/node-cutover-v}
+  if [ -n "$s" ] && [ "$v" != "$s" ]; then
+    echo "ssh seq 'BACK=1${1:+ $1} bash -s' < ~/Documents/arca/owner/node_cutover_${v}_2_switch.sh"
+  else
+    echo "the node release's switch with BACK=1${1:+ $1}"
+  fi
+}
+# Refuses, naming each node, when the fleet now is not the one STAGE=before
+# recorded: a node this script does not connect keeps a list nothing updates.
+reconcile() { # <stopped|started>
+  local now sw=- out
+  [ -s "$DISK" ] || die "STAGE=before has not recorded the node directories on disk: with the fleet running on the binaries it ran, paste $(paste_cmd STAGE=before)"
+  # Just started, a node may not listen yet: STAGE=started reads again for 90 s.
+  for _ in $(seq 1 45); do now=$(fleet_now 2>/dev/null) && break; [ "$1" = started ] || break; sleep 2; done
+  now=$(fleet_now) || die "a node's RPC port cannot be read, is not what its configuration says, or two nodes claim one"
+  if [ "$1" = stopped ]; then
+    sw=$(switch_state) || die "see above"
+    if [ -n "$sw" ]; then sw=$sw/fleet.txt
+    else sw=-; echo "  no node release's switch is under way here: the directories stopped at STAGE=before are checked for a run since"; fi
+  fi
+  if out=$(py reconcile "$DISK" "$1" "$sw" "$B_DATADIR" <<< "$now"); then
+    echo "  the fleet is the one STAGE=before recorded: $(grep -c ' running ' "$DISK") nodes$([ "$sw" = - ] || echo ", the ones the release switch starts")"
+    return 0
+  fi
+  { echo "The fleet is not the one STAGE=before recorded:"; echo "$out"; } >&8
+  if [ "$1" = stopped ]; then
+    die "$(if changed_by_stopped; then echo "This stage has changed things already."; else echo "This stage has changed nothing."; fi) To record the fleet that is to run: go back by the way printed below (it starts every node the release switch recorded, on the binaries they ran), stop or start each node named above as it is to be, paste $(paste_cmd STAGE=before), and take the day up again from the second operator's script."
+  else
+    die "A node named above runs without its price server's list. If it is not to run, stop it and paste $(paste_cmd STAGE=started) again. To connect it, record it: go back by the way printed below, then paste $(paste_cmd STAGE=before) with it running, and take the day up again from the second operator's script."
+  fi
+}
+
+# --- Files this script writes beside others'. ---
+# A price server's drop-in of this script's name is this script's only if it
+# carries its mark; anything else there is someone else's, refused and kept.
+dropin_ours() { [ -f "$1" ] && grep -q "^$DROPIN_MARK" "$1"; }
+foreign_dropins() {
+  local f
+  for f in "$PS_DROPIN_DIR/publish.conf" "$B_PS_DROPIN_DIR/publish.conf"; do
+    if [ -e "$f" ] && ! dropin_ours "$f"; then echo "$f"; fi
+  done
+  return 0
+}
+# A file put back through a private temporary beside it and a rename: at any
+# moment the path holds the old bytes or the new, never a part.
+put_back() { # <saved copy> <path>
+  local tmp
+  tmp=$(mktemp "$(dirname "$2")/.$(basename "$2").cutover-back.XXXXXX")
+  cp -p "$1" "$tmp"
+  mv -f "$tmp" "$2"
+}
+
+# BACK=1 undoes a cutover this script recorded, and nothing else: with no
+# record of STAGE=before it changes nothing (and creates nothing).
+if [ "$MODE" = back ] && [ ! -s "$FLEET" ]; then
+  if [ "$(cat "$STATE/last-run" 2>/dev/null)" = "back done" ]; then
+    echo "back done: an earlier BACK=1 finished, and nothing of the cutover is left to undo"; exit 0
+  fi
+  echo "no cutover is recorded on this box (STAGE=before has not run, or its record is gone): BACK=1 changed nothing" >&2
+  exit 1
+fi
+
 # Its own directory, created once; an existing one is never changed.
 [ -d "$STATE" ] || install -d -m 700 "$STATE"
 [ "$(stat -c %a "$STATE")" = 700 ] || { echo "$STATE is not mode 700; refusing to keep records there" >&2; exit 1; }
@@ -614,21 +797,21 @@ if [ "$MODE" = back ]; then
   # commit installs: what is as this script left it goes back; anything else
   # is left and said. A run killed anywhere in the route's step leaves no
   # record that this depends on.
-  caddy_back=""; env_back=""; ops_back=""
+  caddy_back=""; env_back=""; ops_back=""; caddy_left=""; env_left=""
   inst=$(cat "$STATE/ops.installed" 2>/dev/null || true)
   if [ -f "$STATE/Caddyfile.before" ]; then
     new=$(rev_sha "$inst:caddy/Caddyfile") || new=none
     if [ "$(sha_of "$CADDYFILE")" = "$(sha_of "$STATE/Caddyfile.before")" ]; then :
     elif [ "$(sha_of "$CADDYFILE")" = "$new" ]; then caddy_back=1
-    else echo "  $CADDYFILE changed since this script installed it: left as it is (its /feewhitelist route will serve nothing)"; fi
+    else caddy_left=1; echo "  $CADDYFILE changed since this script installed it: left as it is (its /feewhitelist route will serve nothing)"; fi
     new=$(rev_sha "$inst:caddy/caddy.service.d/env.conf") || new=none
     if [ -f "$STATE/caddy-env.conf.before" ]; then
       if [ "$(sha_of "$CADDY_ENV_CONF")" = "$(sha_of "$STATE/caddy-env.conf.before")" ]; then :
       elif [ "$(sha_of "$CADDY_ENV_CONF")" = "$new" ]; then env_back=1
-      else echo "  $CADDY_ENV_CONF changed since this script installed it: left as it is"; fi
+      else env_left=1; echo "  $CADDY_ENV_CONF changed since this script installed it: left as it is"; fi
     elif [ -f "$CADDY_ENV_CONF" ]; then
       if [ "$(sha_of "$CADDY_ENV_CONF")" = "$new" ]; then env_back=1
-      else echo "  $CADDY_ENV_CONF appeared since, and is not this script's: left as it is"; fi
+      else env_left=1; echo "  $CADDY_ENV_CONF appeared since, and is not this script's: left as it is"; fi
     fi
   fi
   if [ -s "$STATE/ops.before" ]; then
@@ -645,7 +828,9 @@ if [ "$MODE" = back ]; then
   py disconnect "$B_NODE_CONF" "$MARK"
 
   step "back: the network's price server's configuration and drop-in"
-  rm -f "$PS_DROPIN_DIR/publish.conf"
+  # Only a drop-in this script wrote (it carries its mark) is removed.
+  if dropin_ours "$PS_DROPIN_DIR/publish.conf"; then rm -f "$PS_DROPIN_DIR/publish.conf"
+  elif [ -e "$PS_DROPIN_DIR/publish.conf" ]; then echo "  left $PS_DROPIN_DIR/publish.conf: this script did not write it"; fi
   if [ -f "$STATE/created-ps-dropin-dir" ]; then
     rmdir "$PS_DROPIN_DIR" 2>/dev/null || echo "  left $PS_DROPIN_DIR: it holds files this script did not put there"
     rm -f "$STATE/created-ps-dropin-dir"
@@ -656,7 +841,8 @@ if [ "$MODE" = back ]; then
   fi
 
   step "back: the second operator's price server's configuration, drop-in and code"
-  rm -f "$B_PS_DROPIN_DIR/publish.conf"
+  if dropin_ours "$B_PS_DROPIN_DIR/publish.conf"; then rm -f "$B_PS_DROPIN_DIR/publish.conf"
+  elif [ -e "$B_PS_DROPIN_DIR/publish.conf" ]; then echo "  left $B_PS_DROPIN_DIR/publish.conf: this script did not write it"; fi
   if [ -f "$STATE/created-b-dropin-dir" ]; then
     rmdir "$B_PS_DROPIN_DIR" 2>/dev/null || echo "  left $B_PS_DROPIN_DIR: it holds files this script did not put there"
     rm -f "$STATE/created-b-dropin-dir"
@@ -684,7 +870,11 @@ if [ "$MODE" = back ]; then
 
   step "back: the published file"
   # After the restart: until then the new price server writes it again.
-  if [ -f "$STATE/created-pubdir" ]; then
+  if [ -f "$PUB_KEPT" ]; then
+    # The list that was there before the cutover: its bytes, owner and mode.
+    put_back "$PUB_KEPT" "$PUBFILE"; rm -f "$PUB_KEPT"
+    echo "  $PUBFILE: the file that was there before the cutover, put back"
+  elif [ -f "$STATE/created-pubdir" ]; then
     rm -f "$PUBFILE" "$PUBFILE.tmp"
     rmdir "$PUBDIR" 2>/dev/null || echo "  left $PUBDIR: it holds files this script did not put there"
   elif [ -f "$STATE/created-pubfile" ]; then
@@ -693,15 +883,29 @@ if [ "$MODE" = back ]; then
   rm -f "$STATE/created-pubdir" "$STATE/created-pubfile"
 
   step "back: the Caddy route and the checkout it came from"
-  if [ -n "$caddy_back" ]; then
-    cp -p "$STATE/Caddyfile.before" "$CADDYFILE.cutover-back"; mv -f "$CADDYFILE.cutover-back" "$CADDYFILE"
-    echo "  $CADDYFILE: as it was before the cutover"
+  if [ -n "$caddy_back$env_back" ] || [ -f "$CADDY_PENDING" ]; then
+    # Pending from before the first file changes until Caddy has reloaded: a
+    # run stopped in between reloads on the next paste, whatever the files
+    # hold by then. Each file goes back through a temporary and a rename.
+    [ -f "$CADDY_PENDING" ] || { date -u +%FT%TZ > "$CADDY_PENDING.new"; mv -f "$CADDY_PENDING.new" "$CADDY_PENDING"; }
+    if [ -n "$caddy_back" ]; then put_back "$STATE/Caddyfile.before" "$CADDYFILE"; echo "  $CADDYFILE: as it was before the cutover"; fi
+    if [ -n "$env_back" ]; then
+      if [ -f "$STATE/caddy-env.conf.before" ]; then put_back "$STATE/caddy-env.conf.before" "$CADDY_ENV_CONF"; else rm -f "$CADDY_ENV_CONF"; fi
+      echo "  $CADDY_ENV_CONF: as it was before the cutover"
+    fi
+    systemctl daemon-reload
+    systemctl reload caddy
+    rm -f "$CADDY_PENDING"
+    echo "  caddy reloaded"
   fi
-  if [ -n "$env_back" ]; then
-    if [ -f "$STATE/caddy-env.conf.before" ]; then cp -p "$STATE/caddy-env.conf.before" "$CADDY_ENV_CONF"; else rm -f "$CADDY_ENV_CONF"; fi
-    echo "  $CADDY_ENV_CONF: as it was before the cutover"
+  # A file someone else changed since keeps the copy taken before the
+  # cutover, under a name of its own; the others' copies are done with.
+  if [ -n "$caddy_left" ] && [ -f "$STATE/Caddyfile.before" ]; then
+    mv -f "$STATE/Caddyfile.before" "$STATE/Caddyfile.before-cutover"; echo "  the Caddyfile from before the cutover is kept in $STATE/Caddyfile.before-cutover"
   fi
-  if [ -n "$caddy_back$env_back" ]; then systemctl daemon-reload; systemctl reload caddy; fi
+  if [ -n "$env_left" ] && [ -f "$STATE/caddy-env.conf.before" ]; then
+    mv -f "$STATE/caddy-env.conf.before" "$STATE/caddy-env.conf.before-cutover"; echo "  $CADDY_ENV_CONF from before the cutover is kept in $STATE/caddy-env.conf.before-cutover"
+  fi
   rm -f "$STATE/Caddyfile.before" "$STATE/caddy-env.conf.before" "$STATE/caddy-env.conf.absent"
   if [ -n "$ops_back" ]; then
     read -r ops_sha ops_branch < "$STATE/ops.before"
@@ -710,9 +914,11 @@ if [ "$MODE" = back ]; then
   fi
   rm -f "$STATE/ops.before" "$STATE/ops.installed"
 
-  rm -f "$STATE/node-clone.before" "$STATE/second-bundle-link.before" "$FLEET" "$STATE/assets.before"
+  rm -f "$STATE/node-clone.before" "$STATE/second-bundle-link.before" "$STATE/assets.before"
+  # The record of the cutover goes last: until it is gone, BACK=1 runs again.
   finish
-  echo "back done: both price servers run as before; start the fleet with the binaries it ran before (and $B_NODE_UNIT)"
+  rm -f "$DISK" "$FLEET"
+  echo "back done: both price servers run as before; start the fleet with the binaries it ran before ($(switch_back_paste)), and $B_NODE_UNIT"
   exit 0
 fi
 
@@ -728,9 +934,12 @@ before|trial)
   pub=$(py fleet "${args[@]}") || die "a node's RPC port is not what its configuration says, or two nodes claim one"
   sec=$(py fleet "$B_NODE_CONF" "$B_DATADIR") || die "the second operator's node's RPC port is not what its configuration says"
   awk '$3 == "stopped" {print "  " $2 ": not running; this cutover leaves it alone"}' <<< "$pub"
-  nrun=$(grep -c ' running$' <<< "$pub" || true)
+  nrun=$(awk '$3 == "running"' <<< "$pub" | grep -c . || true)
   [ "$nrun" -gt 0 ] || die "no public node is running: STAGE=before and TRIAL=1 run with the fleet up"
   echo "  $nrun running public nodes"
+  foreign=$(foreign_dropins)
+  [ -z "$foreign" ] || die "a price server's drop-in this script did not write is where it writes its own: $(tr '\n' ' ' <<< "$foreign")-- move it aside (or fold it into the unit) and paste this again; this script neither replaces nor deletes it"
+  if [ -e "$PUBFILE" ]; then echo "  $PUBFILE exists already: STAGE=stopped keeps it, and BACK=1 puts it back"; fi
 
   step "the nodes the price servers write to today, against the nodes this script connects"
   py match "$PS_CONFIG" "the network's price server" <<< "$(awk '$3 == "running" {print $1, $2}' <<< "$pub")" \
@@ -763,6 +972,9 @@ before|trial)
       # Nothing has changed yet: the records are what runs now (an attempt
       # given up earlier leaves none behind that would mislead this one).
       awk '$3 == "running" {print $1, $2}' <<< "$pub" > "$FLEET.new"; mv -f "$FLEET.new" "$FLEET"
+      # Every directory on disk, running or not, and the second operator's
+      # node: what the later stages hold the fleet against.
+      printf '%s\n%s\n' "$pub" "$sec" > "$DISK.new"; mv -f "$DISK.new" "$DISK"
       printf '%s\n' "$live" > "$STATE/assets.before"
       echo "$clone $(git -C "$clone" rev-parse HEAD)" > "$STATE/node-clone.before"
     else
@@ -815,6 +1027,11 @@ stopped)
     || die "STAGE=before has not recorded the fleet and what the way back needs: start the fleet on the binaries it ran, run STAGE=before, then stop it again"
   running=$(fleet_running)
   [ -z "$running" ] || die "still running: $(tr '\n' ' ' <<< "$running")"
+
+  step "the fleet that will start, against the one STAGE=before recorded"
+  reconcile stopped
+  foreign=$(foreign_dropins)
+  [ -z "$foreign" ] || die "a price server's drop-in this script did not write is where it writes its own: $(tr '\n' ' ' <<< "$foreign")-- move it aside (or fold it into the unit) and paste this again; this script neither replaces nor deletes it"
   # Before its drop-in exists the second operator's price server serves no
   # port, so anything on this one is something else's. Checked before anything changes.
   if [ ! -f "$B_PS_DROPIN_DIR/publish.conf" ] && port_taken "$B_PS_PORT"; then
@@ -839,7 +1056,13 @@ stopped)
   # shellcheck disable=SC2086
   py strip "$PS_CONFIG" "$STATE/network-price-server.removed.json" $REMOVED_KEYS
   [ -d "$PUBDIR" ] || { install -d -m 755 "$PUBDIR"; touch "$STATE/created-pubdir"; }
-  [ -e "$PUBFILE" ] || [ -f "$STATE/created-pubdir" ] || touch "$STATE/created-pubfile"
+  if [ -e "$PUBFILE" ] && [ ! -f "$STATE/created-pubdir" ] && [ ! -f "$STATE/created-pubfile" ] && [ ! -f "$PUB_KEPT" ]; then
+    # A list published before the cutover: kept once, with its owner and mode,
+    # before this script's writer starts; BACK=1 puts it back.
+    cp -p "$PUBFILE" "$PUB_KEPT.new"; mv -f "$PUB_KEPT.new" "$PUB_KEPT"
+    echo "  $PUBFILE was there before the cutover: kept in $PUB_KEPT"
+  fi
+  [ -e "$PUBFILE" ] || [ -f "$STATE/created-pubdir" ] || [ -f "$PUB_KEPT" ] || touch "$STATE/created-pubfile"
   [ -d "$PS_DROPIN_DIR" ] || { install -d -m 755 "$PS_DROPIN_DIR"; touch "$STATE/created-ps-dropin-dir"; }
   printf '[Service]\n# fee-whitelist-cutover: publish the list; write to no node.\nExecStart=\nExecStart=/usr/bin/python3 %s --config %s --publish-file %s\n' \
     "$SRC/contrib/price-server/price_server.py" "$PS_CONFIG" "$PUBFILE" > "$STATE/publish.conf.new"
@@ -923,6 +1146,9 @@ stopped)
   echo "done: start the fleet (and $B_NODE_UNIT), then run STAGE=started"
   ;;
 started)
+  step "the fleet running, against the one STAGE=before recorded"
+  reconcile started
+
   step "every node connected, with a list of two or more assets"
   bad=0
   check_node() { # name, expected url, cli command...
@@ -942,6 +1168,8 @@ assert s["decided_by"] == "configuration file"
   for d in $(fleet_dirs); do check_node "$(basename "$d")" "$NETWORK_URL" "$CLI" -datadir="$d" || bad=$((bad+1)); done
   check_node "second operator" "$B_URL" runuser -u "$B_USER" -- "$B_CLI" -conf="$B_NODE_CONF" -datadir="$B_DATADIR" || bad=$((bad+1))
   [ "$bad" = 0 ] || die "$bad node(s) without their list"
+  step "the fleet still the one STAGE=before recorded"
+  reconcile started
   finish
   echo "done: every node reads its price server's list; no price server writes to a node"
   ;;

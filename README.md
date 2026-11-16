@@ -195,6 +195,17 @@ node's RPC port is read as the node reads it (its chain's section first, the
 first value of a key, comments, included files, its command line, its chain's
 default) and checked against the ports its process listens on.
 
+`STAGE=before` also records every public node directory on disk, running or
+not, with its RPC port. Before `STAGE=stopped` changes anything, and before
+`STAGE=started` reports success, each holds the fleet as it is then against
+that record: a node directory added or removed since, a node that was stopped
+and has run since or runs now, a node on another port, and (at `STAGE=stopped`)
+a node the node release's switch under way will start that was not running,
+or the other way round, is refused by name, with what to do. A node the
+cutover did not connect would keep a list nothing updates. The switch is found
+by its state directory, `/root/sequentia/node-cutover-v<version>`, through its
+`phase` and `fleet.txt` (`SWITCH_STATE` names one).
+
 `STAGE=stopped` installs the Caddy route when the address does not serve a
 valid list itself: a redirect, which is what the site answers a path it has no
 route for, is no route. `BACK=1`, with the fleet stopped, undoes what it
@@ -207,6 +218,21 @@ first checks that the code each price server will then run accepts the node
 login it puts back: the release moves the node checkout the network's price
 server runs from, and the second operator's bundle moves its link. When one
 refuses, it changes nothing and prints the command that moves that code back.
+`BACK=1` refuses, and creates nothing, on a box where `STAGE=before` recorded
+no cutover.
+
+The script changes only what it wrote. A drop-in at either price server's
+`publish.conf` that it did not write (it carries no mark of the script's) is
+refused by `TRIAL=1`, `STAGE=before` and `STAGE=stopped`, and never removed by
+`BACK=1`. A published list already at `/srv/feewhitelist/feewhitelist.json` is
+kept, with its owner and mode, before the new price server writes there, and
+`BACK=1` puts it back. `BACK=1` puts each Caddy file back through a temporary
+beside it and a rename, so the file holds the old bytes or the new and never a
+part, and keeps a pending record from before the first file changes until Caddy
+has reloaded: a run stopped in between reloads on the next paste.
+
+Each run first checks that it is on the testnet box (its host name); on any
+other host it stops before it opens or creates anything.
 
 Every stage can be pasted twice, and a run cut short is taken up by the next
 paste of the same stage or by `BACK=1`. Wherever a run stops, it prints the
