@@ -42,8 +42,10 @@
 #
 # Safe to paste again: checkouts already there stay, an installed Caddyfile or unit equal to the
 # repository's is left, and the LSP restarts only for a reason in step 4. DRY=1 reads only: it
-# fetches nothing (it asks the remote what origin/main is) and changes nothing on the box; its only
-# write is a temporary directory it removes.
+# fetches nothing into the checkouts (it asks the remote what origin/main is) and changes nothing on
+# the box. The incoming ops commit's Caddyfile and unit, which steps 1 and 2 compare and check, it
+# reads from that commit as fetched into its temporary directory when the ops checkout does not
+# have it yet; that directory, removed at the end, is its only write.
 # Takes under two minutes. Ends "=== done ===" or "STOPPED in step ...".
 set -Eeuo pipefail
 export LC_ALL=C
@@ -153,6 +155,22 @@ target() {
   g "$dir" rev-parse --verify --quiet "${want:-origin/main}^{commit}" || die "${want:-origin/main} is not in $dir's fetched history"
 }
 have() { g "$1" cat-file -e "$2^{commit}" 2>/dev/null; }
+# File $1 of the ops commit the deploy moves to ($o_to): from the ops checkout when it has that
+# commit (a real run has fetched it), else (a dry run) from that one commit fetched from the
+# checkout's origin into a repository of its own in $WORK, so the checkout stays as it is.
+ops_show() {
+  if have "$OPS" "$o_to"; then g "$OPS" show "$o_to:$1"; return; fi
+  local peek=$WORK/ops-incoming url
+  if [ ! -d "$peek" ]; then
+    url=$(g "$OPS" remote get-url origin)
+    git init -q "$peek"
+    if ! git -c http.version=HTTP/1.1 -C "$peek" fetch --quiet --depth 1 "$url" "$o_to" 2>/dev/null; then
+      git -c http.version=HTTP/1.1 -C "$peek" fetch --quiet --depth 1 "$url" refs/heads/main || die "could not fetch ops ${o_to:0:10} from its origin to read it"
+    fi
+    [ "$(git -C "$peek" rev-parse FETCH_HEAD)" = "$o_to" ] || die "could not read ops ${o_to:0:10} from its origin (give OPS_COMMIT as a full commit id, or run again if origin/main just moved)"
+  fi
+  git -C "$peek" show "FETCH_HEAD:$1"
+}
 
 # Checks that checkout $1 may move to $2; -> 0 when it would move, 1 when it is there already.
 may_move() {
@@ -258,7 +276,7 @@ if may_move "$OPS" "$o_to"; then
   fi
 else say "ops at ${o_to:0:10} already"
 fi
-if have "$OPS" "$o_to"; then g "$OPS" show "$o_to:caddy/Caddyfile" > "$WORK/Caddyfile"; else cp "$OPS/caddy/Caddyfile" "$WORK/Caddyfile"; fi
+ops_show caddy/Caddyfile > "$WORK/Caddyfile" || die "ops ${o_to:0:10} has no caddy/Caddyfile"
 if cmp -s "$WORK/Caddyfile" "$CADDY_LIVE"; then say "the installed Caddyfile is the repository's"
 elif dry; then would "apply the Caddyfile with bin/apply-caddy.sh ($(diff "$CADDY_LIVE" "$WORK/Caddyfile" | grep -c '^[<>]' || true) line(s) differ)"
 else (cd "$OPS" && $APPLY_CADDY) || die "apply-caddy.sh refused or failed; it says what it left in place"
@@ -268,9 +286,7 @@ STEP="the LSP unit"; step "$STEP"
 unit_live=$UNIT_LIVE
 [ -n "$unit_live" ] || unit_live=$(sc show -p FragmentPath --value "$UNIT" 2>/dev/null || true)
 [ -n "$unit_live" ] || unit_live=/etc/systemd/system/$UNIT
-if have "$OPS" "$o_to"; then g "$OPS" show "$o_to:$UNIT_SRC" > "$WORK/unit" 2>/dev/null || die "ops ${o_to:0:10} has no $UNIT_SRC"
-else cp "$OPS/$UNIT_SRC" "$WORK/unit" || die "$OPS has no $UNIT_SRC"
-fi
+ops_show "$UNIT_SRC" > "$WORK/unit" || die "ops ${o_to:0:10} has no $UNIT_SRC"
 unit_installed=0 check_from=
 if cmp -s "$WORK/unit" "$unit_live"; then say "the installed unit ($unit_live) is the repository's"
 elif dry; then
