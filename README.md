@@ -191,7 +191,9 @@ units that run from a maker checkout (the volume wallets), times three firm
 offers of the leaf maker, each released at once, and counts each maker's
 forfeit errors. Every move and every step back is written to
 `/root/deploy-leaf-makers/history`. Pasted again it moves nothing, restarts
-nothing (`FORCE_RESTART=1` restarts them) and checks every maker's `/health`.
+nothing (`FORCE_RESTART=1` restarts them) and checks every maker's `/health`. A paste cut short
+before it printed `=== done ===` is pasted again with `FORCE_RESTART=1`, so every maker runs
+the commit its checkout holds.
 
 `bin/deploy-leaf-makers.test.sh` runs it in a container as the box does: as
 root, with the makers' users owning their checkouts and git run as them, and a
