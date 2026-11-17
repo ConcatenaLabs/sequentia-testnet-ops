@@ -34,7 +34,7 @@ How each surface is read:
 | WW-RCV-ARRIVE | keep Receive open while a payment comes in and read "Payment arriving…", then "Received <amount> <TICKER>." on the same screen (SKIP as WW-FAUCET-AT-ONCE) | Receive |
 | WW-BAL-RELOAD | reload and see the last figures at once: the total never 0, "Up to date." only once everything is read | Balance |
 | WW-RCV-SIMPLE | open Receive and meet one card: the QR code, "Scan or share to get paid in BTC or any asset." and Copy, with More options; no code text, label, New code or switch in view | Receive |
-| WW-RCV-NAME | have a payment name with nothing asked: the QR code holds `name@sequentiatestnet.com` alone, under 100 characters | Receive |
+| WW-RCV-NAME | have a payment name with nothing asked: the QR code holds `name@sequentiatestnet.com` alone, under 100 characters (SKIP when the page says the name service is limiting new names from the suite's network: ten at once, then one every ten minutes) | Receive |
 | WW-RCV-ARRIVE-QUIET | read nothing about a payment before one comes in | Receive |
 | WW-RCV-MORE | open More options: the name and where to change it, "Request a specific amount", New code, Show full code, Confidential | Receive |
 | WW-RCV-CODE | show the full code, `bitcoin:<address>?ark=…&sequentia=…`, in text and in the QR code, and go back with Show name | Receive |
@@ -80,6 +80,8 @@ How each surface is read:
 | WW-STK-FROM-BALANCE | stake and mix from what the balance shows: Stake offers its fee in a held asset, Mix counts the asset's one figure | Balance |
 | WW-PHRASE-GONE | confirm the backup and leave no recovery phrase in the page | (security) |
 | WW-PHONE-FIT | use every tab on a phone without sideways scrolling | (layout) |
+| WW-NAME-ELSEWHERE | have the name released on another device while Receive shows it: Receive stops showing it within seconds, another wallet's attempt to take it is refused (409), a payer's lookup is told nobody goes by it (404), the page does not show it after a reload, and Get a name in Settings brings one back | Receive, Settings |
+| WW-NAME-REMOVE | remove the payment name in Settings: the service then holds no name for the wallet and marks it as removed, so no device makes one again by itself (the suite's fresh wallet leaves no name behind) | Settings |
 | WW-NO-ERRORS, WW-NO-ERRORS-FUNDED | use the page without an uncaught error | (all) |
 
 Not checked yet: History's one row per trade ("Swapped … for …") and a sent payment's row (needs a
