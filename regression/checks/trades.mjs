@@ -75,6 +75,12 @@ export function settleWaitMs (info) {
   const release = p != null ? 3 * p : r + b
   return Math.max(1, Math.ceil((r + (p ?? 0) + (held ? r : 0) + 2 * b + d * 600 + release) / 60)) * 60_000
 }
+// The wait a Trade tab row settling in a round states ("Received, settling (within about 6 min)",
+// the web wallet's `receivedWithin`), in ms; null when it states none.
+export function settleStatedMs (word) {
+  const m = /^Received, settling \(within about (\d+) min\)/.exec(String(word || ''))
+  return m ? Number(m[1]) * 60_000 : null
+}
 // The operator's published `info`, or null when it cannot be read.
 export async function operatorInfo () {
   try {
@@ -344,17 +350,19 @@ async function tabTrade (h, pay, get, amount) {
   if (done && !/^Returned/.test(done)) {
     const slow = tC - t0 > TICKET_MS
     // In the tree, "Received" means a round is still needed before its coins can be spent: the
-    // line waits for "Settled", ROUND_SETTLE_MS at most.
+    // line waits for "Settled" within the wait the row states, or ROUND_SETTLE_MS (the same figure,
+    // from the operator's published intervals) when it states none.
     let later = null, laterS = null
+    const settleMs = settleStatedMs(done) ?? ROUND_SETTLE_MS
     if (inTree(pay, get) && !/^Settled/.test(done)) {
       const tR = Date.now()
-      const r2 = await rowUntil(h, ids0, /^(Settled|Returned)/, tR + ROUND_SETTLE_MS, trade)
+      const r2 = await rowUntil(h, ids0, /^(Settled|Returned)/, tR + settleMs, trade)
       later = r2.word || null
       laterS = ((Date.now() - tR) / 1000).toFixed(1)
     }
     const v = settledInTime(pay, get, done, later)
     let ok = !slow && v.ok
-    let tail = laterS == null ? '' : v.ok ? `, then ${v.word} ${laterS} s later` : `; ${ROUND_SETTLE_MS / 1000} s later (the time the wallet gives this operator's round to settle) it still reads "${v.word}", so what it brought cannot be spent yet`
+    let tail = laterS == null ? '' : v.ok ? `, then ${v.word} ${laterS} s later` : `; ${settleMs / 1000} s later (${settleStatedMs(done) ? 'the wait its row states' : 'the time the wallet gives this operator\'s round to settle'}) it still reads "${v.word}", so what it brought cannot be spent yet`
     // A sale for BTC goes on from Received to Settled.
     if (saleForBtc(pay, get) && !/^Settled/.test(done)) { const f = await followSale(h, trade, Date.now()); ok = ok && f.ok; tail += f.detail; later = f.word }
     return { ok, trade, detail: `${amount} ${pay} → ${get}: firm ticket in ${ticketS} s${slow ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; ${done} after ${secs} s${tail}` + cardWords(await card(), { always: !ok, rowWord: later || done }) }

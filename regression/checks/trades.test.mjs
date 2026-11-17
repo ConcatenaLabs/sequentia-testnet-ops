@@ -4,7 +4,7 @@
 //   node --test regression/checks/trades.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { btcPurchasesOpen, stillMoving, settledInTime, inTree, settleWaitMs, statedWaitMs, endWord, waitedInTime, TICKET_MS, OVERRUN,
+import { btcPurchasesOpen, stillMoving, settledInTime, inTree, settleWaitMs, settleStatedMs, statedWaitMs, endWord, waitedInTime, TICKET_MS, OVERRUN,
   tabNeed, dexNeed, followedInTime, followedWords, BOUND_MS, arrivedWhole, UNSTATED_WAIT_MS, waitStated, waitedDetail, WAIT_WORDS, newRecord } from './trades.mjs'
 import { lineNeed, noRowWords, cardWords } from '../lib/holdings.mjs'
 
@@ -214,4 +214,11 @@ test('a maker whose upkeep ended no pass within ten minutes fails, one that does
   assert.equal(upkeepVerdict('m', up({ passes: 0, ago_ms: 44_000 })).ok, true, 'a maker started moments ago is not late')
   assert.equal(upkeepVerdict('m', null).ok, false)
   assert.equal(upkeepVerdict('m', { ok: true, operator: 'x' }).skip, true, 'a maker before the upkeep record says nothing')
+})
+
+test('a row settling in a round is held to the wait it states', () => {
+  assert.equal(settleStatedMs('Received, settling (within about 6 min)'), 6 * 60_000)
+  assert.equal(settleStatedMs('Received, settling'), null)
+  assert.equal(settleStatedMs('Received, settling (2 min)'), null, 'a count of minutes waited states no wait')
+  assert.equal(settleStatedMs('Settled'), null)
 })
