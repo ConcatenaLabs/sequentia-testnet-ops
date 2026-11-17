@@ -139,7 +139,11 @@ beside it, never taken for it. When the lines end, the page stays open until eve
 is paid and collected, as well as until no refresh waits for a round (15 minutes at most). The
 summary says how many were left unpaid or uncollected. A Trade tab trade of two assets in the tree is done once what it brought can be spent:
 "Settled". The wallet says "Received, settling" only while a round is still needed first, so such a
-line must also read "Settled" within 150 seconds (two rounds) of reading "Received". A sale of an
+line must also read "Settled" within the wait its row states ("Received, settling (within about 6
+min)": the time the wallet gives a round of the operator, from the intervals the operator publishes:
+its next round, the forfeits it holds the round for, the block and the block certifying it, and the
+release) of reading "Received"; a row that states none is given that same figure, which the run
+prints when it starts. A sale of an
 asset for BTC reads "Received, settling" once the BTC has come, and "Settled" once the wallet's
 payment of the asset is settled, which needs the maker to finish its side: such a line, in the
 Trade tab and on SeqDEX alike, is followed on to "Settled" and fails when it does not read it within

@@ -4,7 +4,7 @@
 //   node --test regression/checks/trades.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { btcPurchasesOpen, stillMoving, settledInTime, inTree, SETTLE_ROUND_MS, statedWaitMs, endWord, waitedInTime, TICKET_MS, OVERRUN,
+import { btcPurchasesOpen, stillMoving, settledInTime, inTree, settleWaitMs, settleStatedMs, statedWaitMs, endWord, waitedInTime, TICKET_MS, OVERRUN,
   tabNeed, dexNeed, followedInTime, followedWords, BOUND_MS, arrivedWhole, UNSTATED_WAIT_MS, waitStated, waitedDetail, WAIT_WORDS, newRecord } from './trades.mjs'
 import { lineNeed, noRowWords, cardWords } from '../lib/holdings.mjs'
 
@@ -32,9 +32,9 @@ test('a trade in the tree is done once it reads Settled; Received alone is a rou
   assert.equal(inTree('BTC', 'USDX'), false)
   // Settled within the bound: done.
   assert.deepEqual(settledInTime('USDX', 'GOLD', 'Settled', null), { ok: true, word: 'Settled' })
-  // Received, then Settled within SETTLE_ROUND_MS: done.
+  // Received, then Settled within the settle bound: done.
   assert.deepEqual(settledInTime('USDX', 'GOLD', 'Received, settling', 'Settled'), { ok: true, word: 'Settled' })
-  // Received and still settling after SETTLE_ROUND_MS: not done (it passed before this check).
+  // Received and still settling past the settle bound: not done (it passed before this check).
   assert.deepEqual(settledInTime('USDX', 'GOLD', 'Received, settling', 'Received, settling (2 min)'), { ok: false, word: 'Received, settling (2 min)' })
   assert.deepEqual(settledInTime('USDX', 'GOLD', 'Received, settling', null), { ok: false, word: 'Received, settling' })
   // A trade with BTC keeps its bound on Received: the Bitcoin side settles on its own terms.
@@ -42,7 +42,19 @@ test('a trade in the tree is done once it reads Settled; Received alone is a rou
   // Returned or nothing: not done.
   assert.equal(settledInTime('USDX', 'GOLD', 'Returned: nothing traded.', null).ok, false)
   assert.equal(settledInTime('USDX', 'GOLD', null, null).ok, false)
-  assert.equal(SETTLE_ROUND_MS, 150000)
+})
+
+test('a trade settling is given the time the wallet gives a round of the operator, from its published intervals', () => {
+  // The testnet's operator as it publishes itself: rounds and blocks a minute apart, batches
+  // without a sweep, anchor depth 0. Six minutes, as the wallet's indicative tickets say.
+  const testnet = { fills: { round_interval_seconds: 60, block_seconds: 60 }, batches: { no_sweep: true }, finality: { certification: 'required', anchor_depth: 0 } }
+  assert.equal(settleWaitMs(testnet), 6 * 60_000)
+  // Beyond what the testnet measured: 209 s at most from a participation to its release.
+  assert.ok(settleWaitMs(testnet) > 209_000 + 60_000)
+  // The defaults when the operator could not be read; a deeper anchor adds a Bitcoin block each.
+  assert.equal(settleWaitMs(null), 5 * 60_000)
+  assert.equal(settleWaitMs({ ...testnet, finality: { anchor_depth: 2 } }), 26 * 60_000)
+  assert.equal(settleWaitMs({ ...testnet, fills: { round_interval_seconds: 30, block_seconds: 60 } }), 5 * 60_000)
 })
 
 test('an indicative ticket is told from a firm one by the wait it states, in the wallet\'s words', () => {
@@ -202,4 +214,20 @@ test('a maker whose upkeep ended no pass within ten minutes fails, one that does
   assert.equal(upkeepVerdict('m', up({ passes: 0, ago_ms: 44_000 })).ok, true, 'a maker started moments ago is not late')
   assert.equal(upkeepVerdict('m', null).ok, false)
   assert.equal(upkeepVerdict('m', { ok: true, operator: 'x' }).skip, true, 'a maker before the upkeep record says nothing')
+})
+
+test('a row settling in a round is held to the wait it states', () => {
+  assert.equal(settleStatedMs('Received, settling (within about 6 min)'), 6 * 60_000)
+  assert.equal(settleStatedMs('Received, settling'), null)
+  assert.equal(settleStatedMs('Received, settling (2 min)'), null, 'a count of minutes waited states no wait')
+  assert.equal(settleStatedMs('Settled'), null)
+})
+
+test('a firm trade in the tree that settles after its row\'s wait fails; at or before it, it passes', () => {
+  const done = 'Received, settling (within about 6 min)'
+  assert.deepEqual(settledInTime('USDX', 'GOLD', done, 'Settled', 360001, 360000), { ok: false, word: 'Settled', late: true })
+  assert.deepEqual(settledInTime('USDX', 'GOLD', done, 'Settled', 360000, 360000), { ok: true, word: 'Settled' })
+  assert.deepEqual(settledInTime('USDX', 'GOLD', done, 'Settled', 209000, 360000), { ok: true, word: 'Settled' })
+  assert.deepEqual(settledInTime('USDX', 'GOLD', done, 'Settled'), { ok: true, word: 'Settled' }, 'without times, as before')
+  assert.equal(settledInTime('USDX', 'GOLD', done, null, 360000, 360000).ok, false, 'never settled still fails')
 })

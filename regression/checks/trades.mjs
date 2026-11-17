@@ -21,8 +21,9 @@
 // or "Settled"), or SeqDEX says "Traded with … order". A trade of two assets in the tree is done
 // for its person once what it brought can be spent: "Settled". The wallet says "Received,
 // settling" only while the next spend needs the operator's round (a coin one payment short of
-// the operator's limit), so such a line must also read "Settled" within SETTLE_ROUND_MS of
-// reading "Received" (settledInTime). A sale of an asset for BTC reads "Received, settling" once the
+// the operator's limit), so such a line must also read "Settled" within the time the wallet gives
+// a round of this operator to settle (settleWaitMs, read from the operator's published intervals
+// at the start of the run: six minutes on the testnet) of reading "Received" (settledInTime). A sale of an asset for BTC reads "Received, settling" once the
 // BTC came and needs the maker to finish its side to read "Settled": it is followed on to Settled,
 // SALE_SETTLED_MS at most (followSale). Otherwise it fails with what the page says at that moment.
 // Before the trades, MAKER-UPKEEP reads each maker's own record of its upkeep (makersUpkeep).
@@ -51,9 +52,45 @@ export const BOUND_MS = 60000
 // and a half minutes after the confirmation, never within BOUND_MS (92 s measured, 31 October).
 export const BTC_PAID_BOUND_MS = 180000
 const boundOf = (pay) => (pay === 'BTC' ? BTC_PAID_BOUND_MS : BOUND_MS)
-// A round takes about 64 s from built to credited on the testnet (a 60 s round and a 60 s block):
-// a trade that says it is settling reads "Settled" within two of them.
-export const SETTLE_ROUND_MS = 150000
+// How long a trade that reads "Received, settling" may take to read "Settled": the time the web
+// wallet gives a round of this operator to settle what it carries (settleMinutes in its
+// default-arca.js, which its indicative tickets state as "Goes through within about N minutes"),
+// from the intervals the operator publishes (`/arca/v1/info`: `fills.round_interval_seconds`,
+// `fills.block_seconds`, `batches.no_sweep`, `finality.anchor_depth`). It applies when a row
+// states no wait of its own (a row the wallet wrote before it stated one); a row that states its
+// wait ("within about N min") is held to that. How long settling takes is the network's. Settling waits for the operator's next round
+// (rounds run on its timer, 0 to 60 s away), the forfeits of every participant in it (a round of
+// batches without a sweep is held for them), the block that holds it and the one that certifies
+// it (a block missing its certificate adds one more): measured on the testnet over 136
+// participations on 17 November, accepted to released in 106 s at the median, 138 s at p90 and
+// 209 s at most, and the page follows it every few seconds after that. Six minutes on the
+// testnet; the defaults' when the operator was not read.
+export function settleWaitMs (info) {
+  const f = (info && info.fills) || {}
+  const r = Number(f.round_interval_seconds) > 0 ? Number(f.round_interval_seconds) : 60
+  const b = Number(f.block_seconds) > 0 ? Number(f.block_seconds) : 60
+  const depth = Number((info && info.finality && info.finality.anchor_depth) ?? 0)
+  const d = Number.isFinite(depth) && depth > 0 ? depth : 0
+  const held = !!(info && info.batches && info.batches.no_sweep)
+  const p = Number(f.round_pass_seconds) > 0 ? Number(f.round_pass_seconds) : null
+  const release = p != null ? 3 * p : r + b
+  return Math.max(1, Math.ceil((r + (p ?? 0) + (held ? r : 0) + 2 * b + d * 600 + release) / 60)) * 60_000
+}
+// The wait a Trade tab row settling in a round states ("Received, settling (within about 6 min)",
+// the web wallet's `receivedWithin`), in ms; null when it states none.
+export function settleStatedMs (word) {
+  const m = /^Received, settling \(within about (\d+) min\)/.exec(String(word || ''))
+  return m ? Number(m[1]) * 60_000 : null
+}
+// The operator's published `info`, or null when it cannot be read.
+export async function operatorInfo () {
+  try {
+    const r = await fetch(ORIGIN + '/arca/v1/info', { signal: AbortSignal.timeout(15000) })
+    return r.ok ? await r.json() : null
+  } catch { return null }
+}
+// The bound of this run (settleWaitMs), set when the run starts.
+let ROUND_SETTLE_MS = settleWaitMs(null)
 // A sale of an asset for BTC reads "Received, settling" once the BTC has come, and "Settled" once
 // the wallet's payment of the asset is settled with the preimage, which needs the maker's side to
 // move on (its leaf made in a round, its claim): a sale that stays "Received, settling" is a maker
@@ -80,12 +117,16 @@ export function saleWords ({ word, ms }) {
 // the tree. A trade with BTC settles on the Bitcoin side's own terms (the BTC ark's line below).
 export const inTree = (pay, get) => pay !== 'BTC' && get !== 'BTC'
 // What a Trade tab line reads in the end: what it read within its bound (`done`), and, for a trade
-// in the tree that read "Received", what it read within SETTLE_ROUND_MS after (`later`, null when
-// nothing changed). -> { ok, word }
-export function settledInTime (pay, get, done, later) {
+// in the tree that read "Received", what it read within the settle bound after (`later`, null when
+// nothing changed). With `laterMs` (how long after Received `later` was seen) and `boundMs` (the
+// wait the row states), a "Settled" seen after the bound is late, not in time. -> { ok, word, late }
+export function settledInTime (pay, get, done, later, laterMs = null, boundMs = null) {
   if (!done || /^Returned/.test(done)) return { ok: false, word: done || null }
   if (!inTree(pay, get) || /^Settled/.test(done)) return { ok: true, word: done }
-  if (later && /^Settled/.test(later)) return { ok: true, word: later }
+  if (later && /^Settled/.test(later)) {
+    if (laterMs != null && boundMs != null && laterMs > boundMs) return { ok: false, word: later, late: true }
+    return { ok: true, word: later }
+  }
   return { ok: false, word: later || done }
 }
 const REVIEW_MS = 60000
@@ -314,17 +355,23 @@ async function tabTrade (h, pay, get, amount) {
   if (done && !/^Returned/.test(done)) {
     const slow = tC - t0 > TICKET_MS
     // In the tree, "Received" means a round is still needed before its coins can be spent: the
-    // line waits for "Settled", SETTLE_ROUND_MS at most.
-    let later = null, laterS = null
+    // line waits for "Settled" within the wait the row states, or ROUND_SETTLE_MS (the same figure,
+    // from the operator's published intervals) when it states none.
+    let later = null, laterS = null, laterMs = null
+    const settleMs = settleStatedMs(done) ?? ROUND_SETTLE_MS
+    const settleWhy = settleStatedMs(done) ? 'the wait its row states' : 'the time the wallet gives this operator\'s round to settle'
     if (inTree(pay, get) && !/^Settled/.test(done)) {
       const tR = Date.now()
-      const r2 = await rowUntil(h, ids0, /^(Settled|Returned)/, tR + SETTLE_ROUND_MS, trade)
+      const r2 = await rowUntil(h, ids0, /^(Settled|Returned)/, tR + settleMs, trade)
       later = r2.word || null
-      laterS = ((Date.now() - tR) / 1000).toFixed(1)
+      laterMs = Date.now() - tR
+      laterS = (laterMs / 1000).toFixed(1)
     }
-    const v = settledInTime(pay, get, done, later)
+    const v = settledInTime(pay, get, done, later, laterMs, settleMs)
     let ok = !slow && v.ok
-    let tail = laterS == null ? '' : v.ok ? `, then ${v.word} ${laterS} s later` : `; ${SETTLE_ROUND_MS / 1000} s later it still reads "${v.word}", so what it brought cannot be spent yet`
+    let tail = laterS == null ? '' : v.ok ? `, then ${v.word} ${laterS} s later`
+      : v.late ? `, then ${v.word} only ${laterS} s later, past the ${settleMs / 1000} s (${settleWhy})`
+      : `; ${settleMs / 1000} s later (${settleWhy}) it still reads "${v.word}", so what it brought cannot be spent yet`
     // A sale for BTC goes on from Received to Settled.
     if (saleForBtc(pay, get) && !/^Settled/.test(done)) { const f = await followSale(h, trade, Date.now()); ok = ok && f.ok; tail += f.detail; later = f.word }
     return { ok, trade, detail: `${amount} ${pay} → ${get}: firm ticket in ${ticketS} s${slow ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; ${done} after ${secs} s${tail}` + cardWords(await card(), { always: !ok, rowWord: later || done }) }
@@ -644,6 +691,9 @@ export async function makersUpkeep (report) {
 }
 
 export async function run ({ b, report, trader }) {
+  const info = await operatorInfo()
+  ROUND_SETTLE_MS = settleWaitMs(info)
+  console.log(`trades: a trade reading "Received, settling" is given ${ROUND_SETTLE_MS / 60_000} min to read "Settled"${info ? ', from the operator\'s published intervals' : ' (the operator could not be read: the defaults)'}`)
   await makersUpkeep(report)
   const lines = [...TAB_TRADES.map((t) => ['WW-TRADE-' + t[0], tabLine(t[1], t[2], t[3])]),
     ...DEX_TRADES.map((t) => ['DX-TRADE-' + t[0], dexLine(t[1], t[2], t[3])])]
