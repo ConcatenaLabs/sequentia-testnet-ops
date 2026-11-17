@@ -117,11 +117,15 @@ export function saleWords ({ word, ms }) {
 export const inTree = (pay, get) => pay !== 'BTC' && get !== 'BTC'
 // What a Trade tab line reads in the end: what it read within its bound (`done`), and, for a trade
 // in the tree that read "Received", what it read within the settle bound after (`later`, null when
-// nothing changed). -> { ok, word }
-export function settledInTime (pay, get, done, later) {
+// nothing changed). With `laterMs` (how long after Received `later` was seen) and `boundMs` (the
+// wait the row states), a "Settled" seen after the bound is late, not in time. -> { ok, word, late }
+export function settledInTime (pay, get, done, later, laterMs = null, boundMs = null) {
   if (!done || /^Returned/.test(done)) return { ok: false, word: done || null }
   if (!inTree(pay, get) || /^Settled/.test(done)) return { ok: true, word: done }
-  if (later && /^Settled/.test(later)) return { ok: true, word: later }
+  if (later && /^Settled/.test(later)) {
+    if (laterMs != null && boundMs != null && laterMs > boundMs) return { ok: false, word: later, late: true }
+    return { ok: true, word: later }
+  }
   return { ok: false, word: later || done }
 }
 const REVIEW_MS = 60000
@@ -352,17 +356,21 @@ async function tabTrade (h, pay, get, amount) {
     // In the tree, "Received" means a round is still needed before its coins can be spent: the
     // line waits for "Settled" within the wait the row states, or ROUND_SETTLE_MS (the same figure,
     // from the operator's published intervals) when it states none.
-    let later = null, laterS = null
+    let later = null, laterS = null, laterMs = null
     const settleMs = settleStatedMs(done) ?? ROUND_SETTLE_MS
+    const settleWhy = settleStatedMs(done) ? 'the wait its row states' : 'the time the wallet gives this operator\'s round to settle'
     if (inTree(pay, get) && !/^Settled/.test(done)) {
       const tR = Date.now()
       const r2 = await rowUntil(h, ids0, /^(Settled|Returned)/, tR + settleMs, trade)
       later = r2.word || null
-      laterS = ((Date.now() - tR) / 1000).toFixed(1)
+      laterMs = Date.now() - tR
+      laterS = (laterMs / 1000).toFixed(1)
     }
-    const v = settledInTime(pay, get, done, later)
+    const v = settledInTime(pay, get, done, later, laterMs, settleMs)
     let ok = !slow && v.ok
-    let tail = laterS == null ? '' : v.ok ? `, then ${v.word} ${laterS} s later` : `; ${settleMs / 1000} s later (${settleStatedMs(done) ? 'the wait its row states' : 'the time the wallet gives this operator\'s round to settle'}) it still reads "${v.word}", so what it brought cannot be spent yet`
+    let tail = laterS == null ? '' : v.ok ? `, then ${v.word} ${laterS} s later`
+      : v.late ? `, then ${v.word} only ${laterS} s later, past the ${settleMs / 1000} s (${settleWhy})`
+      : `; ${settleMs / 1000} s later (${settleWhy}) it still reads "${v.word}", so what it brought cannot be spent yet`
     // A sale for BTC goes on from Received to Settled.
     if (saleForBtc(pay, get) && !/^Settled/.test(done)) { const f = await followSale(h, trade, Date.now()); ok = ok && f.ok; tail += f.detail; later = f.word }
     return { ok, trade, detail: `${amount} ${pay} → ${get}: firm ticket in ${ticketS} s${slow ? `, over the ${TICKET_MS / 1000} s a person waits at most` : ''}; ${done} after ${secs} s${tail}` + cardWords(await card(), { always: !ok, rowWord: later || done }) }

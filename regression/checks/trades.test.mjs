@@ -222,3 +222,12 @@ test('a row settling in a round is held to the wait it states', () => {
   assert.equal(settleStatedMs('Received, settling (2 min)'), null, 'a count of minutes waited states no wait')
   assert.equal(settleStatedMs('Settled'), null)
 })
+
+test('a firm trade in the tree that settles after its row\'s wait fails; at or before it, it passes', () => {
+  const done = 'Received, settling (within about 6 min)'
+  assert.deepEqual(settledInTime('USDX', 'GOLD', done, 'Settled', 360001, 360000), { ok: false, word: 'Settled', late: true })
+  assert.deepEqual(settledInTime('USDX', 'GOLD', done, 'Settled', 360000, 360000), { ok: true, word: 'Settled' })
+  assert.deepEqual(settledInTime('USDX', 'GOLD', done, 'Settled', 209000, 360000), { ok: true, word: 'Settled' })
+  assert.deepEqual(settledInTime('USDX', 'GOLD', done, 'Settled'), { ok: true, word: 'Settled' }, 'without times, as before')
+  assert.equal(settledInTime('USDX', 'GOLD', done, null, 360000, 360000).ok, false, 'never settled still fails')
+})
