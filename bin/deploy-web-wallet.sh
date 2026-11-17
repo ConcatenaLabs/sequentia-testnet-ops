@@ -13,19 +13,27 @@
 #
 # 1. The ops checkout ($OPS) moves to OPS_COMMIT (origin/main as fetched), and its Caddyfile is
 #    applied with bin/apply-caddy.sh only when it differs from the installed one.
-# 2. The web wallet checkout ($WALLET) moves to COMMIT (origin/main as fetched). It refuses modified
+# 2. The LSP's unit: the repository's systemd/$UNIT is installed over the file systemd loads it from
+#    (and systemd reloaded) only when they differ. Then the unit's node, run with the options of its
+#    ExecStart as systemd now reads it, must load node:sqlite (the web wallet's name store,
+#    tooling/lsp/lnaddr-store.mjs); if it cannot, a unit file installed here is put back as it was
+#    and the deploy stops before the wallet moves, so the LSP is never left unable to start. The
+#    box's Node 22.11 loads it only with --experimental-sqlite, which the unit passes; a later Node
+#    takes the flag and ignores it, and so does a web wallet from before the name store.
+# 3. The web wallet checkout ($WALLET) moves to COMMIT (origin/main as fetched). It refuses modified
 #    tracked files, and a commit that does not contain what the checkout runs now (ALLOW_BACK=1 for
 #    a deliberate rollback).
-# 3. The LSP ($UNIT) restarts only when the deploy changes a file it loads, or one is newer than
-#    its process: tooling/lsp/ (its tests and notes aside), the page's modules it imports (followed
-#    import by import), and the leaf library (leaves/pkg/). Every hosted wallet node running before is checked by pid after.
-# 4. Through the public address: the page serves this checkout's index.html and every served file
+# 4. The LSP ($UNIT) restarts only when its unit was installed in step 2, or the deploy changes a
+#    file it loads, or one is newer than its process: tooling/lsp/ (its tests and notes aside), the
+#    page's modules it imports (followed import by import), and the leaf library (leaves/pkg/).
+#    Every hosted wallet node running before is checked by pid after.
+# 5. Through the public address: the page serves this checkout's index.html and every served file
 #    the deploy changed, and the LSP answers.
 # The commit it replaces is appended to $KEEP/history as the checkout moves, and the command that
 # rolls back to it is printed then, so a step that stops later still leaves the way back.
 #
-# Safe to paste again: checkouts already there stay, an installed Caddyfile equal to the
-# repository's is left, and the LSP restarts only for a reason in step 3. DRY=1 reads only: it
+# Safe to paste again: checkouts already there stay, an installed Caddyfile or unit equal to the
+# repository's is left, and the LSP restarts only for a reason in step 4. DRY=1 reads only: it
 # fetches nothing (it asks the remote what origin/main is) and changes nothing on the box; its only
 # write is a temporary directory it removes.
 # Takes under two minutes. Ends "=== done ===" or "STOPPED in step ...".
@@ -40,6 +48,8 @@ trap 'printf "\nSTOPPED in step \"%s\": unexpected failure at line %s: %s\n" "${
 : "${OPS:=/root/sequentia/sequentia-testnet-ops}"
 : "${PROV:=/root/sequentia/lsp/prov}"
 : "${UNIT:=lsp-b5b1.service}"
+: "${UNIT_SRC:=systemd/$UNIT}"                     # in $OPS
+: "${UNIT_LIVE:=}"                                  # empty: the file systemd loads the unit from"
 : "${NODE:=/root/sequentia/downloads/node22/bin/node}"
 : "${LSP_LOCAL=http://127.0.0.1:9981/health}"       # empty: no local check
 : "${SITE=https://sequentiatestnet.com}"            # empty: no public check
@@ -65,6 +75,29 @@ if ! dry; then exec 9>"$LOCK"; flock -n 9 || { echo "already running"; exit 0; }
 command -v "$NODE" >/dev/null 2>&1 || NODE=node
 [ -d "$WALLET/.git" ] || die "$WALLET is not a checkout"
 [ -d "$OPS/.git" ] || die "$OPS is not a checkout"
+
+# The node and the options before its script, one a line, of an ExecStart: from systemd's reading
+# of the unit (`systemctl show -p ExecStart`, drop-ins included), or with $1 from a unit file.
+unit_argv() {
+  local line w
+  if [ -n "${1:-}" ]; then
+    line=$(grep -E '^ExecStart=.' "$1" | tail -n 1 | cut -d= -f2-)
+    line=${line#[-@+!:]}
+  else
+    line=$(sc show -p ExecStart --value "$UNIT" 2>/dev/null || true)
+    line=$(sed -n 's/.*argv\[\]=\([^;]*\) ;.*/\1/p' <<<"$line")
+    line=${line%%$'\n'*}
+  fi
+  for w in $line; do
+    case "$w" in *.mjs|*.cjs|*.js) break ;; esac
+    echo "$w"
+  done
+}
+# Whether node and options ($@) load node:sqlite; what it said is left in $WORK/sqlite-check.
+loads_sqlite() {
+  [ $# -gt 0 ] && [ -x "$1" ] || { echo "no node to run: '${1:-}'" > "$WORK/sqlite-check"; return 1; }
+  "$@" -e "require('node:sqlite')" > "$WORK/sqlite-check" 2>&1
+}
 
 # The commit `want` names in checkout $1 (empty: origin/main). A real run fetches first; a dry run
 # asks the remote, so it fetches nothing. -> the full sha.
@@ -193,6 +226,39 @@ elif dry; then would "apply the Caddyfile with bin/apply-caddy.sh ($(diff "$CADD
 else (cd "$OPS" && $APPLY_CADDY) || die "apply-caddy.sh refused or failed; it says what it left in place"
 fi
 
+STEP="the LSP unit"; step "$STEP"
+unit_live=$UNIT_LIVE
+[ -n "$unit_live" ] || unit_live=$(sc show -p FragmentPath --value "$UNIT" 2>/dev/null || true)
+[ -n "$unit_live" ] || unit_live=/etc/systemd/system/$UNIT
+if have "$OPS" "$o_to"; then g "$OPS" show "$o_to:$UNIT_SRC" > "$WORK/unit" 2>/dev/null || die "ops ${o_to:0:10} has no $UNIT_SRC"
+else cp "$OPS/$UNIT_SRC" "$WORK/unit" || die "$OPS has no $UNIT_SRC"
+fi
+unit_installed=0 check_from=
+if cmp -s "$WORK/unit" "$unit_live"; then say "the installed unit ($unit_live) is the repository's"
+elif dry; then
+  would "install $UNIT_SRC over $unit_live and reload systemd; what changes:"
+  diff "$unit_live" "$WORK/unit" | grep '^[<>]' | sed 's/^/    /' || true
+  check_from=$WORK/unit
+else
+  if [ -e "$unit_live" ]; then cp -p "$unit_live" "$WORK/unit.before"; fi
+  install -m 644 "$WORK/unit" "$unit_live"
+  sc daemon-reload
+  unit_installed=1
+  say "installed $UNIT_SRC over $unit_live and reloaded systemd"
+fi
+mapfile -t argv < <(unit_argv "$check_from")
+if loads_sqlite "${argv[@]}"; then
+  say "the unit's node loads node:sqlite with its own options: ${argv[*]}"
+else
+  said=$(grep -m 1 -E 'Error|bad option|no node' "$WORK/sqlite-check" || head -n 1 "$WORK/sqlite-check")
+  if [ "$unit_installed" = 1 ]; then
+    if [ -e "$WORK/unit.before" ]; then cp -p "$WORK/unit.before" "$unit_live"; else rm -f "$unit_live"; fi
+    sc daemon-reload
+    say "put $unit_live back as it was and reloaded systemd"
+  fi
+  die "the unit's node cannot load node:sqlite with its own options (${argv[*]:-none}): ${said:-it said nothing}. The web wallet's name store needs it: Node 22.13 or later, or 22.5 to 22.12 with --experimental-sqlite in the unit's ExecStart. The web wallet has not moved."
+fi
+
 STEP="the web wallet checkout"; step "$STEP"
 w_to=$(target "$WALLET" "$COMMIT")
 if may_move "$WALLET" "$w_to"; then
@@ -215,7 +281,8 @@ lsp_files "$w_to" > "$WORK/lsp"
 grep -Fxf "$WORK/lsp" "$WORK/changed" > "$WORK/lsp-changed" || true
 read -r latest latest_name <<<"$(newest "$WORK/lsp")"
 why=""
-[ -s "$WORK/lsp-changed" ] && why="the deploy changes $(wc -l < "$WORK/lsp-changed") file(s) it loads: $(head -5 "$WORK/lsp-changed" | tr '\n' ' ')"
+[ "$unit_installed" = 1 ] && why="its unit was installed in this deploy"
+[ -z "$why" ] && [ -s "$WORK/lsp-changed" ] && why="the deploy changes $(wc -l < "$WORK/lsp-changed") file(s) it loads: $(head -5 "$WORK/lsp-changed" | tr '\n' ' ')"
 [ -z "$why" ] && [ "$latest" -gt "$started" ] && why="it started before $latest_name was written"
 if [ -z "$why" ]; then say "left running: it loads none of what changed, and started after every file it loads"
 elif dry; then would "restart $UNIT: $why"
