@@ -19,6 +19,7 @@ put it in place and keep copies of it.
 | `bin/fronting-read.sh` | What the Arca operator fronts, why, and what fronting the market needs once fronted capital comes back promptly: in flight per asset and what holds it, refresh demand and return times, the steady state against the plan. Read-only. See "What the operator fronts". |
 | `bin/our-capital.py` | What the bots that stand for our own capital hold, at the feed's prices, against the mainnet plan: our makers' holdings and our LSP's channels and float. Read-only. See "The testnet's numbers". |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
+| `bin/fee-whitelist-cutover.sh` | The public nodes read their price servers' fee whitelists, and no price server writes to a node: the network's price server publishes at `http://sequentiatestnet.com/feewhitelist` (a file Caddy serves), the second operator's on loopback, and every public node and the second operator's node is connected to its price server by its configuration. Run in stages around a node release's cutover. See "The network's fee whitelist". |
 | `bin/node-rpc-proxy.py` | The node JSON-RPC for browser wallets behind `/node-rpc`: the calls a wallet makes and no other, rate-limited, with the node's credential added on the box. Installed at `/usr/local/lib/node-rpc-proxy/`. |
 | `bin/node-rpc-proxy-hold-test.py` | The node route's hold over HTTP: a hold kept for what it asks up to its bound, the per-source and overall bounds refused at once, anything else on `/hold` refused. |
 | `bin/node-rpc-proxy-limits-test.py` | The node route's limits in simulated time: a refused batch costs nothing, a client asking every 2.2 s gets a 64-call batch through steadily, and at the shipped limits a wallet's restore is never refused while a source asking for the largest blocks gets its byte budget and no more. |
@@ -200,6 +201,108 @@ when it ends no sync pass, puts `/opt/leaf-maker` and both its makers back
 when the agents' maker ends no upkeep pass, refuses a checkout that another
 unit runs from, and puts the BTC maker's checkout back, unrestarted, when the
 new library's sizing of its store fails or answers no sizing. CI runs it on every pull request.
+
+## The network's fee whitelist
+
+A fee whitelist is static when written by hand and dynamic when the node is
+connected to a price server and reads the list it publishes; a price server
+never writes to a node. Every testnet node is connected by default to the
+network's price server, `seq-price-server.service`, at
+`http://sequentiatestnet.com/feewhitelist`. That price server writes its list as
+a file (`price_server.py --publish-file /srv/feewhitelist/feewhitelist.json`),
+and the Caddyfile's `/feewhitelist` route serves that file, over plain http
+because the node links no TLS library. The route serves the file and nothing
+else: the price server's own web UI is never proxied, since behind a proxy every
+request comes from loopback, which that UI treats as its admin when no password
+is set. The file holds the rates and when they were made, nothing else.
+
+The public nodes (the committee, the dexnode, the explorer node, the pool-board
+node) read the same list, each by a `feepriceserver=` line in its own
+`elements.conf`, which outranks a list once written by hand in its data
+directory. The second operator's node reads its own operator's price server,
+`arca-b-priceserver.service`, which publishes on `127.0.0.1:18690`. Neither price
+server holds a node's login.
+
+`bin/fee-whitelist-cutover.sh` puts all of this in place at a node release's
+cutover, in three stages around the fleet's stop and start, so no public node
+ever runs with an empty or a one-asset list. The network price server's code runs
+from a detached checkout of the node repository of its own,
+`/root/seq-price-server-src`, moved forward, never back, and both price servers
+are restarted whenever it runs. Its first line is the count of public nodes it
+found. `TRIAL=1` checks one round of the new code and changes no node, price
+server or Caddy file.
+
+`STAGE=before` runs with the fleet up, before anything moves, and records what
+the way back needs: the public nodes running then (the fleet the later stages
+act on; a directory whose node is not running is left alone), the commit the
+network's price server runs, and the release the second operator's bundle link
+names. It therefore runs before the second operator's bundle moves to the
+release, and refuses once it has. `STAGE=before` and `TRIAL=1` also match every
+node the network's price server writes to today (the RPC ports in its
+`node_rpcs`), and the node the second operator's writes to, against the running
+nodes it connects, and refuse on any that matches none or more than one. A
+node's RPC port is read as the node reads it (its chain's section first, the
+first value of a key, comments, included files, its command line, its chain's
+default) and checked against the ports its process listens on.
+
+`STAGE=before` also records every public node directory on disk, running or
+not, with its RPC port. Before `STAGE=stopped` changes anything, and before
+`STAGE=started` reports success, each holds the fleet as it is then against
+that record: a node directory added or removed since, a node that was stopped
+and has run since or runs now, a node on another port, and (at `STAGE=stopped`)
+a node the node release's switch under way will start that was not running,
+or the other way round, is refused by name, with what to do. A node the
+cutover did not connect would keep a list nothing updates. The switch is found
+by its state directory, `/root/sequentia/node-cutover-v<version>`, through its
+`phase` and `fleet.txt` (`SWITCH_STATE` names one).
+
+`STAGE=stopped` installs the Caddy route when the address does not serve a
+valid list itself: a redirect, which is what the site answers a path it has no
+route for, is no route. `BACK=1` undoes what it changed, with the fleet
+stopped (when `STAGE=stopped` changed nothing, it only clears the records and
+the fleet may run): each configuration byte for byte when nothing else in it changed, the
+drop-ins, the published file, the second operator's price-server files (put back
+in the directory they came from, by its own path), the Caddyfile and its
+environment drop-in, and the checkout the route was applied from (these two only
+when nothing else changed them since; otherwise it says what it leaves). It
+first checks that the code each price server will then run accepts the node
+login it puts back: the release moves the node checkout the network's price
+server runs from, and the second operator's bundle moves its link. When one
+refuses, it changes nothing and prints the command that moves that code back.
+`BACK=1` refuses, and creates nothing, on a box where `STAGE=before` recorded
+no cutover.
+
+The script changes only what it wrote. A drop-in at either price server's
+`publish.conf` that it did not write (it carries no mark of the script's) is
+refused by `TRIAL=1`, `STAGE=before` and `STAGE=stopped`, and never removed by
+`BACK=1`. A published list already at `/srv/feewhitelist/feewhitelist.json` is
+kept, with its owner and mode, before the new price server writes there, and
+`BACK=1` puts it back. `BACK=1` puts each Caddy file back through a temporary
+beside it and a rename, so the file holds the old bytes or the new and never a
+part, and keeps a pending record from before the first file changes until Caddy
+has reloaded: a run stopped in between reloads on the next paste.
+
+Each run first checks that it is on the testnet box (its host name); on any
+other host it stops before it opens or creates anything.
+
+Every stage can be pasted twice, and a run cut short is taken up by the next
+paste of the same stage or by `BACK=1`. Wherever a run stops, it prints the
+state of the box, the paste that goes forward and the paste that goes back.
+Temporaries that hold a configuration are created mode 600 before anything is
+written to them and removed on every exit; a run killed outright leaves them to
+the next paste, which removes them first. A paste while another run holds the
+lock waits 20 seconds for it, then exits 75 having done nothing.
+
+```sh
+git -C <this checkout> fetch -q origin
+git -C <this checkout> show origin/main:bin/fee-whitelist-cutover.sh | ssh seq 'TRIAL=1 bash -s'
+git -C <this checkout> show origin/main:bin/fee-whitelist-cutover.sh | ssh seq 'STAGE=before bash -s'   # fleet running
+git -C <this checkout> show origin/main:bin/fee-whitelist-cutover.sh | ssh seq 'STAGE=stopped bash -s'  # fleet stopped, new binaries in place
+git -C <this checkout> show origin/main:bin/fee-whitelist-cutover.sh | ssh seq 'STAGE=started bash -s'  # fleet started
+```
+
+`PP-FEE-WHITELIST` in the regression suite checks the address answers a fresh
+published list and nothing of the price server's UI.
 
 ## Changing a route
 

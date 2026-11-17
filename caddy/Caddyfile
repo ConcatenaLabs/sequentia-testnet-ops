@@ -25,6 +25,18 @@ http://sequentiatestnet.com {
 	handle /seqob/* {
 		reverse_proxy 127.0.0.1:8080
 	}
+	# The network's price server's fee whitelist, as the file it writes after
+	# every poll (price_server.py --publish-file). A testnet node is connected to
+	# it by default and takes this list as its fee whitelist. A file, never a
+	# proxy to the price server's own web UI: behind a proxy every request comes
+	# from loopback, which that UI treats as its admin when no password is set.
+	# Plain http for the same reason as the routes above.
+	handle /feewhitelist {
+		root * /srv/feewhitelist
+		rewrite * /feewhitelist.json
+		header Cache-Control no-cache
+		file_server
+	}
 	handle {
 		redir https://sequentiatestnet.com{uri} permanent
 	}
