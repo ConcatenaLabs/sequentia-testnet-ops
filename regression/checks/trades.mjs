@@ -56,8 +56,9 @@ const boundOf = (pay) => (pay === 'BTC' ? BTC_PAID_BOUND_MS : BOUND_MS)
 // wallet gives a round of this operator to settle what it carries (settleMinutes in its
 // default-arca.js, which its indicative tickets state as "Goes through within about N minutes"),
 // from the intervals the operator publishes (`/arca/v1/info`: `fills.round_interval_seconds`,
-// `fills.block_seconds`, `batches.no_sweep`, `finality.anchor_depth`). The row itself states no
-// time: how long settling takes is the network's. Settling waits for the operator's next round
+// `fills.block_seconds`, `batches.no_sweep`, `finality.anchor_depth`). It applies when a row
+// states no wait of its own (a row the wallet wrote before it stated one); a row that states its
+// wait ("within about N min") is held to that. How long settling takes is the network's. Settling waits for the operator's next round
 // (rounds run on its timer, 0 to 60 s away), the forfeits of every participant in it (a round of
 // batches without a sweep is held for them), the block that holds it and the one that certifies
 // it (a block missing its certificate adds one more): measured on the testnet over 136
