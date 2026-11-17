@@ -6,7 +6,7 @@
 #   ssh seq 'bash -s' < bin/deploy-web-wallet.sh                       deploy origin/main
 #   ssh seq 'COMMIT=<sha> bash -s' < bin/deploy-web-wallet.sh          deploy that commit
 #   ssh seq 'DRY=1 bash -s' < bin/deploy-web-wallet.sh                 say what it would do; change nothing
-#   ssh seq 'COMMIT=<sha> ALLOW_BACK=1 bash -s' < bin/deploy-web-wallet.sh   roll back to <sha>
+#   ssh seq 'COMMIT=<sha> ALLOW_BACK=1 bash -s' < bin/deploy-web-wallet.sh   roll back to <sha> (step 3)
 #
 # Run as root on the box (from a laptop's checkout of this repository, as above, or on the box from
 # /root/sequentia/sequentia-testnet-ops/bin/).
@@ -22,10 +22,18 @@
 #    takes the flag and ignores it, and so does a web wallet from before the name store.
 # 3. The web wallet checkout ($WALLET) moves to COMMIT (origin/main as fetched). It refuses modified
 #    tracked files, and a commit that does not contain what the checkout runs now (ALLOW_BACK=1 for
-#    a deliberate rollback).
-# 4. The LSP ($UNIT) restarts only when its unit was installed in step 2, or the deploy changes a
-#    file it loads, or one is newer than its process: tooling/lsp/ (its tests and notes aside), the
-#    page's modules it imports (followed import by import), and the leaf library (leaves/pkg/).
+#    a deliberate rollback). A move from a commit with the payment names' SQLite store
+#    (tooling/lsp/lnaddr-store.mjs) to one without it first stops the LSP and writes the names'
+#    JSON file from that store with the unit's node (lnaddr-store.mjs export, run from the checkout
+#    as it is), the file it replaces kept in $KEEP: the code without the store reads only that
+#    file, and the export keeps every released name refused to every other key there. If the
+#    export fails the LSP is started again and the checkout does not move. The store's path is the
+#    LSP's own (LNADDR_STORE, else PROV_DIR/lnaddr-names.json, from the unit's environment), or
+#    NAMES.
+# 4. The LSP ($UNIT) restarts only when it was stopped for an export in step 3, its unit was
+#    installed in step 2, the deploy changes a file it loads, or one is newer than its process:
+#    tooling/lsp/ (its tests and notes aside), the page's modules it imports (followed import by
+#    import), and the leaf library (leaves/pkg/).
 #    Every hosted wallet node running before is checked by pid after.
 # 5. Through the public address: the page serves this checkout's index.html and every served file
 #    the deploy changed, and the LSP answers.
@@ -49,7 +57,8 @@ trap 'printf "\nSTOPPED in step \"%s\": unexpected failure at line %s: %s\n" "${
 : "${PROV:=/root/sequentia/lsp/prov}"
 : "${UNIT:=lsp-b5b1.service}"
 : "${UNIT_SRC:=systemd/$UNIT}"                     # in $OPS
-: "${UNIT_LIVE:=}"                                  # empty: the file systemd loads the unit from"
+: "${UNIT_LIVE:=}"                                  # empty: the file systemd loads the unit from
+: "${NAMES:=}"                                      # empty: the LSP's names store, from its unit's environment"
 : "${NODE:=/root/sequentia/downloads/node22/bin/node}"
 : "${LSP_LOCAL=http://127.0.0.1:9981/health}"       # empty: no local check
 : "${SITE=https://sequentiatestnet.com}"            # empty: no public check
@@ -68,7 +77,14 @@ die()  { printf '\nSTOPPED in step "%s": %s\n' "${STEP:-start}" "$*" >&2; exit 1
 g() { local dir=$1; shift; git -c safe.directory="$dir" -c http.version=HTTP/1.1 -C "$dir" "$@"; }
 sc() { $SYSTEMCTL "$@"; }
 dry() { [ "$DRY" = 1 ]; }
-WORK=$(mktemp -d /tmp/deploy-web-wallet.XXXXXX); trap 'rm -rf "$WORK"' EXIT
+WORK=$(mktemp -d /tmp/deploy-web-wallet.XXXXXX)
+# The LSP stopped for an export is started again however the script ends.
+lsp_stopped=0
+on_exit() {
+  if [ "$lsp_stopped" = 1 ]; then sc start "$UNIT" || printf '  could not start %s again: systemctl start %s\n' "$UNIT" "$UNIT" >&2; fi
+  rm -rf "$WORK"
+}
+trap on_exit EXIT
 
 [ "$REQUIRE_ROOT" != 1 ] || [ "$(id -u)" = 0 ] || die "run it as root"
 if ! dry; then exec 9>"$LOCK"; flock -n 9 || { echo "already running"; exit 0; }; fi
@@ -92,6 +108,28 @@ unit_argv() {
     case "$w" in *.mjs|*.cjs|*.js) break ;; esac
     echo "$w"
   done
+}
+# The payment names' JSON store the LSP uses, as lsp-server.mjs reads it from its environment
+# (LNADDR_STORE, else PROV_DIR/lnaddr-names.json; none when LNADDR=0 or neither is set): from the
+# unit's Environment= and then its EnvironmentFile= files, which systemd applies in that order.
+# Only those three variables are read; nothing else in the files is printed or kept.
+names_store() {
+  local env files f vars='' line k v store='' prov='' off=''
+  if [ -n "$NAMES" ]; then echo "$NAMES"; return; fi
+  env=$(sc show -p Environment --value "$UNIT" 2>/dev/null || true)
+  files=$(sc show -p EnvironmentFiles --value "$UNIT" 2>/dev/null || true)
+  vars=$(tr ' ' '\n' <<<"$env" | grep -E '^(LNADDR_STORE|PROV_DIR|LNADDR)=' || true)
+  while read -r f _; do
+    f=${f#-}
+    if [ -n "$f" ] && [ -r "$f" ]; then vars+=$'\n'$(grep -E '^(LNADDR_STORE|PROV_DIR|LNADDR)=' "$f" || true); fi
+  done <<<"$files"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    k=${line%%=*}; v=${line#*=}; v=${v#[\"\']}; v=${v%[\"\']}
+    case "$k" in LNADDR_STORE) store=$v ;; PROV_DIR) prov=$v ;; LNADDR) off=$v ;; esac
+  done <<<"$vars"
+  if [ "$off" = 0 ]; then return; fi
+  if [ -n "$store" ]; then echo "$store"; elif [ -n "$prov" ]; then echo "${prov%/}/lnaddr-names.json"; fi
 }
 # Whether node and options ($@) load node:sqlite; what it said is left in $WORK/sqlite-check.
 loads_sqlite() {
@@ -264,13 +302,35 @@ w_to=$(target "$WALLET" "$COMMIT")
 if may_move "$WALLET" "$w_to"; then
   changed "$w_now" "$w_to" > "$WORK/changed"
   say "${w_to:0:10} changes $(wc -l < "$WORK/changed") file(s)"
+  # Away from the names' SQLite store: its names go to the JSON file the code without it reads.
+  STORE_JS=tooling/lsp/lnaddr-store.mjs
+  if [ -e "$WALLET/$STORE_JS" ] && { { have "$WALLET" "$w_to" && ! g "$WALLET" cat-file -e "$w_to:$STORE_JS" 2>/dev/null; } || { ! have "$WALLET" "$w_to" && grep -qx "$STORE_JS" "$WORK/changed"; }; }; then
+    names=$(names_store)
+    if [ -z "$names" ]; then say "${w_to:0:10} has no names store, and the LSP keeps none on disk: nothing to export"
+    elif [ ! -e "${names%.json}.sqlite" ]; then
+      [ -z "$NAMES" ] || die "NAMES=$NAMES, and there is no SQLite store at ${names%.json}.sqlite"
+      say "no SQLite names store at ${names%.json}.sqlite: nothing to export"
+    elif dry; then would "stop $UNIT and write $names from ${names%.json}.sqlite with ${argv[*]} $STORE_JS export, keeping the file it replaces in $KEEP"
+    else
+      [ -d "$KEEP" ] || install -d -m 700 "$KEEP"
+      if [ -f "$names" ]; then cp -p "$names" "$KEEP/lnaddr-names.$(date -u +%Y%m%dT%H%M%SZ).json"; say "kept the names file it replaces in $KEEP"; fi
+      lsp_stopped=1; sc stop "$UNIT"
+      if (cd "$WALLET" && "${argv[@]}" "$STORE_JS" export "$names") > "$WORK/export" 2>&1; then
+        say "exported the names with the LSP stopped: $(grep -m 1 '^wrote ' "$WORK/export" || tail -n 1 "$WORK/export")"
+      else
+        said=$(grep -m 1 -E 'Error|error' "$WORK/export" || head -n 1 "$WORK/export")
+        sc start "$UNIT"; lsp_stopped=0
+        die "the names could not be exported from ${names%.json}.sqlite: ${said:-it said nothing}. The LSP runs again on ${w_now:0:10}; the web wallet has not moved."
+      fi
+    fi
+  fi
   if dry; then would "move $WALLET to ${w_to:0:10}, recording ${w_now:0:10} in $KEEP/history"
   else
     g "$WALLET" checkout --quiet --detach "$w_to"; say "moved to $(g "$WALLET" log -1 --format='%h %s')"
     # Recorded at once, so a step that stops later still leaves the way back.
     [ -d "$KEEP" ] || install -d -m 700 "$KEEP"
     printf '%s %s -> %s\n' "$(date -u +%FT%TZ)" "$w_now" "$w_to" >> "$KEEP/history"
-    say "replaced ${w_now:0:10}, recorded in $KEEP/history; to roll back:"
+    say "replaced ${w_now:0:10}, recorded in $KEEP/history; to roll back (it exports the names itself when it has to):"
     say "  ssh seq 'COMMIT=$w_now ALLOW_BACK=1 bash -s' < bin/deploy-web-wallet.sh"
   fi
 else : > "$WORK/changed"; say "at ${w_to:0:10} already"
@@ -281,14 +341,15 @@ lsp_files "$w_to" > "$WORK/lsp"
 grep -Fxf "$WORK/lsp" "$WORK/changed" > "$WORK/lsp-changed" || true
 read -r latest latest_name <<<"$(newest "$WORK/lsp")"
 why=""
-[ "$unit_installed" = 1 ] && why="its unit was installed in this deploy"
+[ "$lsp_stopped" = 1 ] && why="it was stopped to export its names"
+[ -z "$why" ] && [ "$unit_installed" = 1 ] && why="its unit was installed in this deploy"
 [ -z "$why" ] && [ -s "$WORK/lsp-changed" ] && why="the deploy changes $(wc -l < "$WORK/lsp-changed") file(s) it loads: $(head -5 "$WORK/lsp-changed" | tr '\n' ' ')"
 [ -z "$why" ] && [ "$latest" -gt "$started" ] && why="it started before $latest_name was written"
 if [ -z "$why" ]; then say "left running: it loads none of what changed, and started after every file it loads"
 elif dry; then would "restart $UNIT: $why"
 else
   say "restarting: $why"
-  sc restart "$UNIT"
+  sc restart "$UNIT"; lsp_stopped=0
   for _ in $(seq 1 60); do sc is-active --quiet "$UNIT" && break; sleep 1; done
   sc is-active --quiet "$UNIT" || die "$UNIT did not come back (journalctl -u $UNIT)"
   if [ -n "$LSP_LOCAL" ]; then

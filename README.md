@@ -154,7 +154,17 @@ the LSP answers.
 
 The commit it replaces goes into `/root/deploy-web-wallet/history` as the
 checkout moves, and the script prints the command that rolls back to it (the
-same command, with `COMMIT=<that sha> ALLOW_BACK=1`). A dry run fetches
+same command, with `COMMIT=<that sha> ALLOW_BACK=1`). Rolling back from a
+commit with the payment names' SQLite store (`tooling/lsp/lnaddr-store.mjs`)
+to one without it, that command first stops the LSP and exports the names to
+the JSON file the older code reads, with the unit's own node, from the
+checkout before it moves, keeping the file it replaces in
+`/root/deploy-web-wallet`. The export keeps every name, and a released or
+moved-away name stays refused to every other key under the older code. If the
+export fails, the LSP is started again and nothing moves. The store's path is
+the LSP's own, read from its unit's environment (`LNADDR_STORE`, else
+`PROV_DIR/lnaddr-names.json`), or `NAMES=<path>`. Deployed forward again, the
+store takes back what the older code did meanwhile. A dry run fetches
 nothing: it asks the remote what `origin/main` is, and GitHub what that
 changes when the box has not fetched it yet.
 
@@ -165,10 +175,16 @@ are installed by hand, as before.
 `bin/deploy-web-wallet.test.sh` runs it in a container with the box's Node
 (the official 22.11.0 build, checked against its published SHA-256), a
 stand-in `systemctl` that reads the unit only on `daemon-reload`, and checkouts
-cloned from origins of commits made there: a dry run, a deploy that installs
-the unit with the flag, the same pasted again, the rollback line it prints, and
-a unit without the flag, which is refused before the web wallet moves, with
-the unit file put back. It needs docker and curl, and runs in CI.
+cloned from origins of commits made there, each running the web wallet's real
+name service of the commit it stands for (the one before the SQLite store, and
+the one with it, at the commits the test names): a dry run; a deploy that
+installs the unit with the flag and imports the names; the same pasted again; the
+rollback line while the names file cannot be written (refused, the LSP running
+again); the rollback line, after which a name in use, a released name and a
+moved-away name each keep their key under the older code; forward again,
+taking back what the older code did; and a unit without the flag, which is
+refused before the web wallet moves, with the unit file put back. It needs
+docker, curl and git, and runs in CI.
 
 ## Deploying the leaf makers
 
