@@ -8,6 +8,12 @@
 # seqln-hosted.slice (tooling/lsp/README.md, "Restarts leave the hosted nodes running"), so they
 # keep running, and the LSP re-attaches to them when it starts. List them with
 # `systemd-cgls seqln-hosted.slice`.
+#
+# --experimental-sqlite: the payment names' store (tooling/lsp/lnaddr-store.mjs) is SQLite, through
+# node:sqlite, which the box's Node 22.11 loads only with this flag. Node 22.13 and later take the
+# flag and need none, and code that never loads node:sqlite ignores it. bin/deploy-web-wallet.sh
+# installs this file when it differs from the box's, and stops before the web wallet moves if the
+# unit's node cannot load node:sqlite with these options.
 [Unit]
 Description=SeqLN LSP :9981 (live web-wallet backend: sell rail, order book, provisioning)
 After=network.target
@@ -17,7 +23,7 @@ StartLimitIntervalSec=0
 Type=simple
 WorkingDirectory=/root
 EnvironmentFile=/etc/sequentia/lsp-b5b1.env
-ExecStart=/root/sequentia/downloads/node22/bin/node /root/sequentia/sequentia-web-wallet/tooling/lsp/lsp-server.mjs
+ExecStart=/root/sequentia/downloads/node22/bin/node --experimental-sqlite /root/sequentia/sequentia-web-wallet/tooling/lsp/lsp-server.mjs
 Restart=always
 RestartSec=2
 KillMode=control-group

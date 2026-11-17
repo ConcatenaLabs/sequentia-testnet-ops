@@ -96,7 +96,15 @@ export async function run ({ b, report, widths, funded, problems }) {
     })
     await R('RCV-NAME', w, 'A fresh wallet gets a payment name with nothing asked: the QR code holds name@sequentiatestnet.com alone, under 100 characters', h, async () => {
       const got = await h.waitFor("/^[a-z0-9_-]{3,32}@sequentiatestnet\\.com$/.test((document.querySelector('#qr')||{dataset:{}}).dataset.text||'')", 90000).then(() => true, () => false)
-      const t = await qrText(); return { ok: got && t.length < 100, detail: { qr: t, chars: t.length } }
+      const t = await qrText()
+      // The service makes ten names at once per network, then one every ten minutes: a runner
+      // whose network made its ten just now is told so by the page (#nameBox data-refused), which
+      // is the limit at work and not a failure of the line.
+      if (!got) {
+        const refused = await h.eval("(document.querySelector('#nameBox')||{dataset:{}}).dataset.refused||''")
+        if (refused === 'busy') return { skip: 'the name service is limiting new names from this network: ' + await h.text('#nameTip') }
+      }
+      return { ok: got && t.length < 100, detail: { qr: t, chars: t.length } }
     })
     await R('RCV-ARRIVE-QUIET', w, 'Nothing is said about a payment before one comes in', h, async () => {
       const v = await h.visible('#recvArrive'); return { ok: !v, detail: { arrivalLine: v } }
@@ -355,6 +363,58 @@ export async function run ({ b, report, widths, funded, problems }) {
       return {validateaddress:v.error?v.error.message:(v.result&&v.result.isvalid),getsupervisedassets:s.error?s.error.message:s.result.length+' assets',isassetfrozen:f.error?f.error.message:f.result}})()`)
     const refused = (x) => typeof x === 'string' && /not allowed here/.test(x)
     return { ok: r.validateaddress === true && !refused(r.getsupervisedassets) && !refused(r.isassetfrozen), detail: r }
+  })
+  // A name released on another device while this one shows it (web #809): Receive stops showing
+  // it within seconds, no other wallet can take it, a payer looking it up is told nobody goes by
+  // it, and after a reload the page never shows it. The wallet then takes a name again in Settings.
+  await R('NAME-ELSEWHERE', null, 'A name released on another device while Receive shows it: gone from Receive within seconds, never another wallet\'s, unknown to payers, not shown after a reload; Get a name brings one back', h, async () => {
+    await setWidth(b, page, widths[0]); await tab(h, 'receive')
+    const QR = "(document.querySelector('#qr')||{dataset:{}}).dataset.text||''"
+    const named = await h.waitFor(`/^[a-z0-9_-]{3,32}@sequentiatestnet\\.com$/.test(${QR}) ? ${QR} : false`, 90000).catch(() => null)
+    if (!named) return { skip: 'the fresh wallet shows no name on Receive' }
+    const name = named.split('@')[0]
+    const svc = (body) => `(async()=>{const L=await import(new URL('lnaddr.js', location.href).href);
+      const lsp=(window.SEQ_LSP_URL||new URL('/lsp', location.href).href).replace(/\\/$/,''); const ts=Math.floor(Date.now()/1000);
+      const k=L.nameKey(localStorage.getItem('swk.sequentia.mnemonic')); const other=L.nameKey('zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong');
+      const post=(p,b)=>fetch(lsp+'/lnaddr/-/'+p,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)}).then(r=>r.status);
+      ${body}})()`
+    // Another device of the same wallet releases it.
+    const t0 = Date.now()
+    const released = await h.eval(svc(`return post('release',{name:${JSON.stringify(name)},ts,sig:L.signWith(k.priv,L.signedDigest('release','sequentiatestnet.com',${JSON.stringify(name)},ts))})`))
+    const gone = await h.waitFor(`!(${QR}).startsWith(${JSON.stringify(name + '@')})`, 15000).then(() => true, () => false)
+    const goneMs = Date.now() - t0
+    // Another wallet tries to take it; a payer looks it up.
+    const taken = await h.eval(svc(`return post('register',{name:${JSON.stringify(name)},pubkey:other.pub,ts,sig:L.signWith(other.priv,L.signedDigest('register','sequentiatestnet.com',${JSON.stringify(name)},other.pub,ts))})`))
+    const lookup = await h.eval(svc(`return fetch(lsp+'/lnaddr/'+${JSON.stringify(name)}).then(r=>r.status)`))
+    // Reloaded: the page never shows it, sampled for 20 s once the wallet is open.
+    await b.send('Page.navigate', { url: BASE }, page.sessionId)
+    await h.waitFor("document.querySelector('#app') && getComputedStyle(document.querySelector('#app')).display !== 'none'", 240000)
+    await tab(h, 'receive')
+    let shownAfterReload = false
+    for (let i = 0; i < 40; i++) { if ((await h.eval(QR)).startsWith(name + '@')) { shownAfterReload = true; break } await sleep(500) }
+    // The person takes a name again in Settings.
+    await tab(h, 'settings')
+    await h.eval("(document.querySelector('#btnNameGet')||{click(){}}).click(), true")
+    const back = await h.waitFor("(document.querySelector('#nameAddr')||{}).textContent || false", 60000).catch(() => '')
+    await tab(h, 'receive')
+    const ok = released === 200 && gone && goneMs < 15000 && taken === 409 && lookup === 404 && !shownAfterReload && !!back
+    return { ok, detail: { name, released, goneMs, taken, lookup, shownAfterReload, back } }
+  })
+  // The fresh wallet's name is removed, so a run leaves no name behind at the service, and the
+  // removal is the service's to keep: it then holds no name for the key and marks it as removed.
+  await R('NAME-REMOVE', null, 'Remove name in Settings: the service holds no name for the wallet afterwards, and marks it as removed so no device makes one again by itself', h, async () => {
+    const r = await h.eval(`(async()=>{
+      const name=(document.querySelector('#nameAddr')||{}).textContent||'';
+      const btn=document.querySelector('#btnNameRemove'); if(!name || !btn) return {name, skipped:true};
+      btn.click();
+      for(let i=0;i<60 && (document.querySelector('#nameAddr')||{}).textContent;i++) await new Promise(r=>setTimeout(r,500));
+      const { nameKey } = await import(new URL('lnaddr.js', location.href).href);
+      const pub = nameKey(localStorage.getItem('swk.sequentia.mnemonic')).pub;
+      const lsp = (window.SEQ_LSP_URL || new URL('/lsp', location.href).href).replace(/\\/$/, '');
+      const mine = await fetch(lsp + '/lnaddr/-/mine?pubkey=' + pub).then(r=>r.json()).catch((e)=>({error:String(e)}));
+      return {name, left:(document.querySelector('#nameAddr')||{}).textContent||'', mine}})()`)
+    if (r.skipped) return { skip: 'the fresh wallet holds no name to remove' }
+    return { ok: !r.left && r.mine && r.mine.ok && r.mine.name === null && r.mine.declined === true, detail: r }
   })
   await R('NO-ERRORS', null, 'No uncaught error on the page (fresh wallet)', null, async () => ({ ok: problems(page).length === 0, detail: problems(page).slice(0, 4) }))
 

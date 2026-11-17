@@ -14,7 +14,7 @@ put it in place and keep copies of it.
 | `caddy/caddy.env.example` | The secrets the Caddyfile reads as `{$NAME}` placeholders. The real file is `/etc/caddy/caddy.env`, mode 600, on the box and in the offline backups, never here. |
 | `caddy/caddy.service.d/env.conf` | The systemd drop-in that hands `caddy.service` that file. |
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
-| `bin/deploy-web-wallet.sh` | The one way the web wallet goes live: its page, the LSP that runs from the same checkout, and this checkout's Caddyfile, together. See "Deploying the web wallet". |
+| `bin/deploy-web-wallet.sh` | The one way the web wallet goes live: its page, the LSP that runs from the same checkout with its unit, and this checkout's Caddyfile, together. See "Deploying the web wallet". `bin/deploy-web-wallet.test.sh` rehearses it in a container with the box's Node. |
 | `bin/deploy-leaf-makers.sh` | The one way the leaf makers move to a web wallet commit: one maker at a time, each watched on its `/health` and put back by the script when it misses. See "Deploying the leaf makers". `bin/deploy-leaf-makers.test.sh` rehearses it in a container. |
 | `bin/fronting-read.sh` | What the Arca operator fronts, why, and what fronting the market needs once fronted capital comes back promptly: in flight per asset and what holds it, refresh demand and return times, the steady state against the plan. Read-only. See "What the operator fronts". |
 | `bin/our-capital.py` | What the bots that stand for our own capital hold, at the feed's prices, against the mainnet plan: our makers' holdings and our LSP's channels and float. Read-only. See "The testnet's numbers". |
@@ -130,13 +130,21 @@ ssh seq 'COMMIT=<sha> bash -s' < bin/deploy-web-wallet.sh
 ```
 
 It moves this checkout to `origin/main` and applies its Caddyfile with
-`bin/apply-caddy.sh` only when it differs from the installed one. It then
+`bin/apply-caddy.sh` only when it differs from the installed one. It installs
+the LSP's unit, `systemd/lsp-b5b1.service`, over the file systemd loads it
+from when the two differ, and reloads systemd. Then the unit's node, run with
+the options of its ExecStart as systemd reads it, must load `node:sqlite`,
+which the payment names' store needs: the box's Node 22.11 loads it only with
+`--experimental-sqlite`, which the unit passes (a later Node, and a web wallet
+from before that store, ignore the flag). If it cannot, a unit file the deploy
+installed is put back as it was and the deploy stops before the web wallet
+moves, so the LSP is never left unable to start. It then
 moves `/root/sequentia/sequentia-web-wallet` to the commit. It refuses
 modified tracked files, and a commit that does not contain what runs now,
 unless `ALLOW_BACK=1` is set.
 
-The LSP restarts only when the deploy changes a file it loads, or a file it
-loads is newer than its process: anything under `tooling/lsp/`, the page's
+The LSP restarts only when the deploy installed its unit, changes a file it
+loads, or a file it loads is newer than its process: anything under `tooling/lsp/`, the page's
 modules it imports (followed import by import), and the leaf library. Every
 hosted wallet node running before is checked by pid after.
 
@@ -146,12 +154,37 @@ the LSP answers.
 
 The commit it replaces goes into `/root/deploy-web-wallet/history` as the
 checkout moves, and the script prints the command that rolls back to it (the
-same command, with `COMMIT=<that sha> ALLOW_BACK=1`). A dry run fetches
+same command, with `COMMIT=<that sha> ALLOW_BACK=1`). Rolling back from a
+commit with the payment names' SQLite store (`tooling/lsp/lnaddr-store.mjs`)
+to one without it, that command first stops the LSP and exports the names to
+the JSON file the older code reads, with the unit's own node, from the
+checkout before it moves, keeping the file it replaces in
+`/root/deploy-web-wallet`. The export keeps every name, and a released or
+moved-away name stays refused to every other key under the older code. If the
+export fails, the LSP is started again and nothing moves. The store's path is
+the LSP's own, read from its unit's environment (`LNADDR_STORE`, else
+`PROV_DIR/lnaddr-names.json`), or `NAMES=<path>`. Deployed forward again, the
+store takes back what the older code did meanwhile. A dry run fetches
 nothing: it asks the remote what `origin/main` is, and GitHub what that
 changes when the box has not fetched it yet.
 
 Other units that run from the same checkout are named in its first step, and
-are not restarted by it.
+are not restarted by it. The unit's drop-ins (`systemd/lsp-b5b1.service.d/`)
+are installed by hand, as before.
+
+`bin/deploy-web-wallet.test.sh` runs it in a container with the box's Node
+(the official 22.11.0 build, checked against its published SHA-256), a
+stand-in `systemctl` that reads the unit only on `daemon-reload`, and checkouts
+cloned from origins of commits made there, each running the web wallet's real
+name service of the commit it stands for (the one before the SQLite store, and
+the one with it, at the commits the test names): a dry run; a deploy that
+installs the unit with the flag and imports the names; the same pasted again; the
+rollback line while the names file cannot be written (refused, the LSP running
+again); the rollback line, after which a name in use, a released name and a
+moved-away name each keep their key under the older code; forward again,
+taking back what the older code did; and a unit without the flag, which is
+refused before the web wallet moves, with the unit file put back. It needs
+docker, curl and git, and runs in CI.
 
 ## Deploying the leaf makers
 
