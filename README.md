@@ -15,6 +15,7 @@ put it in place and keep copies of it.
 | `caddy/caddy.service.d/env.conf` | The systemd drop-in that hands `caddy.service` that file. |
 | `bin/apply-caddy.sh` | Validates this checkout's Caddyfile against the secrets, installs it, reloads Caddy and checks every route answers. |
 | `bin/deploy-web-wallet.sh` | The one way the web wallet goes live: its page, the LSP that runs from the same checkout, and this checkout's Caddyfile, together. See "Deploying the web wallet". |
+| `bin/deploy-leaf-makers.sh` | The one way the leaf makers move to a web wallet commit: one maker at a time, each watched on its `/health` and put back by the script when it misses. See "Deploying the leaf makers". `bin/deploy-leaf-makers.test.sh` rehearses it in a container. |
 | `bin/fronting-read.sh` | What the Arca operator fronts, why, and what fronting the market needs once fronted capital comes back promptly: in flight per asset and what holds it, refresh demand and return times, the steady state against the plan. Read-only. See "What the operator fronts". |
 | `bin/our-capital.py` | What the bots that stand for our own capital hold, at the feed's prices, against the mainnet plan: our makers' holdings and our LSP's channels and float. Read-only. See "The testnet's numbers". |
 | `bin/caddy-drift.sh` | Says whether the live Caddyfile differs from this checkout's. |
@@ -151,6 +152,57 @@ changes when the box has not fetched it yet.
 
 Other units that run from the same checkout are named in its first step, and
 are not restarted by it.
+
+## Deploying the leaf makers
+
+The three leaf makers (`leaf-maker-btc.service` from `/opt/leaf-maker-btc`,
+`leaf-maker.service` and `leaf-maker-agents.service` from `/opt/leaf-maker`)
+move to a web wallet commit through one script, run as root on the box from a
+laptop's checkout of this repository, naming the commit and the arca commit its
+`leaves/pkg` was built from:
+
+```sh
+ssh seq 'DRY=1 COMMIT=<web wallet commit> LIBRARY=<arca commit> bash -s' < bin/deploy-leaf-makers.sh   # the checks only
+ssh seq 'COMMIT=<web wallet commit> LIBRARY=<arca commit> bash -s' < bin/deploy-leaf-makers.sh
+```
+
+Before anything moves it checks every checkout: the commit contains what it
+runs now (`ALLOW_BACK=1` for a deliberate step back) and web `FLOOR`, its
+`leaves/pkg` is built from `LIBRARY`, its maker keeps working coins, sizes
+quotes on a pass's room and stops quoting when its sync ends no pass, no
+tracked file is modified, and no unit runs from a maker checkout but the makers
+and the volume wallets (`seqob-volume-wallet@*`, `OTHER_UNITS`): anything else
+would restart on the new commit, so it is refused before anything moves.
+
+Then it takes the makers one at a time, the BTC maker first. It moves the
+maker's checkout, has the new library size the maker's store (`leaf-maker.mjs
+--size`, from a private copy: the store's size and live coins, the refresh
+step's items, and what each slice reads before them, against what an older
+library read; a sizing that fails or answers no sizing stops that maker and puts
+its checkout back, unless `SIZE=0`), restarts that maker alone, holding the makers' health run's lock
+for the restart, and reads its `/health` until the maker has ended a sync pass
+(within `SYNC_WAIT`, 300 s) and an upkeep pass (within `UPKEEP_WAIT`, 900 s) and
+says `ok`, answers its quotes and has logged its working coins. A maker that
+misses any of it is put back on the commit its checkout ran, the units the
+script restarted from that checkout are restarted on it (both makers of
+`/opt/leaf-maker` when the agents' maker misses), and the script stops before
+the next maker, saying why. Once every maker passed it restarts the other
+units that run from a maker checkout (the volume wallets), times three firm
+offers of the leaf maker, each released at once, and counts each maker's
+forfeit errors. Every move and every step back is written to
+`/root/deploy-leaf-makers/history`. Pasted again it moves nothing, restarts
+nothing (`FORCE_RESTART=1` restarts them) and checks every maker's `/health`. A paste cut short
+before it printed `=== done ===` is pasted again with `FORCE_RESTART=1`, so every maker runs
+the commit its checkout holds.
+
+`bin/deploy-leaf-makers.test.sh` runs it in a container as the box does: as
+root, with the makers' users owning their checkouts and git run as them, and a
+stand-in for `systemctl` and the makers. It moves all three makers on a good
+commit, leaves everything on a second paste, puts the BTC maker back by itself
+when it ends no sync pass, puts `/opt/leaf-maker` and both its makers back
+when the agents' maker ends no upkeep pass, refuses a checkout that another
+unit runs from, and puts the BTC maker's checkout back, unrestarted, when the
+new library's sizing of its store fails or answers no sizing. CI runs it on every pull request.
 
 ## The network's fee whitelist
 

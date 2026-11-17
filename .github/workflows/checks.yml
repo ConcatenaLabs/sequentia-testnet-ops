@@ -36,6 +36,8 @@ jobs:
         run: python3 bin/node-rpc-proxy-hold-test.py
       - name: sub-asset maker wrapper quotes again when its maker ends
         run: python3 -I makers/subasset_requote_test.py
+      - name: the leaf makers' deploy, rehearsed in a container
+        run: bin/deploy-leaf-makers.test.sh
       - name: fee proxy
         run: python3 -I bitcoin-ark/fee-proxy.test.py
       - name: Bitcoin ark refill guards (regtest Bitcoin Core)
