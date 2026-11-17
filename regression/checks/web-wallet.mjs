@@ -330,7 +330,7 @@ export async function run ({ b, report, widths, funded, problems }) {
     const got = await h.waitFor(`/^Received [0-9.,]+ ${asset}\\.$/.test((document.querySelector('#recvArrive')||{}).innerText||'')`, 180000).then(() => true, () => false)
     const line = await h.text('#recvArrive'), faucet = await h.text('#faucetStatus')
     if (/already paid .* on your network/i.test(faucet)) return { skip: 'the faucet held this network back: ' + faucet }
-    return { ok: got, detail: { asset, arrivingSeen: arriving, line, faucet } }
+    return { ok: arriving && got, detail: { asset, arrivingSeen: arriving, line, faucet } }
   })
   // The node calls the leaf wallet makes to read an address a person gives it (a payment from
   // leaves, an offboard, a claim) and to tell a supervised asset from a plain one, asked of the
