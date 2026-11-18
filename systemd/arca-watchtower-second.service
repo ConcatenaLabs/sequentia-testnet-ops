@@ -1,0 +1,25 @@
+[Unit]
+Description=Arca watchtower: the second one wallets of this operator deposit their coins with (/watchtower-b)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=arca
+Group=arca
+# Its wallet, its deposits and the node's login (node_password, mode 600) are
+# in /var/lib/arca-watchtower-second; it reads the chain from the dexnode.
+ExecStart=/opt/arca/target/release/arca --datadir /var/lib/arca-watchtower-second watchtower serve --listen 127.0.0.1:3540 --interval 10
+UMask=0077
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/arca-watchtower-second
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=2000
+
+[Install]
+WantedBy=multi-user.target
