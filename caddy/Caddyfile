@@ -244,12 +244,19 @@ HTML {err.status_code}
 		reverse_proxy 127.0.0.1:3541
 	}
 
-	# Operator B's watchtower for this operator's users (the operator bundle's
-	# own, arca-b-watchtower.service): the stand-in for the one a second
-	# operator runs on its own machine. Operator B has no domain, so it is
-	# reached here.
+	# The second watchtower for this operator's users
+	# (arca-watchtower-second.service), a default in every wallet beside
+	# /watchtower. Its address is 3540; 23537 is where operator B's bundle
+	# runs the same watchtower when it is moved back there
+	# (arca-b-watchtower.service). Only one of the two runs at a time, so a
+	# refused connection to the first is tried on the second at once.
 	handle_path /watchtower-b/* {
-		reverse_proxy 127.0.0.1:23537
+		reverse_proxy 127.0.0.1:3540 127.0.0.1:23537 {
+			lb_policy first
+			lb_try_duration 3s
+			lb_try_interval 250ms
+			fail_duration 2s
+		}
 	}
 
 	# The live leaf maker (the web wallet's tooling/lsp/leaf-maker.mjs, leaf-maker.service):
