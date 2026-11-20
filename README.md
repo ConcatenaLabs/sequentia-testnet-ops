@@ -1706,9 +1706,9 @@ and integration interfaces are never routed.
   `captaind` carries one patch, `bitcoin-ark/captaind-description-hash.patch`
   (arca's `contrib/operator-bundle/patches/`, drafted for upstream): a
   Lightning receive may ask for an invoice that commits to a description hash
-  (BOLT11 `h`) instead of a memo, which a payment name's invoice needs, since
-  LUD-06 has the payer check it against the SHA-256 of the LNURL-pay metadata it
-  was served. It only adds a request field; a request without it is served as
+  (BOLT11 `h`) instead of a memo, which a payment name's invoice needs:
+  payers that check an LNURL-pay invoice's description hash (LUD-06 as first
+  written) compare it with the SHA-256 of the metadata they were served. It only adds a request field; a request without it is served as
   before, and a wallet facing a server without it refuses the plain invoice it
   gets back. It is built in `/opt/bitcoin-ark/bark-server-dh` into
   `/opt/bitcoin-ark/target-server-dh`, and the binary built from the commit
